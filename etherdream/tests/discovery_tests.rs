@@ -56,7 +56,7 @@ async fn receives_an_etherdream_broadcast() {
         return discovery::Server::new()
           .limit( 1 )
           .serve( move | address, device |{
-            devices.write().push( ( *address, *device ) );
+            devices.write().push( ( address, device ) );
           }).await;
       }
     });
@@ -105,7 +105,7 @@ async fn will_receive_one_device_if_a_limit_is_defined() {
         return discovery::Server::new()
           .limit( 1 )
           .serve( move | _address, device |{
-            devices.write().push( *device );
+            devices.write().push( device );
           }).await;
       }
     });
@@ -137,7 +137,7 @@ async fn will_execute_the_user_provided_callback_once_for_each_unique_device() {
         return discovery::Server::new()
           .limit( 2 )
           .serve( move | _address, device |{
-            devices.write().push( *device );
+            devices.write().push( device );
           }).await;
       }
     });

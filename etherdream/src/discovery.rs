@@ -36,7 +36,7 @@ impl Server {
 
   pub async fn serve<T>( &mut self, callback_fn: T ) -> std::io::Result<()>
     where 
-      T: Fn( &SocketAddr, &Device ) + Send + 'static
+      T: Fn( SocketAddr, Device ) + Send + 'static
   {
       let mut buffer = [0 as u8; 36];
 
@@ -48,7 +48,7 @@ impl Server {
           self.devices.push( address );
 
           let device = Device::from_bytes( buffer );
-          callback_fn( &address, &device );
+          callback_fn( address, device );
 
           // Break if the user-provided limit has been exceeded
           if self.limit > 0 && self.devices.len() >= self.limit  {

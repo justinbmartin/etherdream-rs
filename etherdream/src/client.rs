@@ -23,7 +23,7 @@ struct EtherdreamResponse {
 }
 
 pub struct Client {
-  //points: Vec<u32>,
+  points: Vec<u32>,
   //stream: TcpStream
 }
 

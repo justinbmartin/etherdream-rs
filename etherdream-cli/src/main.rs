@@ -52,7 +52,7 @@ async fn main() {
     async move {
       return discovery::Server::new()
         .serve( move | address, device |{
-          devices.write().push( ( *address, *device ) );
+          devices.write().push( ( address, device ) );
         })
         .await;
     }
