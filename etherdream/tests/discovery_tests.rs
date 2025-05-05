@@ -78,7 +78,7 @@ async fn receives_an_etherdream_broadcast() {
 
   assert_eq!( device.buffer_capacity(), 1024 );
   assert_eq!( device.light_engine_state(), device::LightEngineState::Ready );
-  assert_eq!( device.mac_address(), MacAddress::new([ 0, 1 , 2, 3, 4, 5 ]) );
+  assert_eq!( device.mac_address(), device::MacAddress::new([ 0, 1 , 2, 3, 4, 5 ]) );
   assert_eq!( device.max_points_per_second(), 128 );
   assert_eq!( device.playback_state(), device::PlaybackState::Idle );
   assert_eq!( device.points_lifetime(), 16384 );
@@ -116,7 +116,7 @@ async fn will_receive_one_device_if_a_limit_is_defined() {
 
   // There should only be a single device
   assert_eq!( devices.read().len(), 1 );
-  assert_eq!( devices.read().get( 0 ).unwrap().mac_address(), MacAddress::new([10;6]) );
+  assert_eq!( devices.read().get( 0 ).unwrap().mac_address(), device::MacAddress::new([10;6]) );
 }
 
 #[tokio::test]
@@ -149,6 +149,6 @@ async fn will_execute_the_user_provided_callback_once_for_each_unique_device() {
 
   // There should only be a two devices
   assert_eq!( devices.read().len(), 2 );
-  assert_eq!( devices.read().get( 0 ).unwrap().mac_address(), [10;6] );
-  assert_eq!( devices.read().get( 1 ).unwrap().mac_address(), [20;6] );
+  assert_eq!( devices.read().get( 0 ).unwrap().mac_address(), device::MacAddress::new( [10;6] ) );
+  assert_eq!( devices.read().get( 1 ).unwrap().mac_address(), device::MacAddress::new( [20;6] ) );
 }
