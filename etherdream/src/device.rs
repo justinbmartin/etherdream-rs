@@ -2,6 +2,8 @@ use std::fmt;
 
 use zerocopy::{ FromBytes, Immutable, IntoBytes, transmute };
 
+pub const PORT: u16 = 7765;
+
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Device
 
