@@ -1,8 +1,10 @@
 use std::net::SocketAddr;
 
-use tokio::net::TcpSocket;
+use tokio::{ io::AsyncReadExt, net::TcpSocket };
+//use tokio::net::TcpStream;
+//use tokio_util::codec::{ BytesCodec, FramedRead };
 
-use crate::{ Device, device::State };
+use crate::device::State;
 
 struct EtherdreamResponse {
   // The control signal of the response, can be:
@@ -21,21 +23,18 @@ struct EtherdreamResponse {
 }
 
 pub struct Client {
-  points: Vec<u32>
+  //points: Vec<u32>,
+  //stream: TcpStream
 }
 
 impl Client {
-  pub fn new() -> Self {
-    return Self{ points: Vec::new() };
-  }
-
   pub fn push_points() {
 
   }
 }
 
 pub struct Builder {
-  address: SocketAddr
+  address: SocketAddr,
 }
 
 impl Builder {
@@ -43,26 +42,23 @@ impl Builder {
     return Self{ address: address };
   }
 
-  pub async fn run( &self ) -> std::io::Result<()> {
+  pub async fn start( &self ) -> std::io::Result<()> {
     let socket = TcpSocket::new_v4()?;
 
-    let mut stream = socket.connect( self.address ).await?;
-    let ( r, w ) = stream.split();
+    let stream = socket.connect( self.address ).await?;
+    //let client = Client{ stream: stream };
 
-    tokio::spawn(async move {
-      if let Err(e) = listen( r ).await {
-        println!("failed to process connection; error = {e}");
+    let ( mut read, mut _write ) = stream.into_split();
+
+    // Read
+    tokio::spawn( async move {
+      let mut buf = [0u8;36];
+
+      while let Ok( _length ) = read.read_exact( &mut buf ).await {
+        // parse buf into something
       }
     });
 
-    return Ok(());
+    return Ok( () );
   }
-}
-
-async fn listen( r : tokio::net::tcp::ReadHalf<'_> ) {
-  // 1. parse etherdream respose from bytes
-  // 2. parse and update device state, persist "somewhere"
-  //
-
-  
 }
