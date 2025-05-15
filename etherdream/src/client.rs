@@ -3,9 +3,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
-use tokio::io::{ self, AsyncReadExt, AsyncWriteExt };
+use tokio::io::AsyncWriteExt;
 use tokio::net;
-use tokio::runtime;
 
 //use tokio::net::TcpStream;
 //use tokio_util::codec::{ BytesCodec, FramedRead };
@@ -41,7 +40,6 @@ pub struct Client {
 impl Client {
   pub fn ping( &mut self ) {
     // push callback?
-    println!( "> Client: ping added to commands..." );
     self.commands.write().push_back( Command::Ping );
   }
 
@@ -62,15 +60,13 @@ impl Client {
           if command.is_some() {
             match command {
               Some( Command::Ping ) => { 
-                println!( "> Client: ping sent..." );
-                let bytes = tx.write( b"p" ).await;
-                println!( "> Bytes sent: {:?}", bytes );
+                let _ = tx.write( b"p" ).await;
               },
               None => { }
             };
           }
 
-          tokio::time::sleep( tokio::time::Duration::from_millis( 1 ) ).await; 
+          tokio::time::sleep( tokio::time::Duration::from_millis( 1 ) ).await;
         }
       }
     });

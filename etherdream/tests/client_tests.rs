@@ -14,18 +14,12 @@ fn start_etherdream() -> task::JoinHandle<io::Result<()>> {
     let mut buf = [0 as u8; 1024];
 
     loop {
-      println!( "> 0" );
       let ( mut socket, _ ) = listener.accept().await?;
-
-      println!( "> 1" );
       let _n = socket.read( &mut buf ).await.expect("failed to read data from socket");
-
-      println!( "> 2" );
 
       if buf[0]  == b"p"[0] {
         println!( "> PING DONE !!!" );
       }
-
 
       break;
     }
@@ -43,13 +37,7 @@ async fn sends_a_ping_and_receives_a_callback() {
   let client_builder = client::Builder::new( address );
   let mut client = client_builder.start().await;
 
-
-  tokio::time::sleep( tokio::time::Duration::from_millis( 2000 )).await;
-
-  println!( "> P: 0" );
   client.ping();
 
-  println!( "> P: 1" );
   let _ = dac.await;
-  println!( "> P: 2" );
 }
