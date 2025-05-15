@@ -45,6 +45,16 @@ async fn main() {
   let devices: Devices = Arc::new( RwLock::new( Vec::new() ) );
   let mut input = String::new();
 
+  //
+  /*
+    let client = Client::new( address );
+    client.ping(| state |{ ... });
+    client.push_points( Vec<glm::vec2> );
+    client.set_queue_speed(  );
+
+    client.set_generator( Box::new() )
+   */
+
   // Start the discovery service
   tokio::task::spawn({
     let devices = devices.clone();

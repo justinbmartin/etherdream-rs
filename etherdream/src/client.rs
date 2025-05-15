@@ -1,10 +1,18 @@
+//use std::future::{ ready, Ready, IntoFuture };
 use std::net::SocketAddr;
+use std::sync::Arc;
 
-use tokio::{ io::AsyncReadExt, net::TcpSocket };
+use parking_lot::RwLock;
+use tokio::io::{ self, AsyncReadExt, AsyncWriteExt };
+use tokio::net;
+use tokio::runtime;
+
 //use tokio::net::TcpStream;
 //use tokio_util::codec::{ BytesCodec, FramedRead };
 
 use crate::device::State;
+
+pub const DEFAULT_PORT: u16 = 7765;
 
 struct EtherdreamResponse {
   // The control signal of the response, can be:
@@ -22,14 +30,54 @@ struct EtherdreamResponse {
   state: State
 }
 
+enum Command {
+  Ping
+}
+
 pub struct Client {
-  points: Vec<u32>,
-  //stream: TcpStream
+  commands: Arc<RwLock<std::collections::VecDeque<Command>>>,
 }
 
 impl Client {
-  pub fn push_points() {
+  pub fn ping( &mut self ) {
+    // push callback?
+    println!( "> Client: ping added to commands..." );
+    self.commands.write().push_back( Command::Ping );
+  }
 
+  fn start( address: SocketAddr ) -> Client {
+    let commands = Arc::new( RwLock::new( std::collections::VecDeque::with_capacity( 128 ) ) );
+
+    tokio::spawn({
+      let commands = commands.clone();
+
+      async move {
+        let socket = net::TcpSocket::new_v4().unwrap();
+        let mut stream = socket.connect( address ).await.unwrap();
+        let ( _rx, mut tx ) = stream.split();
+
+        loop {
+          let command = { commands.write().pop_front() };
+
+          if command.is_some() {
+            match command {
+              Some( Command::Ping ) => { 
+                println!( "> Client: ping sent..." );
+                let bytes = tx.write( b"p" ).await;
+                println!( "> Bytes sent: {:?}", bytes );
+              },
+              None => { }
+            };
+          }
+
+          tokio::time::sleep( tokio::time::Duration::from_millis( 1 ) ).await; 
+        }
+      }
+    });
+
+    return Self { 
+      commands: commands,
+    }
   }
 }
 
@@ -39,26 +87,12 @@ pub struct Builder {
 
 impl Builder {
   pub fn new( address: SocketAddr ) -> Self {
-    return Self{ address: address };
+    return Self{ 
+      address: address
+    };
   }
 
-  pub async fn start( &self ) -> std::io::Result<()> {
-    let socket = TcpSocket::new_v4()?;
-
-    let stream = socket.connect( self.address ).await?;
-    //let client = Client{ stream: stream };
-
-    let ( mut read, mut _write ) = stream.into_split();
-
-    // Read
-    tokio::spawn( async move {
-      let mut buf = [0u8;36];
-
-      while let Ok( _length ) = read.read_exact( &mut buf ).await {
-        // parse buf into something
-      }
-    });
-
-    return Ok( () );
+  pub async fn start( &self ) -> Client {
+    return Client::start( self.address );
   }
 }
