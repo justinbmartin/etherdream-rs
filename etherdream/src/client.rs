@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{ self, AsyncWriteExt };
 use tokio::net;
 
 //use tokio::net::TcpStream;
@@ -43,24 +43,25 @@ impl Client {
     self.commands.write().push_back( Command::Ping );
   }
 
-  fn start( address: SocketAddr ) -> Client {
+  fn start( address: SocketAddr ) -> Self {
     let commands = Arc::new( RwLock::new( std::collections::VecDeque::with_capacity( 128 ) ) );
 
-    tokio::spawn({
+    let _write_handle = tokio::spawn({
       let commands = commands.clone();
 
       async move {
-        let socket = net::TcpSocket::new_v4().unwrap();
-        let mut stream = socket.connect( address ).await.unwrap();
+        let socket = net::TcpSocket::new_v4()?;
+        let mut stream = socket.connect( address ).await?;
         let ( _rx, mut tx ) = stream.split();
 
         loop {
-          let command = { commands.write().pop_front() };
+          let command = commands.write().pop_front();
 
           if command.is_some() {
             match command {
               Some( Command::Ping ) => { 
                 let _ = tx.write( b"p" ).await;
+                break;
               },
               None => { }
             };
@@ -68,10 +69,12 @@ impl Client {
 
           tokio::time::sleep( tokio::time::Duration::from_millis( 1 ) ).await;
         }
+
+        return io::Result::Ok(());
       }
     });
 
-    return Self { 
+    return Self{ 
       commands: commands,
     }
   }
