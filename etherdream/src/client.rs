@@ -54,18 +54,13 @@ impl Client {
 
     // Read
     let read_handle = tokio::spawn(async move{
-      let mut buf = [0 as u8; 1];
+      let mut buf = [0 as u8; 2];
 
       loop {
-        println!( "> Reading..." );
-
         let _bytes = rx.read( &mut buf ).await?;
-        println!( "> Read..." );
-        if buf[0]  == b"q"[0] {
+
+        if buf == *b"ap" {
           println!( "> ACK!" );
-          break;
-        } else {
-          println!( "> ???" );
           break;
         }
       }
@@ -90,8 +85,6 @@ impl Client {
               None => { }
             };
           }
-
-          tokio::time::sleep( tokio::time::Duration::from_millis( 1 ) ).await;
         }
 
         return io::Result::Ok(());
@@ -103,6 +96,11 @@ impl Client {
       read_handle: read_handle,
       write_handle: write_handle
     });
+  }
+
+  pub async fn stop( self ) {
+    let _ = self.read_handle.await.unwrap();
+    let _ = self.write_handle.await.unwrap();
   }
 }
 

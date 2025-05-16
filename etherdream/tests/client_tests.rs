@@ -1,4 +1,3 @@
-use core::time;
 use std::io;
 use std::net::{ IpAddr, Ipv4Addr, SocketAddr };
 
@@ -19,9 +18,7 @@ fn start_etherdream() -> task::JoinHandle<io::Result<()>> {
       let _n = socket.read( &mut buf ).await.expect("failed to read data from socket");
 
       if buf[0]  == b"p"[0] {
-        println!( "> PING" );
-        let _ = socket.write( b"q" ).await.expect( "failed to write data to socket" );
-        println!( "> PONG" );
+        let _ = socket.write( b"ap" ).await.expect( "failed to write data to socket" );
       }
 
       break;
@@ -42,7 +39,6 @@ async fn sends_a_ping_and_receives_a_callback() {
 
   client.ping();
 
-  tokio::time::sleep( tokio::time::Duration::from_secs( 2 ) ).await;
-
   let _ = dac.await;
+  let _ = client.stop().await;
 }
