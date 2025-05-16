@@ -1,7 +1,8 @@
+use core::time;
 use std::io;
 use std::net::{ IpAddr, Ipv4Addr, SocketAddr };
 
-use tokio::io::AsyncReadExt;
+use tokio::io::{ AsyncReadExt, AsyncWriteExt };
 use tokio::net;
 use tokio::task;
 
@@ -18,7 +19,9 @@ fn start_etherdream() -> task::JoinHandle<io::Result<()>> {
       let _n = socket.read( &mut buf ).await.expect("failed to read data from socket");
 
       if buf[0]  == b"p"[0] {
-        println!( "> PING DONE !!!" );
+        println!( "> PING" );
+        let _ = socket.write( b"q" ).await.expect( "failed to write data to socket" );
+        println!( "> PONG" );
       }
 
       break;
@@ -38,6 +41,8 @@ async fn sends_a_ping_and_receives_a_callback() {
   let mut client = client_builder.start().await;
 
   client.ping();
+
+  tokio::time::sleep( tokio::time::Duration::from_secs( 2 ) ).await;
 
   let _ = dac.await;
 }

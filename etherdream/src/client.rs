@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
-use tokio::io::{ self, AsyncWriteExt };
+use tokio::io::{ self, AsyncReadExt, AsyncWriteExt };
 use tokio::net;
 
 //use tokio::net::TcpStream;
@@ -35,6 +35,8 @@ enum Command {
 
 pub struct Client {
   commands: Arc<RwLock<std::collections::VecDeque<Command>>>,
+  read_handle: tokio::task::JoinHandle<io::Result<()>>,
+  write_handle: tokio::task::JoinHandle<io::Result<()>>
 }
 
 impl Client {
@@ -43,17 +45,39 @@ impl Client {
     self.commands.write().push_back( Command::Ping );
   }
 
-  fn start( address: SocketAddr ) -> Self {
+  async fn start( address: SocketAddr ) -> io::Result<Self> {
     let commands = Arc::new( RwLock::new( std::collections::VecDeque::with_capacity( 128 ) ) );
 
-    let _write_handle = tokio::spawn({
+    let socket = net::TcpSocket::new_v4()?;
+    let stream = socket.connect( address ).await?;
+    let ( mut rx, mut tx ) = stream.into_split();
+
+    // Read
+    let read_handle = tokio::spawn(async move{
+      let mut buf = [0 as u8; 1];
+
+      loop {
+        println!( "> Reading..." );
+
+        let _bytes = rx.read( &mut buf ).await?;
+        println!( "> Read..." );
+        if buf[0]  == b"q"[0] {
+          println!( "> ACK!" );
+          break;
+        } else {
+          println!( "> ???" );
+          break;
+        }
+      }
+  
+      return io::Result::Ok(());
+    });
+
+    // Write
+    let write_handle = tokio::spawn({
       let commands = commands.clone();
 
       async move {
-        let socket = net::TcpSocket::new_v4()?;
-        let mut stream = socket.connect( address ).await?;
-        let ( _rx, mut tx ) = stream.split();
-
         loop {
           let command = commands.write().pop_front();
 
@@ -74,9 +98,11 @@ impl Client {
       }
     });
 
-    return Self{ 
+    return Ok( Self{ 
       commands: commands,
-    }
+      read_handle: read_handle,
+      write_handle: write_handle
+    });
   }
 }
 
@@ -92,6 +118,6 @@ impl Builder {
   }
 
   pub async fn start( &self ) -> Client {
-    return Client::start( self.address );
+    return Client::start( self.address ).await.unwrap();
   }
 }
