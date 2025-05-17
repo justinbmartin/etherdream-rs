@@ -7,9 +7,9 @@ use tokio::task;
 
 use etherdream::client;
 
-fn start_etherdream() -> task::JoinHandle<io::Result<()>> {
+fn start_etherdream( address: SocketAddr ) -> task::JoinHandle<io::Result<()>> {
   return tokio::spawn( async move { 
-    let listener = net::TcpListener::bind( "127.0.0.1:7765" ).await?;
+    let listener = net::TcpListener::bind( address ).await?;
     
     let mut buf = [0 as u8; 1024];
 
@@ -30,13 +30,13 @@ fn start_etherdream() -> task::JoinHandle<io::Result<()>> {
 
 #[tokio::test]
 async fn sends_a_ping_and_receives_a_callback() {
-  let dac = start_etherdream();
+  let address = SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), client::DEFAULT_PORT );
+  let dac = start_etherdream( address );
 
   // Create and start client
-  let address = SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), client::DEFAULT_PORT );
-  let client_builder = client::Builder::new( address );
-  let mut client = client_builder.start().await;
+  let mut client = client::Builder::new( address ).start().await.expect( "Failed to connect..." );
 
+  // Send a ping
   client.ping();
 
   let _ = dac.await;
