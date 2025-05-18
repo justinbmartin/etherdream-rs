@@ -1,3 +1,4 @@
+use core::time;
 //use std::future::{ ready, Ready, IntoFuture };
 use std::collections::VecDeque;
 use std::net::SocketAddr;
@@ -38,8 +39,9 @@ enum Command {
 
 pub struct Client {
   address: SocketAddr,
-  should_stop: Arc<atomic::AtomicBool>,
+  cancel: CancellationToken,
   commands: Arc<RwLock<VecDeque<Command>>>,
+
   rx_handle: task::JoinHandle<io::Result<()>>,
   tx_handle: task::JoinHandle<io::Result<()>>
 }
@@ -56,10 +58,10 @@ impl Client {
 
   // consumes self
   pub async fn stop( self ) {
-    self.should_stop.store( true, atomic::Ordering::Relaxed );
+    self.cancel.cancel();
 
-    let _ = self.rx_handle.await.unwrap();
-    let _ = self.tx_handle.await.unwrap();
+    let _ = self.rx_handle.await;
+    let _ = self.tx_handle.await;
   }
 }
 
@@ -76,69 +78,80 @@ impl Builder {
 
   pub async fn start( &self ) -> io::Result<Client> {
     let commands = Arc::new( RwLock::new( VecDeque::with_capacity( 128 ) ) );
-    let should_stop = Arc::new( atomic::AtomicBool::new( true ) );
+    let cancel = CancellationToken::new();
 
     let socket = net::TcpSocket::new_v4()?;
+    dbg!( self.remote_address );
     let stream = socket.connect( self.remote_address ).await?;
-    let ( rx, mut tx ) = stream.into_split();
+    let ( rx, tx ) = stream.into_split();
 
     // Read
-    let rx_handle = tokio::spawn({
-      let should_stop = should_stop.clone();
+    let rx_handle = {
+      let cancel = cancel.clone();
 
-      async move{
-        let mut buf = [0 as u8; 2];
-
-        loop {
-          if should_stop.load( atomic::Ordering::Relaxed ) {
-            break;
-          }
-
-          let _bytes = rx.try_read( &mut buf )?;
-
-          if buf == *b"ap" {
-            println!( "> ACK!" );
-          }
+      tokio::spawn( async move {
+        tokio::select!{
+          _ = cancel.cancelled() => { Ok(()) }
+          result = reader( rx ) => { result }
         }
-  
-        return io::Result::Ok(());
-      }
-    });
+      })
+    };
 
     // Write
-    let tx_handle = tokio::spawn({
+    let tx_handle = {
+      let cancel = cancel.clone();
       let commands = commands.clone();
-      let should_stop = should_stop.clone();
 
-      async move {
-        loop {
-          if should_stop.load( atomic::Ordering::Relaxed ) {
-            break;
-          }
-
-          let command = commands.write().pop_front();
-
-          if command.is_some() {
-            match command {
-              Some( Command::Ping ) => { 
-                let _ = tx.try_write( b"p" );
-                break;
-              },
-              None => { }
-            };
-          }
+      tokio::spawn( async move {
+        tokio::select!{
+          _ = cancel.cancelled() => { Ok(()) }
+          result = writer( commands, tx ) => { result }
         }
-
-        return io::Result::Ok(());
-      }
-    });
+      })
+    };
 
     return Ok( Client{ 
       address: self.remote_address,
       commands: commands,
-      should_stop: Arc::new( atomic::AtomicBool::new( true ) ),
+      cancel: cancel,
       rx_handle: rx_handle,
       tx_handle: tx_handle
     });
+  }
+}
+
+async fn reader( rx: net::tcp::OwnedReadHalf ) -> io::Result<()> {
+  let mut buf = [0 as u8; 2];
+  let mut rx = rx;
+
+  loop {
+    println!( "> read await..." );
+    let _bytes = rx.read( &mut buf ).await.unwrap();
+    println!( "> read..." );
+          
+    if buf == *b"ap" {
+      println!( "> ACK!" );
+    }
+  }
+}
+
+async fn writer( commands: Arc<RwLock<VecDeque<Command>>>, tx: net::tcp::OwnedWriteHalf ) -> io::Result<()> {
+  let mut tx = tx;
+
+  loop {
+    let command = commands.write().pop_front();
+
+    if command.is_some() {
+      match command {
+        Some( Command::Ping ) => { 
+          println!( "> pre-ping..." );
+          let _ = tx.write( b"p" ).await?;
+          println!( "> pinged..." );
+        },
+        None => { 
+          tokio::time::sleep( time::Duration::from_millis( 1 ) ).await;
+        }
+      };
+    }
   }
 }
