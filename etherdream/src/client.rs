@@ -152,16 +152,15 @@ async fn writer( commands: Arc<RwLock<VecDeque<Command>>>, notify: Arc<Notify>, 
   loop {
     notify.notified().await;
 
-    let command = commands.write().pop_front();
-    
-    match command {
-      Some( Command::Ping ) => { 
-        println!( "> CLIENT: pre-ping..." );
-        let bytes = tx.write( b"p" ).await?;
-        dbg!( bytes );
-        println!( "> CLIENT: pinged..." );
-      },
-      None => {}
-    };
+    while let Some( command ) = commands.write().pop_front() {
+      match command {
+        Command::Ping => {
+          println!( "> CLIENT: pre-ping..." );
+          let bytes = tx.write( b"p" ).await?;
+          dbg!( bytes );
+          println!( "> CLIENT: pinged..." );  
+        }
+      }
+    }
   }
 }
