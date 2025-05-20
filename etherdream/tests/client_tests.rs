@@ -20,7 +20,7 @@ async fn start_etherdream( _address: SocketAddr ) -> io::Result<task::JoinHandle
     
     loop {
       println!( "> DAC: reading..." );
-      //dbg!( &stream );
+      dbg!( &stream );
       let _n = stream.read( &mut buf ).await?;
       println!( "> DAC: received..." );
 

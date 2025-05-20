@@ -1,12 +1,16 @@
-use core::time;
-//use std::future::{ ready, Ready, IntoFuture };
 use std::collections::VecDeque;
+use std::future::Future;
 use std::net::SocketAddr;
-use std::sync::{ atomic, Arc };
+use std::ops::DerefMut;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::task::{ Context, Poll };
+use std::time;
 
 use parking_lot::RwLock;
 use tokio::io::{ self, AsyncReadExt, AsyncWriteExt };
 use tokio::net;
+use tokio::sync::Notify;
 use tokio::task;
 use tokio_util::sync::CancellationToken;
 
@@ -40,9 +44,11 @@ enum Command {
 
 pub struct Client {
   address: SocketAddr,
-  cancel: CancellationToken,
-  commands: Arc<RwLock<VecDeque<Command>>>,
+  cancellable: CancellationToken,
 
+  commands: Arc<RwLock<VecDeque<Command>>>,
+  commands_available: Arc<Notify>,
+  
   rx_handle: task::JoinHandle<io::Result<()>>,
   tx_handle: task::JoinHandle<io::Result<()>>
 }
@@ -55,12 +61,13 @@ impl Client {
   pub fn ping( &mut self ) {
     // push callback?
     self.commands.write().push_back( Command::Ping );
+    self.commands_available.notify_one();
   }
 
   // consumes self
   pub async fn stop( self ) {
     println!( "> stopping..." );
-    self.cancel.cancel();
+    self.cancellable.cancel();
 
     let _ = self.rx_handle.await;
     let _ = self.tx_handle.await;
@@ -80,7 +87,8 @@ impl Builder {
 
   pub async fn start( &self ) -> io::Result<Client> {
     let commands = Arc::new( RwLock::new( VecDeque::with_capacity( 128 ) ) );
-    let cancel = CancellationToken::new();
+    let cancellable = CancellationToken::new();
+    let notify = Arc::new( Notify::new() );
 
     let socket = net::TcpSocket::new_v4()?;
     dbg!( self.remote_address );
@@ -89,11 +97,11 @@ impl Builder {
 
     // Read
     let rx_handle = {
-      let cancel = cancel.clone();
+      let cancellable = cancellable.clone();
 
       tokio::spawn( async move {
         tokio::select!{
-          _ = cancel.cancelled() => { Ok(()) }
+          _ = cancellable.cancelled() => { Ok(()) }
           result = reader( rx ) => { result }
         }
       })
@@ -101,13 +109,14 @@ impl Builder {
 
     // Write
     let tx_handle = {
-      let cancel = cancel.clone();
+      let cancellable = cancellable.clone();
       let commands = commands.clone();
+      let notify = notify.clone();
 
       tokio::spawn( async move {
         tokio::select!{
-          _ = cancel.cancelled() => { Ok(()) }
-          result = writer( commands, tx ) => { result }
+          _ = cancellable.cancelled() => { Ok(()) }
+          result = writer( commands, notify, tx ) => { result }
         }
       })
     };
@@ -115,7 +124,8 @@ impl Builder {
     return Ok( Client{ 
       address: self.remote_address,
       commands: commands,
-      cancel: cancel,
+      commands_available: notify,
+      cancellable: cancellable,
       rx_handle: rx_handle,
       tx_handle: tx_handle
     });
@@ -127,7 +137,7 @@ async fn reader( mut rx: net::tcp::OwnedReadHalf ) -> io::Result<()> {
 
   loop {
     println!( "> CLIENT: read await..." );
-    let _bytes = rx.read( &mut buf ).await;
+    let _bytes = rx.read_exact( &mut buf ).await?;
     println!( "> CLIENT: read..." );
     
     if buf == *b"ap" {
@@ -138,24 +148,20 @@ async fn reader( mut rx: net::tcp::OwnedReadHalf ) -> io::Result<()> {
   }
 }
 
-async fn writer( commands: Arc<RwLock<VecDeque<Command>>>, mut tx: net::tcp::OwnedWriteHalf ) -> io::Result<()> {
+async fn writer( commands: Arc<RwLock<VecDeque<Command>>>, notify: Arc<Notify>, mut tx: net::tcp::OwnedWriteHalf ) -> io::Result<()> {
   loop {
-    let command = commands.write().pop_front();
+    notify.notified().await;
 
-    if command.is_some() {
-      match command {
-        Some( Command::Ping ) => { 
-          println!( "> CLIENT: pre-ping..." );
-          let bytes = tx.write( b"p" ).await?;
-          dbg!( bytes );
-          println!( "> CLIENT: pinged..." );
-        },
-        None => { 
-          tokio::time::sleep( time::Duration::from_millis( 1 ) ).await;
-        }
-      };
-    } else {
-      tokio::time::sleep( time::Duration::from_millis( 1 ) ).await;
-    }
+    let command = commands.write().pop_front();
+    
+    match command {
+      Some( Command::Ping ) => { 
+        println!( "> CLIENT: pre-ping..." );
+        let bytes = tx.write( b"p" ).await?;
+        dbg!( bytes );
+        println!( "> CLIENT: pinged..." );
+      },
+      None => {}
+    };
   }
 }
