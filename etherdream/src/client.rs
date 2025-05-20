@@ -59,6 +59,7 @@ impl Client {
 
   // consumes self
   pub async fn stop( self ) {
+    println!( "> stopping..." );
     self.cancel.cancel();
 
     let _ = self.rx_handle.await;
@@ -121,38 +122,40 @@ impl Builder {
   }
 }
 
-async fn reader( rx: net::tcp::OwnedReadHalf ) -> io::Result<()> {
+async fn reader( mut rx: net::tcp::OwnedReadHalf ) -> io::Result<()> {
   let mut buf = [0 as u8; 2];
-  let mut rx = rx;
 
   loop {
-    println!( "> read await..." );
-    let _bytes = rx.read( &mut buf ).await.unwrap();
-    println!( "> read..." );
-          
+    println!( "> CLIENT: read await..." );
+    let _bytes = rx.read( &mut buf ).await;
+    println!( "> CLIENT: read..." );
+    
     if buf == *b"ap" {
-      println!( "> ACK!" );
+      println!( "> CLIENT: ACK!" );
+    } else {
+      println!( "> CLIENT: huh???" );
     }
   }
 }
 
-async fn writer( commands: Arc<RwLock<VecDeque<Command>>>, tx: net::tcp::OwnedWriteHalf ) -> io::Result<()> {
-  let mut tx = tx;
-
+async fn writer( commands: Arc<RwLock<VecDeque<Command>>>, mut tx: net::tcp::OwnedWriteHalf ) -> io::Result<()> {
   loop {
     let command = commands.write().pop_front();
 
     if command.is_some() {
       match command {
         Some( Command::Ping ) => { 
-          println!( "> pre-ping..." );
-          let _ = tx.write( b"p" ).await?;
-          println!( "> pinged..." );
+          println!( "> CLIENT: pre-ping..." );
+          let bytes = tx.write( b"p" ).await?;
+          dbg!( bytes );
+          println!( "> CLIENT: pinged..." );
         },
         None => { 
           tokio::time::sleep( time::Duration::from_millis( 1 ) ).await;
         }
       };
+    } else {
+      tokio::time::sleep( time::Duration::from_millis( 1 ) ).await;
     }
   }
 }

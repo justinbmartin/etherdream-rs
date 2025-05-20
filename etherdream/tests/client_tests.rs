@@ -7,24 +7,26 @@ use tokio::task;
 
 use etherdream::client;
 
-async fn start_etherdream( address: SocketAddr ) -> io::Result<task::JoinHandle<io::Result<()>>> {
+async fn start_etherdream( _address: SocketAddr ) -> io::Result<task::JoinHandle<io::Result<()>>> {
   println!( "> DAC: binding..." );
-  let listener = net::TcpListener::bind( address ).await?;
+  let listener = net::TcpListener::bind( "127.0.0.1:7765" ).await?;
     
   let handle = tokio::spawn( async move {
-    let mut buf = [0 as u8; 1024];
+    let mut buf = [0 as u8; 1];
 
     println!( "> DAC: accepting..." );
-    let ( mut socket, _ ) = listener.accept().await?;
-    println!( "> DAC: reading..." );
-
+    let ( mut stream, remote ) = listener.accept().await?;
+    dbg!( remote );
+    
     loop {
-      let _n = socket.read( &mut buf ).await.expect("failed to read data from socket");
+      println!( "> DAC: reading..." );
+      //dbg!( &stream );
+      let _n = stream.read( &mut buf ).await?;
       println!( "> DAC: received..." );
 
       if buf[0]  == b"p"[0] {
         println!( "> DAC: sending ping response..." );
-        let _ = socket.write( b"ap" ).await.expect( "failed to write data to socket" );
+        let _ = stream.write( b"ap" ).await?;
       }
 
       break;
@@ -38,13 +40,13 @@ async fn start_etherdream( address: SocketAddr ) -> io::Result<task::JoinHandle<
 
 #[tokio::test]
 async fn sends_a_ping_and_receives_a_callback() {
+  let _dac_ready = std::sync::Arc::new( parking_lot::RwLock::new( false ) );
+
   let address = SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), client::DEFAULT_PORT );
   let dac = start_etherdream( address ).await.unwrap();
 
   // Create and start client
   let mut client = client::Builder::new( address ).start().await.expect( "Failed to connect..." );
-
-  // wait for dac connected;
 
   // Send a ping
   client.ping();
