@@ -1,7 +1,5 @@
 use std::collections::VecDeque;
-use std::future::Future;
 use std::net::SocketAddr;
-use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{ Context, Poll };
@@ -43,14 +41,16 @@ enum Command {
 
 struct CommandQueue {
   queue: Arc<RwLock<VecDeque<Command>>>,
-  notify: Arc<Notify>
+  notify: Arc<Notify>,
+  acks: i64
 }
 
 impl CommandQueue {
   fn default() -> Self {
     return Self { 
       queue: Arc::new( RwLock::new( VecDeque::with_capacity( 128 ) ) ),
-      notify: Arc::new( Notify::new() )
+      notify: Arc::new( Notify::new() ),
+      acks: 0
     }
   }
 
@@ -89,13 +89,18 @@ impl Client {
 
   pub fn ping( &mut self ) {
     // push callback?
-    self.commands.push_back( Command::Ping );
+    self.send( Command::Ping );
   }
 
-  // consumes self
+  fn send( &mut self, command: Command ) {
+    self.commands.push_back( command );
+  }
+
+  // consumes self?
   pub async fn stop( self ) {
-    println!( "> stopping..." );
-    self.cancellable.cancel();
+    if ! self.cancellable.is_cancelled() {
+      self.cancellable.cancel();
+    }
 
     let _ = self.rx_handle.await;
     let _ = self.tx_handle.await;
@@ -103,14 +108,21 @@ impl Client {
 }
 
 pub struct Builder {
-  remote_address: SocketAddr,
+  duration: Option<tokio::time::Duration>,
+  remote_address: SocketAddr
 }
 
 impl Builder {
   pub fn new( remote_address: SocketAddr ) -> Self {
     return Self{ 
+      duration: None,
       remote_address: remote_address
     };
+  }
+
+  pub fn duration( &mut self, duration: tokio::time::Duration ) -> &mut Self {
+    self.duration = Some( duration );
+    return self;
   }
 
   pub async fn start( &self ) -> io::Result<Client> {
@@ -118,23 +130,22 @@ impl Builder {
     let cancellable = CancellationToken::new();
 
     let socket = net::TcpSocket::new_v4()?;
-    dbg!( self.remote_address );
     let stream = socket.connect( self.remote_address ).await?;
     let ( rx, tx ) = stream.into_split();
 
-    // Read
+    // Spawn read handler
     let rx_handle = {
       let cancellable = cancellable.clone();
 
       tokio::spawn( async move {
         tokio::select!{
           _ = cancellable.cancelled() => { Ok(()) }
-          result = reader( rx ) => { result }
+          result = do_read( rx ) => { result }
         }
       })
     };
 
-    // Write
+    // Spawn write handler
     let tx_handle = {
       let cancellable = cancellable.clone();
       let queue = commands.queue.clone();
@@ -143,10 +154,21 @@ impl Builder {
       tokio::spawn( async move {
         tokio::select!{
           _ = cancellable.cancelled() => { Ok(()) }
-          result = writer( queue, notify, tx ) => { result }
+          result = do_write( queue, notify, tx ) => { result }
         }
       })
     };
+
+    if let Some( duration ) = self.duration {
+      tokio::spawn({
+        let cancellable = cancellable.clone();
+
+        async move {
+          tokio::time::sleep( duration ).await;
+          cancellable.cancel();
+        }
+      });
+    }
 
     return Ok( Client{ 
       address: self.remote_address,
@@ -158,7 +180,7 @@ impl Builder {
   }
 }
 
-async fn reader( mut rx: net::tcp::OwnedReadHalf ) -> io::Result<()> {
+async fn do_read( mut rx: net::tcp::OwnedReadHalf ) -> io::Result<()> {
   let mut buf = [0 as u8; 2];
 
   loop {
@@ -174,7 +196,7 @@ async fn reader( mut rx: net::tcp::OwnedReadHalf ) -> io::Result<()> {
   }
 }
 
-async fn writer( queue: Arc<RwLock<VecDeque<Command>>>, notify: Arc<Notify>, mut tx: net::tcp::OwnedWriteHalf ) -> io::Result<()> {
+async fn do_write( queue: Arc<RwLock<VecDeque<Command>>>, notify: Arc<Notify>, mut tx: net::tcp::OwnedWriteHalf ) -> io::Result<()> {
   loop {
     notify.notified().await;
 
@@ -182,8 +204,7 @@ async fn writer( queue: Arc<RwLock<VecDeque<Command>>>, notify: Arc<Notify>, mut
       match command {
         Command::Ping => {
           println!( "> CLIENT: pre-ping..." );
-          let bytes = tx.write( b"p" ).await?;
-          dbg!( bytes );
+          let _bytes = tx.write( b"p" ).await?;
           println!( "> CLIENT: pinged..." );  
         }
       }
