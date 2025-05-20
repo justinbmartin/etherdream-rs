@@ -52,8 +52,8 @@ async fn sends_a_ping_and_receives_a_callback() {
   client.ping();
   println!( "> ping..." );
 
-  let _ = dac.await;
-  let _ = client.stop().await;
-
   tokio::time::sleep( tokio::time::Duration::from_secs( 2 ) ).await;
+
+  let _ = client.stop().await;
+  let _ = dac.await;
 }

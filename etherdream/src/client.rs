@@ -1,11 +1,10 @@
 use std::collections::VecDeque;
 use std::future::Future;
 use std::net::SocketAddr;
-use std::ops::DerefMut;
+use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{ Context, Poll };
-use std::time;
 
 use parking_lot::RwLock;
 use tokio::io::{ self, AsyncReadExt, AsyncWriteExt };
@@ -42,13 +41,43 @@ enum Command {
   Ping
 }
 
+struct CommandQueue {
+  queue: Arc<RwLock<VecDeque<Command>>>,
+  notify: Arc<Notify>
+}
+
+impl CommandQueue {
+  fn default() -> Self {
+    return Self { 
+      queue: Arc::new( RwLock::new( VecDeque::with_capacity( 128 ) ) ),
+      notify: Arc::new( Notify::new() )
+    }
+  }
+
+  fn push_back( &mut self, command: Command ) {
+    self.queue.write().push_back( command );
+    self.notify.notify_one();
+  }
+
+  fn pop_front( &mut self ) -> Option<Command> {
+    return self.queue.write().pop_front();
+  }
+
+  async fn notified( &self ) {
+    self.notify.notified().await;
+  }
+}
+
 pub struct Client {
   address: SocketAddr,
+
+  //
   cancellable: CancellationToken,
 
-  commands: Arc<RwLock<VecDeque<Command>>>,
-  commands_available: Arc<Notify>,
+  //
+  commands: CommandQueue,
   
+  //
   rx_handle: task::JoinHandle<io::Result<()>>,
   tx_handle: task::JoinHandle<io::Result<()>>
 }
@@ -60,8 +89,7 @@ impl Client {
 
   pub fn ping( &mut self ) {
     // push callback?
-    self.commands.write().push_back( Command::Ping );
-    self.commands_available.notify_one();
+    self.commands.push_back( Command::Ping );
   }
 
   // consumes self
@@ -86,9 +114,8 @@ impl Builder {
   }
 
   pub async fn start( &self ) -> io::Result<Client> {
-    let commands = Arc::new( RwLock::new( VecDeque::with_capacity( 128 ) ) );
+    let commands = CommandQueue::default();
     let cancellable = CancellationToken::new();
-    let notify = Arc::new( Notify::new() );
 
     let socket = net::TcpSocket::new_v4()?;
     dbg!( self.remote_address );
@@ -110,13 +137,13 @@ impl Builder {
     // Write
     let tx_handle = {
       let cancellable = cancellable.clone();
-      let commands = commands.clone();
-      let notify = notify.clone();
+      let queue = commands.queue.clone();
+      let notify = commands.notify.clone();
 
       tokio::spawn( async move {
         tokio::select!{
           _ = cancellable.cancelled() => { Ok(()) }
-          result = writer( commands, notify, tx ) => { result }
+          result = writer( queue, notify, tx ) => { result }
         }
       })
     };
@@ -124,7 +151,6 @@ impl Builder {
     return Ok( Client{ 
       address: self.remote_address,
       commands: commands,
-      commands_available: notify,
       cancellable: cancellable,
       rx_handle: rx_handle,
       tx_handle: tx_handle
@@ -148,11 +174,11 @@ async fn reader( mut rx: net::tcp::OwnedReadHalf ) -> io::Result<()> {
   }
 }
 
-async fn writer( commands: Arc<RwLock<VecDeque<Command>>>, notify: Arc<Notify>, mut tx: net::tcp::OwnedWriteHalf ) -> io::Result<()> {
+async fn writer( queue: Arc<RwLock<VecDeque<Command>>>, notify: Arc<Notify>, mut tx: net::tcp::OwnedWriteHalf ) -> io::Result<()> {
   loop {
     notify.notified().await;
 
-    while let Some( command ) = { commands.write().pop_front() } {
+    while let Some( command ) = { queue.write().pop_front() } {
       match command {
         Command::Ping => {
           println!( "> CLIENT: pre-ping..." );
