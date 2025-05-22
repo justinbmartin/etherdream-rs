@@ -8,7 +8,7 @@
       "name": "debug build",
       "type": "cppvsdbg",
       "request": "launch",
-      "program": "${workspaceFolder}/target/debug/etherdream.exe",
+      "program": "${workspaceFolder}/target/debug/etherdream-cli.exe",
       "args": [ "build" ],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",

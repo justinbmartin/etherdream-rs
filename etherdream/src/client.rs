@@ -1,13 +1,8 @@
-use std::collections::VecDeque;
 use std::net::SocketAddr;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::{ Context, Poll };
 
-use parking_lot::RwLock;
 use tokio::io::{ self, AsyncReadExt, AsyncWriteExt };
 use tokio::net;
-use tokio::sync::Notify;
+use tokio::sync::mpsc;
 use tokio::task;
 use tokio_util::sync::CancellationToken;
 
@@ -39,35 +34,6 @@ enum Command {
   Ping
 }
 
-struct CommandQueue {
-  queue: Arc<RwLock<VecDeque<Command>>>,
-  notify: Arc<Notify>,
-  acks: i64
-}
-
-impl CommandQueue {
-  fn default() -> Self {
-    return Self { 
-      queue: Arc::new( RwLock::new( VecDeque::with_capacity( 128 ) ) ),
-      notify: Arc::new( Notify::new() ),
-      acks: 0
-    }
-  }
-
-  fn push_back( &mut self, command: Command ) {
-    self.queue.write().push_back( command );
-    self.notify.notify_one();
-  }
-
-  fn pop_front( &mut self ) -> Option<Command> {
-    return self.queue.write().pop_front();
-  }
-
-  async fn notified( &self ) {
-    self.notify.notified().await;
-  }
-}
-
 pub struct Client {
   address: SocketAddr,
 
@@ -75,7 +41,7 @@ pub struct Client {
   cancellable: CancellationToken,
 
   //
-  commands: CommandQueue,
+  command_tx: mpsc::UnboundedSender<Command>,
   
   //
   rx_handle: task::JoinHandle<io::Result<()>>,
@@ -89,11 +55,11 @@ impl Client {
 
   pub fn ping( &mut self ) {
     // push callback?
-    self.send( Command::Ping );
+    let _ = self.send( Command::Ping );
   }
 
-  fn send( &mut self, command: Command ) {
-    self.commands.push_back( command );
+  fn send( &mut self, command: Command ) -> Result<(),mpsc::error::SendError<Command>> {
+    return self.command_tx.send( command );
   }
 
   // consumes self?
@@ -126,7 +92,8 @@ impl Builder {
   }
 
   pub async fn start( &self ) -> io::Result<Client> {
-    let commands = CommandQueue::default();
+    let ( command_tx, command_rx ) = mpsc::unbounded_channel::<Command>();
+
     let cancellable = CancellationToken::new();
 
     let socket = net::TcpSocket::new_v4()?;
@@ -148,13 +115,11 @@ impl Builder {
     // Spawn write handler
     let tx_handle = {
       let cancellable = cancellable.clone();
-      let queue = commands.queue.clone();
-      let notify = commands.notify.clone();
 
       tokio::spawn( async move {
         tokio::select!{
           _ = cancellable.cancelled() => { Ok(()) }
-          result = do_write( queue, notify, tx ) => { result }
+          result = do_write( command_rx, tx ) => { result }
         }
       })
     };
@@ -172,7 +137,7 @@ impl Builder {
 
     return Ok( Client{ 
       address: self.remote_address,
-      commands: commands,
+      command_tx: command_tx,
       cancellable: cancellable,
       rx_handle: rx_handle,
       tx_handle: tx_handle
@@ -184,28 +149,22 @@ async fn do_read( mut rx: net::tcp::OwnedReadHalf ) -> io::Result<()> {
   let mut buf = [0 as u8; 2];
 
   loop {
-    println!( "> CLIENT: read await..." );
-    let _bytes = rx.read_exact( &mut buf ).await?;
-    println!( "> CLIENT: read..." );
+    let _ = rx.read_exact( &mut buf ).await?;
     
     if buf == *b"ap" {
       println!( "> CLIENT: ACK!" );
     } else {
-      println!( "> CLIENT: huh???" );
+      println!( "> CLIENT: unknown reply" );
     }
   }
 }
 
-async fn do_write( queue: Arc<RwLock<VecDeque<Command>>>, notify: Arc<Notify>, mut tx: net::tcp::OwnedWriteHalf ) -> io::Result<()> {
+async fn do_write( mut command_rx: mpsc::UnboundedReceiver<Command>, mut tx: net::tcp::OwnedWriteHalf ) -> io::Result<()> {
   loop {
-    notify.notified().await;
-
-    while let Some( command ) = { queue.write().pop_front() } {
+    while let Some( command ) = command_rx.recv().await {
       match command {
         Command::Ping => {
-          println!( "> CLIENT: pre-ping..." );
-          let _bytes = tx.write( b"p" ).await?;
-          println!( "> CLIENT: pinged..." );  
+          let _ = tx.write( b"p" ).await?;
         }
       }
     }
