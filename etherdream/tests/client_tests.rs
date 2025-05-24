@@ -1,9 +1,12 @@
 use std::io;
 use std::net::{ IpAddr, Ipv4Addr, SocketAddr };
+use std::time::Duration;
 
 use tokio::io::{ AsyncReadExt, AsyncWriteExt };
 use tokio::net;
+use tokio::sync::mpsc;
 use tokio::task;
+use tokio::time::timeout;
 
 use etherdream::client;
 
@@ -92,21 +95,33 @@ async fn start_etherdream( _address: SocketAddr ) -> io::Result<task::JoinHandle
 
 #[tokio::test]
 async fn sends_a_ping_and_receives_a_callback() {
+
   let address = SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), client::DEFAULT_PORT );
 
   // Create and start an Etherdream DAC
   let dac = start_etherdream( address ).await.expect( "Failed to start Etherdream mock..." );
 
+  //
+  let ( tx, mut rx ) = mpsc::channel::<( client::ControlSignal, client::Command )>( 128 );
+
   // Create and start a client
-  let mut client = 
+  let mut client =
     client::Builder::new( address )
+    .on_command( tx )
     .start().await.expect( "Failed to connect..." );
 
   // Send a ping
   client.ping();
 
-  tokio::time::sleep( tokio::time::Duration::from_secs( 2 ) ).await;
+  //
+  let handle = timeout( Duration::from_secs( 2 ), async move {
+    let ( _control_signal, command ) = rx.recv().await.unwrap();
+    return match command {
+      client::Command::Ping => Ok(()),
+      _ => Err( "" )
+    };
+  });
 
-  //let _ = client.stop().await;
+  assert_eq!( Ok(()), handle.await.unwrap() ); 
   let _ = dac.await;
 }

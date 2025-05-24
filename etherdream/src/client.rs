@@ -1,6 +1,4 @@
-//use std::mem::transmute;
 use std::net::SocketAddr;
-use std::ops::Deref;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
@@ -26,6 +24,7 @@ const CONTROL_SIGNAL_INVALID: u8 = b'I';
 const CONTROL_SIGNAL_STOP: u8 = b'!';
 
 #[repr( u8 )]
+//#[derive( Clone, Copy )]
 pub enum ControlSignal {
   Ack = CONTROL_SIGNAL_ACK,
   Nak = CONTROL_SIGNAL_NAK,
@@ -50,6 +49,7 @@ impl From<u8> for ControlSignal {
 const COMMAND_PING: u8 = b'p';
 
 #[repr( u8 )]
+//#[derive( Clone, Copy )]
 pub enum Command {
   Ping = COMMAND_PING
 }
@@ -126,16 +126,21 @@ impl Client {
 }
 
 pub struct Builder {
-  duration: Option<tokio::time::Duration>,
+  on_command_ch: Option<mpsc::Sender<( ControlSignal, Command )>>,
   remote_address: SocketAddr
 }
 
 impl Builder {
   pub fn new( remote_address: SocketAddr ) -> Self {
     return Self{ 
-      duration: None,
+      on_command_ch: None,
       remote_address: remote_address
     };
+  }
+
+  pub fn on_command( &mut self, ch: mpsc::Sender<( ControlSignal, Command )> ) -> &mut Self {
+    self.on_command_ch = Some( ch );
+    return self;
   }
 
   pub async fn start( &self ) -> io::Result<Client> {
@@ -153,11 +158,12 @@ impl Builder {
 
       tokio::spawn({
         let current_state = current_state.clone();
+        let on_command_ch = self.on_command_ch.clone();
 
         async move {
           tokio::select!{
             _ = cancellable.cancelled() => { Ok(()) }
-            result = do_read( current_state, rx ) => { result }
+            result = do_read( on_command_ch, current_state, rx ) => { result }
           }
         }
       })
@@ -175,17 +181,6 @@ impl Builder {
       })
     };
 
-    if let Some( duration ) = self.duration {
-      tokio::spawn({
-        let cancellable = cancellable.clone();
-
-        async move {
-          tokio::time::sleep( duration ).await;
-          cancellable.cancel();
-        }
-      });
-    }
-
     return Ok( Client{ 
       address: self.remote_address,
       awaiting_command_acks: 0,
@@ -198,7 +193,7 @@ impl Builder {
   }
 }
 
-async fn do_read( current_state: Arc<RwLock<[u8;20]>>, mut rx: net::tcp::OwnedReadHalf ) -> io::Result<()> {
+async fn do_read( ch: Option<mpsc::Sender<( ControlSignal, Command )>>, current_state: Arc<RwLock<[u8;20]>>, mut rx: net::tcp::OwnedReadHalf ) -> io::Result<()> {
   let mut buf = [0 as u8; 22]; // TODO: use size of reponse struct/packed
 
   loop {
@@ -208,7 +203,7 @@ async fn do_read( current_state: Arc<RwLock<[u8;20]>>, mut rx: net::tcp::OwnedRe
     let control_signal: ControlSignal = buf[0].into();
     let command: Command = buf[1].into();
 
-    //
+    // Copy the state from our buffer into the client
     current_state.write().copy_from_slice( &buf[2..22] );
 
     match control_signal {
@@ -221,6 +216,10 @@ async fn do_read( current_state: Arc<RwLock<[u8;20]>>, mut rx: net::tcp::OwnedRe
             // channel: ch.send( Ping( payload ) ).await confusing for call-site
             // callback: on_callback( payload ) (can check if set or not)
             println!( "> CLIENT: PING RECEIVED!" );
+
+            if let Some( ch ) = &ch {
+              let _ = ch.send( ( control_signal, command ) ).await;
+            }
           }
         }
       },
@@ -236,7 +235,7 @@ async fn do_write( mut command_rx: mpsc::UnboundedReceiver<Command>, mut tx: net
     while let Some( command ) = command_rx.recv().await {
       match command {
         Command::Ping => {
-          let _ = tx.write( b"p" ).await?;
+          let _ = tx.write( &[ COMMAND_PING ] ).await?;
         }
       }
     }
