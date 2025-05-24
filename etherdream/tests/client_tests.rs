@@ -122,10 +122,12 @@ async fn send_ping_and_receive_notification_via_channel() {
   let dac = Etherdream::start().await;
 
   // Setup a channel to receive the ping notification
-  let ( tx, mut rx ) = mpsc::channel::<( client::ControlSignal, client::Command )>( 128 );
+  let ( tx, mut rx ) = mpsc::channel::<( client::ControlSignal, client::Command )>( 16 );
 
   // Create and start a client
-  let mut client = client::Client::start_with_receiver( address, tx ).await.expect( "Failed to connect to Etherdream device" );
+  let mut client = 
+    client::Client::start_with_notifications( address, tx ).await
+    .expect( "Failed to connect to Etherdream device" );
 
   // Send a ping
   let _ = client.ping().await;
@@ -138,7 +140,7 @@ async fn send_ping_and_receive_notification_via_channel() {
     };
   });
 
-  // Validate that we received the ping
+  // Validate that we received the ping (Ok())
   assert_eq!( Ok(()), handle.await.unwrap() );
 
   // Shut it down

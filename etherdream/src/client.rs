@@ -86,55 +86,12 @@ pub struct Client {
 }
 
 impl Client {
-  pub async fn start_with_receiver( address: SocketAddr, tx_channel: mpsc::Sender<( ControlSignal, Command )> ) -> io::Result<Client> {
-    return Client::do_start( address, Some( tx_channel ) ).await;
+  pub async fn start( address: SocketAddr ) -> io::Result<Client> {
+    return do_start( address, None ).await;
   }
 
-  async fn do_start( address: SocketAddr, tx_channel: Option<mpsc::Sender<( ControlSignal, Command )>> ) -> io::Result<Client> {
-    let shutdown_token = CancellationToken::new();
-    let ( command_tx, command_rx ) = mpsc::channel::<Command>( 128 );
-    let current_state = Arc::new( RwLock::new( [0u8;20] ) );
-    
-    let socket = net::TcpSocket::new_v4()?;
-    let stream = socket.connect( address ).await?;
-    let ( rx, tx ) = stream.into_split();
-
-    // Spawn read handler
-    let rx_handle = {
-      let shutdown_token = shutdown_token.child_token();
-
-      tokio::spawn({
-        let current_state = current_state.clone();
-
-        async move {
-          tokio::select!{
-            _ = shutdown_token.cancelled() => { Ok(()) }
-            result = do_read( tx_channel, current_state, rx ) => { result }
-          }
-        }
-      })
-    };
-
-    // Spawn write handler
-    let tx_handle = {
-      let shutdown_token = shutdown_token.child_token();
-
-      tokio::spawn( async move {
-        tokio::select!{
-          _ = shutdown_token.cancelled() => { Ok(()) }
-          result = do_write( command_rx, tx ) => { result }
-        }
-      })
-    };
-
-    return Ok( Client{ 
-      address: address,
-      awaiting_command_acks: 0,
-      command_tx: command_tx,
-      shutdown_token: shutdown_token,
-      current_state: current_state,
-      tasks: Some([ rx_handle, tx_handle ])
-    });
+  pub async fn start_with_notifications( address: SocketAddr, tx_channel: mpsc::Sender<( ControlSignal, Command )> ) -> io::Result<Client> {
+    return do_start( address, Some( tx_channel ) ).await;
   }
 
   // Returns the remote address this client is connected to.
@@ -163,6 +120,53 @@ impl Client {
 
     return Ok(());
   }
+}
+
+async fn do_start( address: SocketAddr, tx_channel: Option<mpsc::Sender<( ControlSignal, Command )>> ) -> io::Result<Client> {
+  let shutdown_token = CancellationToken::new();
+  let ( command_tx, command_rx ) = mpsc::channel::<Command>( 128 );
+  let current_state = Arc::new( RwLock::new( [0u8;20] ) );
+  
+  let socket = net::TcpSocket::new_v4()?;
+  let stream = socket.connect( address ).await?;
+  let ( rx, tx ) = stream.into_split();
+
+  // Spawn read handler
+  let rx_handle = {
+    let shutdown_token = shutdown_token.child_token();
+
+    tokio::spawn({
+      let current_state = current_state.clone();
+
+      async move {
+        tokio::select!{
+          _ = shutdown_token.cancelled() => { Ok(()) }
+          result = do_read( tx_channel, current_state, rx ) => { result }
+        }
+      }
+    })
+  };
+
+  // Spawn write handler
+  let tx_handle = {
+    let shutdown_token = shutdown_token.child_token();
+
+    tokio::spawn( async move {
+      tokio::select!{
+        _ = shutdown_token.cancelled() => { Ok(()) }
+        result = do_write( command_rx, tx ) => { result }
+      }
+    })
+  };
+
+  return Ok( Client{ 
+    address: address,
+    awaiting_command_acks: 0,
+    command_tx: command_tx,
+    shutdown_token: shutdown_token,
+    current_state: current_state,
+    tasks: Some([ rx_handle, tx_handle ])
+  });
 }
 
 async fn do_read( ch: Option<mpsc::Sender<( ControlSignal, Command )>>, current_state: Arc<RwLock<[u8;20]>>, mut rx: tcp::OwnedReadHalf ) -> io::Result<()> {
