@@ -6,13 +6,64 @@ use tokio::net;
 use tokio::task;
 
 use etherdream::client;
+use etherdream::device;
+
+// Read...
+#[repr( C, packed )]
+#[derive( Default, Clone, Copy )]
+struct EtherdreamResponse {
+  signal: u8,
+  command: u8,
+
+  // State
+  protocol: u8,
+  light_engine_state: u8,
+  playback_state: u8,
+  source: u8,
+  light_engine_flags: u16,
+  playback_flags: u16,
+  source_flags: u16,
+  points_buffered: u16,
+  points_per_second: u32,
+  points_lifetime: u32
+}
+
+struct EtherdreamResponseBuilder {
+  response: EtherdreamResponse
+}
+
+impl EtherdreamResponseBuilder {
+  fn new( signal: client::ControlSignal, command: client::Command ) -> Self {
+    return Self{
+      response: EtherdreamResponse { 
+        signal: signal as u8, 
+        command: command as u8,
+        ..Default::default() 
+      }
+    };
+  }
+
+  fn playback_state( &mut self, state: device::PlaybackState ) -> &mut Self {
+    self.response.playback_state = state as u8;
+    return self;
+  }
+
+  fn to_bytes( &self ) -> [u8; size_of::<EtherdreamResponse>()] {
+    // SAFETY:
+    // * `EtherdreamResponse` has the same size as `[u8; EtherdreamResponse]`.
+    // * `[u8; MY_STRUCT_SIZE]` has no alignment requirement.
+    // * Since it is packed, this type has no padding.
+    unsafe {
+      return std::mem::transmute( self.response );
+    }
+  }
+}
 
 async fn start_etherdream( _address: SocketAddr ) -> io::Result<task::JoinHandle<io::Result<()>>> {
-  println!( "> DAC: binding..." );
   let listener = net::TcpListener::bind( "127.0.0.1:7765" ).await?;
     
   let handle = tokio::spawn( async move {
-    let mut buf = [0 as u8; 128];
+    let mut buf = [0u8; 128];
 
     println!( "> DAC: accepting..." );
     let ( mut stream, remote ) = listener.accept().await?;
@@ -20,12 +71,18 @@ async fn start_etherdream( _address: SocketAddr ) -> io::Result<task::JoinHandle
     
     loop {
       println!( "> DAC: reading..." );
-      let _bytes = stream.read( &mut buf ).await?;
+      let _ = stream.read( &mut buf ).await?;
       println!( "> DAC: received..." );
 
       if buf[0]  == b"p"[0] {
         println!( "> DAC: sending ping response..." );
-        let _ = stream.write( b"ap" ).await?;
+
+        let response =
+          EtherdreamResponseBuilder::new( client::ControlSignal::Ack, client::Command::Ping )
+          .playback_state( device::PlaybackState::Idle )
+          .to_bytes();
+
+        let _ = stream.write( &response ).await?;
       }
 
       break;
@@ -47,7 +104,6 @@ async fn sends_a_ping_and_receives_a_callback() {
   // Create and start a client
   let mut client = 
     client::Builder::new( address )
-    .duration( tokio::time::Duration::from_secs( 2 ) )
     .start().await.expect( "Failed to connect..." );
 
   // Send a ping

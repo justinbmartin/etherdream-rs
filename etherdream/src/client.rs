@@ -13,8 +13,21 @@ use crate::device::State;
 
 pub const DEFAULT_PORT: u16 = 7765;
 
+#[repr( u8 )]
+pub enum ControlSignal {
+  Ack = b'a',
+  Nak = b'F',
+  Invalid = b'I',
+  Stop = b'!'
+}
+
+#[repr( u8 )]
+pub enum Command {
+  Ping = b'p'
+}
+
 #[repr( C )]
-struct EtherdreamResponse {
+pub struct EtherdreamResponse {
   // The control signal of the response, can be:
   // 'a':	ACK (0x61) - Acknowledged. The previous command was accepted.
   // 'F': NAK (0x46) - Full. The write command could not be performed because 
@@ -30,9 +43,7 @@ struct EtherdreamResponse {
   state: State
 }
 
-enum Command {
-  Ping
-}
+
 
 pub struct Client {
   address: SocketAddr,
@@ -84,11 +95,6 @@ impl Builder {
       duration: None,
       remote_address: remote_address
     };
-  }
-
-  pub fn duration( &mut self, duration: tokio::time::Duration ) -> &mut Self {
-    self.duration = Some( duration );
-    return self;
   }
 
   pub async fn start( &self ) -> io::Result<Client> {
@@ -146,14 +152,19 @@ impl Builder {
 }
 
 async fn do_read( mut rx: net::tcp::OwnedReadHalf ) -> io::Result<()> {
-  let mut buf = [0 as u8; 2];
+  let mut buf = [0 as u8; 22]; // TODO: use size of reponse struct/packed
 
   loop {
     let _ = rx.read_exact( &mut buf ).await?;
     
-    if buf == *b"ap" {
-      println!( "> CLIENT: ACK!" );
+    if buf[0] == ControlSignal::Ack as u8 {
+      println!( "> CLIENT: ACK RECEIVED!" );
+
+      if buf[1] == Command::Ping as u8 {
+        println!( "> CLIENT: PING RECEIVED!" );
+      }
     } else {
+      dbg!(buf);
       println!( "> CLIENT: unknown reply" );
     }
   }
