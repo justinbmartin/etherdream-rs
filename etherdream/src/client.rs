@@ -1,5 +1,9 @@
+//use std::mem::transmute;
 use std::net::SocketAddr;
+use std::ops::Deref;
+use std::sync::Arc;
 
+use parking_lot::RwLock;
 use tokio::io::{ self, AsyncReadExt, AsyncWriteExt };
 use tokio::net;
 use tokio::sync::mpsc;
@@ -13,23 +17,47 @@ use crate::device::State;
 
 pub const DEFAULT_PORT: u16 = 7765;
 
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Control Signal
+
+const CONTROL_SIGNAL_ACK: u8 = b'a';
+const CONTROL_SIGNAL_NAK: u8 = b'F';
+const CONTROL_SIGNAL_INVALID: u8 = b'I';
+const CONTROL_SIGNAL_STOP: u8 = b'!';
+
 #[repr( u8 )]
 pub enum ControlSignal {
-  Ack = b'a',
-  Nak = b'F',
-  Invalid = b'I',
-  Stop = b'!'
+  Ack = CONTROL_SIGNAL_ACK,
+  Nak = CONTROL_SIGNAL_NAK,
+  Invalid = CONTROL_SIGNAL_INVALID,
+  Stop = CONTROL_SIGNAL_STOP
 }
+
+impl From<u8> for ControlSignal {
+  fn from( signal: u8 ) -> Self {
+    return match signal {
+      CONTROL_SIGNAL_ACK => ControlSignal::Ack,
+      CONTROL_SIGNAL_NAK => ControlSignal::Nak,
+      CONTROL_SIGNAL_INVALID => ControlSignal::Invalid,
+      CONTROL_SIGNAL_STOP => ControlSignal::Stop,
+      _ => panic!( "An unknown control signal was provided: {}", signal )
+    };
+  }
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Command
+
+const COMMAND_PING: u8 = b'p';
 
 #[repr( u8 )]
 pub enum Command {
-  Ping = b'p'
+  Ping = COMMAND_PING
 }
 
 impl From<u8> for Command {
   fn from( command: u8 ) -> Self {
     return match command {
-      b'p' => Command::Ping,
+      COMMAND_PING => Command::Ping,
       _ => panic!( "An unknown command was provided: {}", command )
     };
   }
@@ -65,7 +93,11 @@ pub struct Client {
   
   //
   rx_handle: task::JoinHandle<io::Result<()>>,
-  tx_handle: task::JoinHandle<io::Result<()>>
+  tx_handle: task::JoinHandle<io::Result<()>>,
+
+  //
+  current_state: Arc<RwLock<[u8; 20]>>,
+  awaiting_command_acks: usize
 }
 
 impl Client {
@@ -74,7 +106,7 @@ impl Client {
   }
 
   pub fn ping( &mut self ) {
-    // push callback?
+    self.awaiting_command_acks += 1;
     let _ = self.send( Command::Ping );
   }
 
@@ -107,10 +139,10 @@ impl Builder {
   }
 
   pub async fn start( &self ) -> io::Result<Client> {
-    let ( command_tx, command_rx ) = mpsc::unbounded_channel::<Command>();
-
     let cancellable = CancellationToken::new();
-
+    let ( command_tx, command_rx ) = mpsc::unbounded_channel::<Command>();
+    let current_state = Arc::new( RwLock::new( [0u8;20] ) );
+    
     let socket = net::TcpSocket::new_v4()?;
     let stream = socket.connect( self.remote_address ).await?;
     let ( rx, tx ) = stream.into_split();
@@ -119,10 +151,14 @@ impl Builder {
     let rx_handle = {
       let cancellable = cancellable.clone();
 
-      tokio::spawn( async move {
-        tokio::select!{
-          _ = cancellable.cancelled() => { Ok(()) }
-          result = do_read( rx ) => { result }
+      tokio::spawn({
+        let current_state = current_state.clone();
+
+        async move {
+          tokio::select!{
+            _ = cancellable.cancelled() => { Ok(()) }
+            result = do_read( current_state, rx ) => { result }
+          }
         }
       })
     };
@@ -152,29 +188,45 @@ impl Builder {
 
     return Ok( Client{ 
       address: self.remote_address,
+      awaiting_command_acks: 0,
       command_tx: command_tx,
       cancellable: cancellable,
+      current_state: current_state,
       rx_handle: rx_handle,
       tx_handle: tx_handle
     });
   }
 }
 
-async fn do_read( mut rx: net::tcp::OwnedReadHalf ) -> io::Result<()> {
+async fn do_read( current_state: Arc<RwLock<[u8;20]>>, mut rx: net::tcp::OwnedReadHalf ) -> io::Result<()> {
   let mut buf = [0 as u8; 22]; // TODO: use size of reponse struct/packed
 
   loop {
     let _ = rx.read_exact( &mut buf ).await?;
     
-    if buf[0] == ControlSignal::Ack as u8 {
-      println!( "> CLIENT: ACK RECEIVED!" );
+    // Unpack control data
+    let control_signal: ControlSignal = buf[0].into();
+    let command: Command = buf[1].into();
 
-      if buf[1] == Command::Ping as u8 {
-        println!( "> CLIENT: PING RECEIVED!" );
+    //
+    current_state.write().copy_from_slice( &buf[2..22] );
+
+    match control_signal {
+      ControlSignal::Ack => {
+        println!( "> CLIENT: ACK RECEIVED!" );
+
+        match command {
+          Command::Ping => {
+            // trait: on_ping( payload ); always
+            // channel: ch.send( Ping( payload ) ).await confusing for call-site
+            // callback: on_callback( payload ) (can check if set or not)
+            println!( "> CLIENT: PING RECEIVED!" );
+          }
+        }
+      },
+      _ => {
+        println!( "> CLIENT: unknown reply" );
       }
-    } else {
-      dbg!(buf);
-      println!( "> CLIENT: unknown reply" );
     }
   }
 }
