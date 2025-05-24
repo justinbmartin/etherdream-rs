@@ -4,7 +4,7 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 use tokio::io::{ self, AsyncReadExt, AsyncWriteExt };
 use tokio::net::{ self, tcp };
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{ self, error::SendError };
 use tokio::task;
 use tokio_util::sync::CancellationToken;
 
@@ -66,18 +66,19 @@ impl From<u8> for Command {
   }
 }
 
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Client
+
 pub struct Client {
   address: SocketAddr,
 
-  //
+  // Token used to shutdown the client
   shutdown_token: CancellationToken,
 
-  //
-  command_tx: mpsc::UnboundedSender<Command>,
+  // Channel used to send commands from the client to the async writer
+  command_tx: mpsc::Sender<Command>,
   
   //
-  rx_handle: task::JoinHandle<io::Result<()>>,
-  tx_handle: task::JoinHandle<io::Result<()>>,
+  tasks: Option<[task::JoinHandle<io::Result<()>>; 2]>,
 
   //
   current_state: Arc<RwLock<[u8; 20]>>,
@@ -85,27 +86,31 @@ pub struct Client {
 }
 
 impl Client {
+  // Returns the remote address this client is connected to.
   pub fn remote( &self ) -> SocketAddr {
     return self.address;
   }
 
-  pub fn ping( &mut self ) {
+  // Sends a ping request to the DAC. If 
+  pub async fn ping( &mut self ) -> Result<(),SendError<Command>> {
     self.awaiting_command_acks += 1;
-    let _ = self.send( Command::Ping );
+    return self.send( Command::Ping ).await;
   }
 
-  fn send( &mut self, command: Command ) -> Result<(),mpsc::error::SendError<Command>> {
-    return self.command_tx.send( command );
+  async fn send( &mut self, command: Command ) -> Result<(),SendError<Command>> {
+    return self.command_tx.send( command ).await;
   }
 
-  // consumes self?
-  pub async fn stop( self ) {
-    if ! self.shutdown_token.is_cancelled() {
-      self.shutdown_token.cancel();
+  pub async fn stop( &mut self ) -> Result<(),task::JoinError> {
+    self.shutdown_token.cancel();
+
+    if let Some( tasks ) = self.tasks.take() {
+      for task in tasks {
+        let _ = task.await?;
+      }
     }
 
-    let _ = self.rx_handle.await;
-    let _ = self.tx_handle.await;
+    return Ok(());
   }
 }
 
@@ -129,7 +134,7 @@ impl Builder {
 
   pub async fn start( &self ) -> io::Result<Client> {
     let shutdown_token = CancellationToken::new();
-    let ( command_tx, command_rx ) = mpsc::unbounded_channel::<Command>();
+    let ( command_tx, command_rx ) = mpsc::channel::<Command>( 128 );
     let current_state = Arc::new( RwLock::new( [0u8;20] ) );
     
     let socket = net::TcpSocket::new_v4()?;
@@ -171,8 +176,7 @@ impl Builder {
       command_tx: command_tx,
       shutdown_token: shutdown_token,
       current_state: current_state,
-      rx_handle: rx_handle,
-      tx_handle: tx_handle
+      tasks: Some([ rx_handle, tx_handle ])
     });
   }
 }
@@ -207,7 +211,7 @@ async fn do_read( ch: Option<mpsc::Sender<( ControlSignal, Command )>>, current_
   }
 }
 
-async fn do_write( mut command_rx: mpsc::UnboundedReceiver<Command>, mut tx: tcp::OwnedWriteHalf ) -> io::Result<()> {
+async fn do_write( mut command_rx: mpsc::Receiver<Command>, mut tx: tcp::OwnedWriteHalf ) -> io::Result<()> {
   loop {
     while let Some( command ) = command_rx.recv().await {
       match command {

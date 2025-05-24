@@ -135,7 +135,7 @@ async fn send_ping_and_receive_notification_via_channel() {
     .start().await.expect( "Failed to connect..." );
 
   // Send a ping
-  client.ping();
+  let _ = client.ping().await;
 
   // Setup future to receive the ping
   let handle = timeout( Duration::from_secs( 2 ), async move {
