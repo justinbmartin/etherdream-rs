@@ -3,15 +3,10 @@ use std::sync::Arc;
 
 use parking_lot::RwLock;
 use tokio::io::{ self, AsyncReadExt, AsyncWriteExt };
-use tokio::net;
+use tokio::net::{ self, tcp };
 use tokio::sync::mpsc;
 use tokio::task;
 use tokio_util::sync::CancellationToken;
-
-//use tokio::net::TcpStream;
-//use tokio_util::codec::{ BytesCodec, FramedRead };
-
-use crate::device::State;
 
 pub const DEFAULT_PORT: u16 = 7765;
 
@@ -24,11 +19,19 @@ const CONTROL_SIGNAL_INVALID: u8 = b'I';
 const CONTROL_SIGNAL_STOP: u8 = b'!';
 
 #[repr( u8 )]
-//#[derive( Clone, Copy )]
+#[derive( Debug )]
 pub enum ControlSignal {
+  // Acknowledged. The previous command was accepted.
   Ack = CONTROL_SIGNAL_ACK,
+
+  // Full. The write command could not be performed because there was not
+  // enough buffer space when it was received.
   Nak = CONTROL_SIGNAL_NAK,
+
+  // Invalid. The command contained an invalid command byte or parameters.
   Invalid = CONTROL_SIGNAL_INVALID,
+
+  // Stop Condition. An emergency-stop condition still exists.
   Stop = CONTROL_SIGNAL_STOP
 }
 
@@ -49,7 +52,7 @@ impl From<u8> for ControlSignal {
 const COMMAND_PING: u8 = b'p';
 
 #[repr( u8 )]
-//#[derive( Clone, Copy )]
+#[derive( Debug )]
 pub enum Command {
   Ping = COMMAND_PING
 }
@@ -62,25 +65,6 @@ impl From<u8> for Command {
     };
   }
 }
-
-#[repr( C )]
-pub struct EtherdreamResponse {
-  // The control signal of the response, can be:
-  // 'a':	ACK (0x61) - Acknowledged. The previous command was accepted.
-  // 'F': NAK (0x46) - Full. The write command could not be performed because 
-  //      there was not enough buffer space when it was received.
-  // 'I': NAK (0x49) - Invalid. The command contained an invalid command byte 
-  //      or parameters.
-  // '!': NAK (0x21) - Stop Condition. An emergency-stop condition still 
-  //      exists.
-  signal: u8,
-
-  // An echo of the command sent.
-  command: u8,
-  state: State
-}
-
-
 
 pub struct Client {
   address: SocketAddr,
@@ -193,7 +177,7 @@ impl Builder {
   }
 }
 
-async fn do_read( ch: Option<mpsc::Sender<( ControlSignal, Command )>>, current_state: Arc<RwLock<[u8;20]>>, mut rx: net::tcp::OwnedReadHalf ) -> io::Result<()> {
+async fn do_read( ch: Option<mpsc::Sender<( ControlSignal, Command )>>, current_state: Arc<RwLock<[u8;20]>>, mut rx: tcp::OwnedReadHalf ) -> io::Result<()> {
   let mut buf = [0 as u8; 22]; // TODO: use size of reponse struct/packed
 
   loop {
@@ -230,12 +214,12 @@ async fn do_read( ch: Option<mpsc::Sender<( ControlSignal, Command )>>, current_
   }
 }
 
-async fn do_write( mut command_rx: mpsc::UnboundedReceiver<Command>, mut tx: net::tcp::OwnedWriteHalf ) -> io::Result<()> {
+async fn do_write( mut command_rx: mpsc::UnboundedReceiver<Command>, mut tx: tcp::OwnedWriteHalf ) -> io::Result<()> {
   loop {
     while let Some( command ) = command_rx.recv().await {
       match command {
         Command::Ping => {
-          let _ = tx.write( &[ COMMAND_PING ] ).await?;
+          let _ = tx.write_u8( COMMAND_PING ).await?;
         }
       }
     }
