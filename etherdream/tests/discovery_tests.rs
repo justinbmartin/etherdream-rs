@@ -5,7 +5,6 @@ use parking_lot::RwLock;
 use tokio::net::UdpSocket;
 
 use etherdream::{ device, discovery };
-use zerocopy::IntoBytes;
 
 // Shared mutex to force serial execution of discovery tests, where required
 static DISCOVERY_MUTEX: std::sync::Mutex<u8> = std::sync::Mutex::new( 0 );
@@ -34,7 +33,7 @@ async fn send_etherdream_broadcasts( device: &device::Device, count: usize ) {
   local_socket.set_broadcast( true ).expect( "Failed to set socket to broadcast for testing." );
 
   for _ in 0..count {
-    if let Err(_) = local_socket.send_to( device.as_bytes(), destination_address ).await {
+    if let Err(_) = local_socket.send_to( &device.as_bytes(), destination_address ).await {
       panic!( "Failed to send broadcast device for testing." )
     }
   }

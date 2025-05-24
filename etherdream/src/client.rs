@@ -70,7 +70,7 @@ pub struct Client {
   address: SocketAddr,
 
   //
-  cancellable: CancellationToken,
+  shutdown_token: CancellationToken,
 
   //
   command_tx: mpsc::UnboundedSender<Command>,
@@ -100,8 +100,8 @@ impl Client {
 
   // consumes self?
   pub async fn stop( self ) {
-    if ! self.cancellable.is_cancelled() {
-      self.cancellable.cancel();
+    if ! self.shutdown_token.is_cancelled() {
+      self.shutdown_token.cancel();
     }
 
     let _ = self.rx_handle.await;
@@ -128,7 +128,7 @@ impl Builder {
   }
 
   pub async fn start( &self ) -> io::Result<Client> {
-    let cancellable = CancellationToken::new();
+    let shutdown_token = CancellationToken::new();
     let ( command_tx, command_rx ) = mpsc::unbounded_channel::<Command>();
     let current_state = Arc::new( RwLock::new( [0u8;20] ) );
     
@@ -138,7 +138,7 @@ impl Builder {
 
     // Spawn read handler
     let rx_handle = {
-      let cancellable = cancellable.clone();
+      let shutdown_token = shutdown_token.child_token();
 
       tokio::spawn({
         let current_state = current_state.clone();
@@ -146,7 +146,7 @@ impl Builder {
 
         async move {
           tokio::select!{
-            _ = cancellable.cancelled() => { Ok(()) }
+            _ = shutdown_token.cancelled() => { Ok(()) }
             result = do_read( on_command_ch, current_state, rx ) => { result }
           }
         }
@@ -155,11 +155,11 @@ impl Builder {
 
     // Spawn write handler
     let tx_handle = {
-      let cancellable = cancellable.clone();
+      let shutdown_token = shutdown_token.child_token();
 
       tokio::spawn( async move {
         tokio::select!{
-          _ = cancellable.cancelled() => { Ok(()) }
+          _ = shutdown_token.cancelled() => { Ok(()) }
           result = do_write( command_rx, tx ) => { result }
         }
       })
@@ -169,7 +169,7 @@ impl Builder {
       address: self.remote_address,
       awaiting_command_acks: 0,
       command_tx: command_tx,
-      cancellable: cancellable,
+      shutdown_token: shutdown_token,
       current_state: current_state,
       rx_handle: rx_handle,
       tx_handle: tx_handle
@@ -192,15 +192,8 @@ async fn do_read( ch: Option<mpsc::Sender<( ControlSignal, Command )>>, current_
 
     match control_signal {
       ControlSignal::Ack => {
-        println!( "> CLIENT: ACK RECEIVED!" );
-
         match command {
           Command::Ping => {
-            // trait: on_ping( payload ); always
-            // channel: ch.send( Ping( payload ) ).await confusing for call-site
-            // callback: on_callback( payload ) (can check if set or not)
-            println!( "> CLIENT: PING RECEIVED!" );
-
             if let Some( ch ) = &ch {
               let _ = ch.send( ( control_signal, command ) ).await;
             }
@@ -208,7 +201,7 @@ async fn do_read( ch: Option<mpsc::Sender<( ControlSignal, Command )>>, current_
         }
       },
       _ => {
-        println!( "> CLIENT: unknown reply" );
+        todo!()
       }
     }
   }

@@ -7,8 +7,7 @@ version = "0.1.0"
 [dependencies]
 parking_lot = { workspace = true }
 tokio = { workspace = true }
-tokio-util = { version = "0.7.15", features = ["codec", "net"] }
-zerocopy = { version = "0.8.25", features = ["derive"] }
+tokio-util = { version = "0.7.15", features = ["net"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full"] }

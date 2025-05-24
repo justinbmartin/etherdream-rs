@@ -1,7 +1,5 @@
 use std::fmt;
 
-use zerocopy::{ FromBytes, Immutable, IntoBytes, transmute };
-
 pub const PORT: u16 = 7765;
 
 
@@ -36,7 +34,7 @@ pub enum Source {
 }
 
 #[repr( C )]
-#[derive( Clone, Copy, Debug, Default, FromBytes, Immutable, IntoBytes, PartialEq )]
+#[derive( Clone, Copy, Debug, Default, PartialEq )]
 pub struct Version {
   hardware: u16,
   software: u16
@@ -49,7 +47,7 @@ impl Version {
 }
 
 #[repr( C )]
-#[derive( Clone, Copy, Debug, Default, FromBytes, Immutable, IntoBytes, PartialEq )]
+#[derive( Clone, Copy, Debug, Default, PartialEq )]
 pub struct MacAddress {
   address: [u8;6]
 }
@@ -73,7 +71,7 @@ impl fmt::Display for MacAddress {
 }
 
 #[repr( C )]
-#[derive( Clone, Copy, Default, FromBytes, Immutable, IntoBytes )]
+#[derive( Clone, Copy, Default )]
 pub struct Device {
   mac_address: MacAddress,
   version: Version,
@@ -100,7 +98,7 @@ impl fmt::Display for Device {
 }
 
 #[repr( C )]
-#[derive( Clone, Copy, Default, FromBytes, Immutable, IntoBytes )]
+#[derive( Clone, Copy, Default )]
 pub struct State {
   // Unknown
   _protocol: u8,
@@ -154,7 +152,15 @@ pub struct State {
 
 impl Device {
   pub fn from_bytes( bytes: [u8;36] ) -> Device {
-    return transmute!( bytes );
+    // SAFETY:
+    // * `EtherdreamResponse` has the same size as `[u8; ETHERDREAM_RESPONSE_SIZE]`.
+    // * `[u8; ETHERDREAM_RESPONSE_SIZE]` has no alignment requirement.
+    // * Since it is packed, this type has no padding.
+    unsafe{ return std::mem::transmute( bytes ); }
+  }
+
+  pub fn as_bytes( self ) -> [u8;36] {
+    unsafe{ return std::mem::transmute( self ); }
   }
 
   pub fn buffer_capacity( &self ) -> u16 {
