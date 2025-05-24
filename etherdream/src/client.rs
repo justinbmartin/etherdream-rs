@@ -26,6 +26,15 @@ pub enum Command {
   Ping = b'p'
 }
 
+impl From<u8> for Command {
+  fn from( command: u8 ) -> Self {
+    return match command {
+      b'p' => Command::Ping,
+      _ => panic!( "An unknown command was provided: {}", command )
+    };
+  }
+}
+
 #[repr( C )]
 pub struct EtherdreamResponse {
   // The control signal of the response, can be:

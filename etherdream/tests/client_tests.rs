@@ -73,11 +73,12 @@ async fn start_etherdream( _address: SocketAddr ) -> io::Result<task::JoinHandle
       let _ = stream.read( &mut buf ).await?;
       println!( "> DAC: received..." );
 
-      if buf[0]  == b"p"[0] {
-        println!( "> DAC: sending ping response..." );
-
-        let response = EtherdreamResponseBuilder::new( client::ControlSignal::Ack, client::Command::Ping ).to_bytes();
-        let _ = stream.write( &response ).await?;
+      match buf[0].into() {
+        client::Command::Ping => {
+          println!( "> DAC: sending ping response..." );
+          let response = EtherdreamResponseBuilder::new( client::ControlSignal::Ack, client::Command::Ping ).to_bytes();
+          let _ = stream.write( &response ).await?;
+        }
       }
 
       break;
