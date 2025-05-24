@@ -6,16 +6,17 @@ use tokio::net;
 use tokio::task;
 
 use etherdream::client;
-use etherdream::device;
 
-// Read...
+// Packed version of client::EtherdreamResponse. Read documentation in 
+// client::EtherdreamResponse for property descriptions.
 #[repr( C, packed )]
-#[derive( Default, Clone, Copy )]
+#[derive( Default )]
 struct EtherdreamResponse {
+  // Control
   signal: u8,
   command: u8,
 
-  // State
+  // Device State
   protocol: u8,
   light_engine_state: u8,
   playback_state: u8,
@@ -28,6 +29,9 @@ struct EtherdreamResponse {
   points_lifetime: u32
 }
 
+const ETHERDREAM_RESPONSE_SIZE: usize = size_of::<EtherdreamResponse>();
+
+// Convenience struct and routines to build responses for unit tests.
 struct EtherdreamResponseBuilder {
   response: EtherdreamResponse
 }
@@ -43,15 +47,10 @@ impl EtherdreamResponseBuilder {
     };
   }
 
-  fn playback_state( &mut self, state: device::PlaybackState ) -> &mut Self {
-    self.response.playback_state = state as u8;
-    return self;
-  }
-
-  fn to_bytes( &self ) -> [u8; size_of::<EtherdreamResponse>()] {
+  fn to_bytes( self ) -> [u8; ETHERDREAM_RESPONSE_SIZE] {
     // SAFETY:
-    // * `EtherdreamResponse` has the same size as `[u8; EtherdreamResponse]`.
-    // * `[u8; MY_STRUCT_SIZE]` has no alignment requirement.
+    // * `EtherdreamResponse` has the same size as `[u8; ETHERDREAM_RESPONSE_SIZE]`.
+    // * `[u8; ETHERDREAM_RESPONSE_SIZE]` has no alignment requirement.
     // * Since it is packed, this type has no padding.
     unsafe {
       return std::mem::transmute( self.response );
@@ -77,11 +76,7 @@ async fn start_etherdream( _address: SocketAddr ) -> io::Result<task::JoinHandle
       if buf[0]  == b"p"[0] {
         println!( "> DAC: sending ping response..." );
 
-        let response =
-          EtherdreamResponseBuilder::new( client::ControlSignal::Ack, client::Command::Ping )
-          .playback_state( device::PlaybackState::Idle )
-          .to_bytes();
-
+        let response = EtherdreamResponseBuilder::new( client::ControlSignal::Ack, client::Command::Ping ).to_bytes();
         let _ = stream.write( &response ).await?;
       }
 
