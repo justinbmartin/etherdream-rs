@@ -4,11 +4,15 @@ use std::sync::{ Arc, atomic::{ AtomicUsize, Ordering } };
 use parking_lot::RwLock;
 use tokio::io::{ self, AsyncReadExt, AsyncWriteExt };
 use tokio::net::{ self, tcp };
-use tokio::{ sync, sync::mpsc::{ self, error::SendError } };
+use tokio::sync::mpsc::{ self, error::TrySendError };
 use tokio::task;
 use tokio_util::sync::CancellationToken;
 
 pub const DEFAULT_PORT: u16 = 7765;
+
+const ETHERDREAM_RESPONSE_CONTROL_SIZE: usize = 2;
+const ETHERDREAM_RESPONSE_STATE_SIZE: usize = 20;
+const ETHERDREAM_RESPONSE_SIZE: usize = ETHERDREAM_RESPONSE_CONTROL_SIZE + ETHERDREAM_RESPONSE_STATE_SIZE;
 
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Control Signal
@@ -82,22 +86,19 @@ pub struct Client {
   tasks: Option<[task::JoinHandle<io::Result<()>>; 3]>,
 
   // The last recorded state of the Etherdream DAC
-  state: Arc<RwLock<[u8; 20]>>,
-
-  // A counter of ack's we are expecting to receive from the Etherdream DAC
-  awaiting_command_acks: Arc<AtomicUsize>
+  state: Arc<RwLock<[u8; ETHERDREAM_RESPONSE_STATE_SIZE]>>
 }
 
 impl Client {
   pub async fn start<T>( address: SocketAddr, on_command_handler: T ) -> io::Result<Client> 
     where T: Fn( ControlSignal, Command ) + Send + 'static
   {
-    let notify = Arc::new( sync::Notify::new() );
     let shutdown_token = CancellationToken::new();
+    let ( callback_tx, callback_rx ) = mpsc::channel::<( ControlSignal, Command )>( 128 );
     let ( command_tx, command_rx ) = mpsc::channel::<Command>( 128 );
     let state = Arc::new( RwLock::new( [0u8;20] ) );
-    let awaiting_command_acks = Arc::new( AtomicUsize::new( 0 ) );
   
+    // Connect to the Etherdream DAC at `address`
     let socket = net::TcpSocket::new_v4()?;
     let stream = socket.connect( address ).await?;
     let ( rx, tx ) = stream.into_split();
@@ -105,20 +106,18 @@ impl Client {
     // Spawn notifier handler
     let notifier = {
       let state = state.clone();
-      let notify = notify.clone();
       let shutdown_token = shutdown_token.child_token();
 
       tokio::spawn( async move {
         tokio::select!{
           _ = shutdown_token.cancelled() => { Ok(()) }
-          result = do_notify( state, notify, on_command_handler ) => { result }
+          result = do_notify( state, callback_rx, on_command_handler ) => { result }
         }
       })
     };
 
     // Spawn read handler
     let rx_manager = {
-      let awaiting_command_acks = awaiting_command_acks.clone();
       let shutdown_token = shutdown_token.child_token();
 
       tokio::spawn({
@@ -127,7 +126,7 @@ impl Client {
         async move {
           tokio::select!{
             _ = shutdown_token.cancelled() => { Ok(()) }
-            result = do_read( state, notify, rx, awaiting_command_acks ) => { result }
+            result = do_read( state, callback_tx, rx ) => { result }
           }
         }
       })
@@ -147,7 +146,6 @@ impl Client {
 
     return Ok( Client{ 
       address: address,
-      awaiting_command_acks: awaiting_command_acks,
       command_tx: command_tx,
       shutdown_token: shutdown_token,
       state: state,
@@ -160,14 +158,9 @@ impl Client {
     return self.address;
   }
 
-  // Sends a ping request to the DAC. If 
-  pub async fn ping( &mut self ) -> Result<(),SendError<Command>> {
-    self.awaiting_command_acks.fetch_add( 1, Ordering::Relaxed );
-    return self.send( Command::Ping ).await;
-  }
-
-  async fn send( &mut self, command: Command ) -> Result<(),SendError<Command>> {
-    return self.command_tx.send( command ).await;
+  // Sends a ping request to the DAC.
+  pub fn ping( &mut self ) -> Result<(),TrySendError<Command>> {
+    return self.command_tx.try_send( Command::Ping );
   }
 
   pub async fn stop( &mut self ) -> Result<(),task::JoinError> {
@@ -183,8 +176,8 @@ impl Client {
   }
 }
 
-async fn do_read( current_state: Arc<RwLock<[u8;20]>>, notify: Arc<sync::Notify>, mut rx: tcp::OwnedReadHalf, awaiting_command_acks: Arc<AtomicUsize> ) -> io::Result<()> {
-  let mut buf = [0 as u8; 22]; // TODO: use size of reponse struct/packed
+async fn do_read( current_state: Arc<RwLock<[u8;ETHERDREAM_RESPONSE_STATE_SIZE]>>, callback_tx: mpsc::Sender<( ControlSignal, Command )>, mut rx: tcp::OwnedReadHalf ) -> io::Result<()> {
+  let mut buf = [0u8; ETHERDREAM_RESPONSE_SIZE];
 
   loop {
     let _ = rx.read_exact( &mut buf ).await?;
@@ -200,13 +193,14 @@ async fn do_read( current_state: Arc<RwLock<[u8;20]>>, notify: Arc<sync::Notify>
       ControlSignal::Ack => {
         match command {
           Command::Ping => {
-            awaiting_command_acks.fetch_sub( 1, Ordering::Relaxed );
-            notify.notify_one();
+            if let Err( _ ) = callback_tx.try_send( ( control_signal, command ) ) {
+              // todo: log warning, or call on_error-like callback?
+            }
           }
         }
       },
       _ => {
-        todo!()
+        // todo: log warning, or call on_error-like callback?
       }
     }
   }
@@ -224,13 +218,12 @@ async fn do_write( mut command_rx: mpsc::Receiver<Command>, mut tx: tcp::OwnedWr
   }
 }
 
-async fn do_notify<T>( _current_state: Arc<RwLock<[u8;20]>>, notify: Arc<sync::Notify>, on_command_handler: T ) -> io::Result<()> 
+async fn do_notify<T>( _current_state: Arc<RwLock<[u8;ETHERDREAM_RESPONSE_STATE_SIZE]>>, mut callback_rx: mpsc::Receiver<( ControlSignal, Command )>, on_command_handler: T ) -> io::Result<()> 
   where T: Fn( ControlSignal, Command ) + Send + 'static
 {
   loop {
-    notify.notified().await;
-
-    //
-    on_command_handler( ControlSignal::Ack, Command::Ping );
+    if let Some( ( control_signal, command ) ) = callback_rx.recv().await {
+      on_command_handler( control_signal, command );
+    }
   }
 }

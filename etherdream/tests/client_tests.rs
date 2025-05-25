@@ -109,23 +109,18 @@ impl EtherdreamServer {
       handle: handle
     });
   }
-
-  async fn shutdown( self ) -> io::Result<()> {
-    self.shutdown_token.cancel();
-    return self.handle.await?
-  }
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Tests
 
 #[tokio::test]
-async fn send_ping_and_receive_notification_via_channel() {
+async fn send_and_receive_ping() {
   let address = SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), client::DEFAULT_PORT );
 
-  // Create and start a mock Etherdream DAC
-  let dac = EtherdreamServer::start( address ).await.unwrap();
+  // Create and start a mock Etherdream Server
+  let _ = EtherdreamServer::start( address ).await.unwrap();
 
-  // Setup a channel to receive command notifications from the server
+  // Define a channel and callback for our client to validate that a ping was received
   let ( tx, mut rx ) = sync::mpsc::channel( 1 );
 
   let on_command_handler = move | control_signal, command | {
@@ -141,12 +136,9 @@ async fn send_ping_and_receive_notification_via_channel() {
     .expect( "Failed to connect to Etherdream device" );
 
   // Send a ping
-  let _ = client.ping().await;
+  let _ = client.ping();
 
-  // Validate that we received the ping (w/ timeout on fail)
+  // Validate that we received the ping via our channel (w/ timeout)
   let handle = timeout( Duration::from_secs( 2 ), async move { return rx.recv().await; });
   assert_eq!( Some( true ), handle.await.unwrap() );
-
-  // Shut down the mock etherdream server
-  let _ = dac.shutdown().await;
 }
