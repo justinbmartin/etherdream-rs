@@ -1,4 +1,5 @@
-use std::net::{ IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4 };
+use std::io;
+use std::net::{ IpAddr, Ipv4Addr, SocketAddr };
 use std::time::Duration;
 
 use tokio::io::{ AsyncReadExt, AsyncWriteExt };
@@ -59,42 +60,46 @@ impl EtherdreamResponseBuilder {
   }
 }
 
-struct Etherdream {
+struct MockEtherdream {
   shutdown_token: CancellationToken,
-  handle: task::JoinHandle<Result<(),&'static str>>
+  handle: task::JoinHandle<io::Result<()>>
 }
 
-impl Etherdream {
-  async fn start() -> Etherdream {
+impl MockEtherdream {
+  async fn start( address: SocketAddr ) -> io::Result<MockEtherdream> {
     let shutdown_token = CancellationToken::new();
 
-    //
-    let address = SocketAddrV4::new( Ipv4Addr::LOCALHOST, client::DEFAULT_PORT );
-    let listener = net::TcpListener::bind( address ).await.expect( "Failed to bind mock Etherdream device to address." );
+    // Bind to the defined Etherdream port
+    let listener = net::TcpListener::bind( address ).await?;
 
-    //
+    // Spawn a task so we can join against it when we shutdown.
     let handle = tokio::spawn({
       let shutdown_token = shutdown_token.child_token();
 
       async move {
+
+        // This `select!` will run the server UNTIL a cancellation is executed.
         tokio::select!{
           _ = shutdown_token.cancelled() => { 
-            return Err( "Etherdream task timed out due to test configuration." );
+            Ok(())
           }
 
           result = async move {
             let mut buf = [0u8; 128];
       
-            let ( mut stream, remote ) = listener.accept().await.expect( "Failed to accept request from listener." );
-            dbg!( remote );
+            // An Etherdream client has connected.
+            let ( mut stream, _remote ) = listener.accept().await?;
           
+            // Now we listen for any data the client will send us.
             loop {
-              let _ = stream.read( &mut buf ).await.expect( "Failed to read data from client." );
+              let _ = stream.read( &mut buf ).await?;
       
+              // Extract the first byte and determine what action was requested. 
+              // For each action, return the expected response.
               match buf[0].into() {
                 client::Command::Ping => {
                   let response = EtherdreamResponseBuilder::new( client::ControlSignal::Ack, client::Command::Ping ).to_bytes();
-                  let _ = stream.write( &response ).await.expect( "Failed to write data to client." );
+                  let _ = stream.write( &response ).await?;
                 }
               }
             }
@@ -102,15 +107,15 @@ impl Etherdream {
       }
     }});
     
-    return Etherdream{
+    return Ok( MockEtherdream{
       shutdown_token: shutdown_token,
       handle: handle
-    };
+    });
   }
 
-  async fn shutdown( self ) {
+  async fn shutdown( self ) -> io::Result<()> {
     self.shutdown_token.cancel();
-    let _ = self.handle.await;
+    return self.handle.await?
   }
 }
 
@@ -118,11 +123,11 @@ impl Etherdream {
 async fn send_ping_and_receive_notification_via_channel() {
   let address = SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), client::DEFAULT_PORT );
 
-  // Create and start an Etherdream DAC
-  let dac = Etherdream::start().await;
+  // Create and start a mock Etherdream DAC
+  let dac = MockEtherdream::start( address ).await.unwrap();
 
-  // Setup a channel to receive the ping notification
-  let ( tx, mut rx ) = mpsc::channel::<( client::ControlSignal, client::Command )>( 16 );
+  // Setup a channel to receive command notifications from the server
+  let ( tx, mut rx ) = mpsc::channel::<( client::ControlSignal, client::Command )>( 32 );
 
   // Create and start a client
   let mut client = 

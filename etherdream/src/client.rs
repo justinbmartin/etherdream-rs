@@ -4,6 +4,7 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 use tokio::io::{ self, AsyncReadExt, AsyncWriteExt };
 use tokio::net::{ self, tcp };
+use tokio::sync;
 use tokio::sync::mpsc::{ self, error::SendError };
 use tokio::task;
 use tokio_util::sync::CancellationToken;
@@ -78,7 +79,7 @@ pub struct Client {
   command_tx: mpsc::Sender<Command>,
   
   //
-  tasks: Option<[task::JoinHandle<io::Result<()>>; 2]>,
+  tasks: Option<[task::JoinHandle<io::Result<()>>; 3]>,
 
   //
   current_state: Arc<RwLock<[u8; 20]>>,
@@ -123,6 +124,7 @@ impl Client {
 }
 
 async fn do_start( address: SocketAddr, tx_channel: Option<mpsc::Sender<( ControlSignal, Command )>> ) -> io::Result<Client> {
+  let notify = Arc::new( sync::Notify::new() );
   let shutdown_token = CancellationToken::new();
   let ( command_tx, command_rx ) = mpsc::channel::<Command>( 128 );
   let current_state = Arc::new( RwLock::new( [0u8;20] ) );
@@ -131,8 +133,22 @@ async fn do_start( address: SocketAddr, tx_channel: Option<mpsc::Sender<( Contro
   let stream = socket.connect( address ).await?;
   let ( rx, tx ) = stream.into_split();
 
+  // Spawn notifier handler
+  let notifier = {
+    let current_state = current_state.clone();
+    let notify = notify.clone();
+    let shutdown_token = shutdown_token.child_token();
+
+    tokio::spawn( async move {
+      tokio::select!{
+        _ = shutdown_token.cancelled() => { Ok(()) }
+        result = do_notify( current_state, notify, tx_channel ) => { result }
+      }
+    })
+  };
+
   // Spawn read handler
-  let rx_handle = {
+  let rx_manager = {
     let shutdown_token = shutdown_token.child_token();
 
     tokio::spawn({
@@ -141,14 +157,14 @@ async fn do_start( address: SocketAddr, tx_channel: Option<mpsc::Sender<( Contro
       async move {
         tokio::select!{
           _ = shutdown_token.cancelled() => { Ok(()) }
-          result = do_read( tx_channel, current_state, rx ) => { result }
+          result = do_read( current_state, notify, rx ) => { result }
         }
       }
     })
   };
 
   // Spawn write handler
-  let tx_handle = {
+  let tx_manager = {
     let shutdown_token = shutdown_token.child_token();
 
     tokio::spawn( async move {
@@ -165,11 +181,11 @@ async fn do_start( address: SocketAddr, tx_channel: Option<mpsc::Sender<( Contro
     command_tx: command_tx,
     shutdown_token: shutdown_token,
     current_state: current_state,
-    tasks: Some([ rx_handle, tx_handle ])
+    tasks: Some([ rx_manager, tx_manager, notifier ])
   });
 }
 
-async fn do_read( ch: Option<mpsc::Sender<( ControlSignal, Command )>>, current_state: Arc<RwLock<[u8;20]>>, mut rx: tcp::OwnedReadHalf ) -> io::Result<()> {
+async fn do_read( current_state: Arc<RwLock<[u8;20]>>, notify: Arc<sync::Notify>, mut rx: tcp::OwnedReadHalf ) -> io::Result<()> {
   let mut buf = [0 as u8; 22]; // TODO: use size of reponse struct/packed
 
   loop {
@@ -186,9 +202,7 @@ async fn do_read( ch: Option<mpsc::Sender<( ControlSignal, Command )>>, current_
       ControlSignal::Ack => {
         match command {
           Command::Ping => {
-            if let Some( ch ) = &ch {
-              let _ = ch.send( ( control_signal, command ) ).await;
-            }
+            notify.notify_one();
           }
         }
       },
@@ -207,6 +221,16 @@ async fn do_write( mut command_rx: mpsc::Receiver<Command>, mut tx: tcp::OwnedWr
           let _ = tx.write_u8( COMMAND_PING ).await?;
         }
       }
+    }
+  }
+}
+
+async fn do_notify( _current_state: Arc<RwLock<[u8;20]>>, notify: Arc<sync::Notify>, ch: Option<mpsc::Sender<( ControlSignal, Command )>> ) -> io::Result<()> {
+  loop {
+    notify.notified().await;
+
+    if let Some( ch ) = &ch {
+      let _ = ch.send( ( ControlSignal::Ack, Command::Ping ) ).await;
     }
   }
 }
