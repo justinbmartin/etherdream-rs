@@ -1,7 +1,6 @@
 use std::fmt;
 
-pub const PORT: u16 = 7765;
-
+pub const DEFAULT_PORT: u16 = 7765;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Device
 

@@ -8,18 +8,16 @@ use tokio::sync::mpsc::{ self, error::TrySendError };
 use tokio::task;
 use tokio_util::sync::CancellationToken;
 
-pub const DEFAULT_PORT: u16 = 7765;
-
 const ETHERDREAM_RESPONSE_CONTROL_SIZE: usize = 2;
 const ETHERDREAM_RESPONSE_STATE_SIZE: usize = 20;
 const ETHERDREAM_RESPONSE_SIZE: usize = ETHERDREAM_RESPONSE_CONTROL_SIZE + ETHERDREAM_RESPONSE_STATE_SIZE;
 
 type PointsBuffered = u16;
 
-type CallbackPayload = ( ControlSignal, Command, PointsBuffered );
+type CallbackPayload  = ( ControlSignal, Command, PointsBuffered );
 type CallbackReceiver = mpsc::Receiver<CallbackPayload>;
-type CallbackSender = mpsc::Sender<CallbackPayload>;
-type StateRef = Arc<RwLock<[u8;ETHERDREAM_RESPONSE_STATE_SIZE]>>;
+type CallbackSender   = mpsc::Sender<CallbackPayload>;
+type StateRef         = Arc<RwLock<[u8;ETHERDREAM_RESPONSE_STATE_SIZE]>>;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Control Signal
 
@@ -48,10 +46,10 @@ pub enum ControlSignal {
 impl From<u8> for ControlSignal {
   fn from( signal: u8 ) -> Self {
     return match signal {
-      CONTROL_SIGNAL_ACK => ControlSignal::Ack,
-      CONTROL_SIGNAL_NAK => ControlSignal::Nak,
-      CONTROL_SIGNAL_INVALID => ControlSignal::Invalid,
-      CONTROL_SIGNAL_STOP => ControlSignal::Stop,
+      CONTROL_SIGNAL_ACK      => ControlSignal::Ack,
+      CONTROL_SIGNAL_NAK      => ControlSignal::Nak,
+      CONTROL_SIGNAL_INVALID  => ControlSignal::Invalid,
+      CONTROL_SIGNAL_STOP     => ControlSignal::Stop,
       _ => panic!( "An unknown control signal was provided: {}", signal )
     };
   }

@@ -10,6 +10,7 @@ use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
 use etherdream::client;
+use etherdream::device;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Etherdream Response
 
@@ -57,6 +58,7 @@ impl EtherdreamResponse {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - Mock Etherdream Server DAC
 
+#[allow( dead_code )]
 struct EtherdreamServer {
   shutdown_token: CancellationToken,
   handle: task::JoinHandle<io::Result<()>>
@@ -115,7 +117,7 @@ impl EtherdreamServer {
 
 #[tokio::test]
 async fn send_and_receive_ping() {
-  let address = SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), client::DEFAULT_PORT );
+  let address = SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), device::DEFAULT_PORT );
 
   // Create and start a mock Etherdream Server
   let _ = EtherdreamServer::start( address ).await.unwrap();
