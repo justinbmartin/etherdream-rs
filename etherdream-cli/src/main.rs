@@ -8,16 +8,13 @@ use parking_lot::RwLock;
 
 use etherdream::{ Client, Device, discovery };
 
-type Devices = Arc<RwLock<Vec<( SocketAddr, Device )>>>;
-
-
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  CLI
 
 /// Discover and manage Etherdream devices.
 #[derive( Debug, Parser )]
 #[command( multicall=true )]
 struct Cli {
-  #[command(subcommand)]
+  #[command( subcommand )]
   command: Commands,
 }
 
@@ -45,20 +42,25 @@ enum Commands {
   Exit,
 }
 
-
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Main
 
 struct State {
-  devices: Vec<( SocketAddr, Device )>,
-  clients: HashMap<SocketAddr,Client>
+  // The current client that is active
+  current_client: Option<usize>,
+
+  // A map of actively running Etherdream clients
+  clients: HashMap<usize,Client>,
+
+  // A list of all discovered Etherdream devices (using a vec to allow accessing by index)
+  devices: Vec<( SocketAddr, Device )>
 }
 
 #[tokio::main]
 async fn main() {
-  let state = Arc::new( RwLock::new( State{ devices: Vec::new(), clients: HashMap::new() }));
+  let state = Arc::new( RwLock::new( State{ clients: HashMap::new(), current_client: None, devices: Vec::new() }));
   let mut input = String::new();
 
-  // Start the discovery service
+  // Start the Etherdream discovery service
   tokio::task::spawn({
     let state = state.clone();
 
@@ -71,40 +73,55 @@ async fn main() {
     }
   });
 
-  // REPL
+  // Start the REPL (via a naive loop)
   loop {
-    match process_command_from_input( &mut input, &state ).await {
+    match process_command( &mut input, &state ).await {
       Ok( quit ) => if quit { break; },
       Err( msg ) => println!( "{msg}" )
     }
   }
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Support
-
-async fn process_command_from_input( input: &mut String, state: &Arc<RwLock<State>> ) -> Result<bool,String> {
+//
+async fn process_command( input: &mut String, state: &Arc<RwLock<State>> ) -> Result<bool,String> {
   input.clear();
 
-  // Read input
-  print!( "> " );
+  // Print console prefix (one of "> " or "[device index] >")
+  let prefix = if let Some( index ) = state.read().current_client { format!( "[{}]", index ) } else { String::from( "" ) };
+  print!( "{}> ", prefix );
+  
+  // Read and parse console input
   stdout().flush().map_err( |e|{ format!( "Failed to flush output: {}", e.to_string() ) })?;
   stdin().read_line( input ).map_err( |e| format!( "Failed to read input: {}", e.to_string() ))?;
   
-  // Parse input
   let args = shlex::split( input.trim() ).ok_or( "Failed to read input." )?;
   let cli = Cli::try_parse_from( args ).map_err( |e| e.to_string() )?;
 
-  // Handle command
+  // Execute the command
   match cli.command {
     Commands::Connect{ index } => {
-      return match state.read().devices.get( index ) {
-        Some(( address, _ )) => {
-          let _ = Client::start( *address, |_, _, _|{  }).await;
-          Ok( false )
-        },
-        None => { return Err( String::from( "(does not exist)" ) ); }
+      if state.read().clients.contains_key( &index ) {
+        state.write().current_client = Some( index );
+        Ok( false )
+
+      } else {
+        return match state.read().devices.get( index ) {
+          Some( ( address, _ ) ) => {
+            let client = Client::start( *address, |_, _, _|{  }).await.unwrap();
+
+            let mut state = state.write();
+            state.clients.insert( index, client );
+            state.current_client = Some( index );
+
+            Ok( false )
+          },
+
+          None => { 
+            return Err( String::from( "(does not exist)" ) ); 
+          }
+        }
       }
-    }
+    },
 
     Commands::Device{ index } => {
       return match state.read().devices.get( index ) {

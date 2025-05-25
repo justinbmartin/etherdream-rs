@@ -8,27 +8,25 @@ use tokio::sync::mpsc::{ self, error::TrySendError };
 use tokio::task;
 use tokio_util::sync::CancellationToken;
 
-use crate::device;
-
 pub const DEFAULT_PORT: u16 = 7765;
 
 const ETHERDREAM_RESPONSE_CONTROL_SIZE: usize = 2;
 const ETHERDREAM_RESPONSE_STATE_SIZE: usize = 20;
 const ETHERDREAM_RESPONSE_SIZE: usize = ETHERDREAM_RESPONSE_CONTROL_SIZE + ETHERDREAM_RESPONSE_STATE_SIZE;
 
-type PointsBufferedCount = u16;
+type PointsBuffered = u16;
 
-type CallbackPayload = ( ControlSignal, Command, PointsBufferedCount );
+type CallbackPayload = ( ControlSignal, Command, PointsBuffered );
 type CallbackReceiver = mpsc::Receiver<CallbackPayload>;
 type CallbackSender = mpsc::Sender<CallbackPayload>;
 type StateRef = Arc<RwLock<[u8;ETHERDREAM_RESPONSE_STATE_SIZE]>>;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Control Signal
 
-const CONTROL_SIGNAL_ACK: u8 = b'a';
-const CONTROL_SIGNAL_NAK: u8 = b'F';
-const CONTROL_SIGNAL_INVALID: u8 = b'I';
-const CONTROL_SIGNAL_STOP: u8 = b'!';
+const CONTROL_SIGNAL_ACK: u8      = b'a';
+const CONTROL_SIGNAL_NAK: u8      = b'F';
+const CONTROL_SIGNAL_INVALID: u8  = b'I';
+const CONTROL_SIGNAL_STOP: u8     = b'!';
 
 #[repr( u8 )]
 #[derive( Debug )]
@@ -96,25 +94,24 @@ pub struct Client {
   // The last recorded state of the Etherdream DAC
   state: Arc<RwLock<[u8; ETHERDREAM_RESPONSE_STATE_SIZE]>>
 }
-
+ 
 impl Client {
   pub async fn start<T>( address: SocketAddr, on_command_handler: T ) -> io::Result<Client> 
-    where T: Fn( ControlSignal, Command, u16 ) + Send + 'static
+    where T: Fn( ControlSignal, Command, PointsBuffered ) + Send + 'static
   {
     let shutdown_token = CancellationToken::new();
-    let state = Arc::new( RwLock::new( [0u8;ETHERDREAM_RESPONSE_STATE_SIZE] ) );
+    let state = Arc::new( RwLock::new( [0u8; ETHERDREAM_RESPONSE_STATE_SIZE] ) );
 
     // Responsible for communicating responses received from the DAC to the
-    // asyncronous client notifier, `do_notify`
-    let ( callback_tx, callback_rx ) = mpsc::channel::<CallbackPayload>( 128 );
+    // asynchronous user-provided callback notifier, `do_callback`
+    let ( callback_tx, callback_rx ) = mpsc::channel::<CallbackPayload>( 64 );
 
     // Responsible to communicating commands from the client run-time to the
     // asynchronous DAC writer, `do_write`
-    let ( command_tx, command_rx ) = mpsc::channel::<Command>( 128 );
+    let ( command_tx, command_rx ) = mpsc::channel::<Command>( 64 );
 
     // Connect to the Etherdream DAC at `address`
-    let dac_socket = net::TcpSocket::new_v4()?;
-    let dac_stream = dac_socket.connect( address ).await?;
+    let dac_stream = net::TcpSocket::new_v4()?.connect( address ).await?;
     let ( dac_rx, dac_tx ) = dac_stream.into_split();
 
     // Start the callback/notification handler
@@ -234,7 +231,7 @@ async fn do_write( mut client_rx: mpsc::Receiver<Command>, mut dac_tx: tcp::Owne
 }
 
 async fn do_callback<T>( mut callback_rx: CallbackReceiver, on_command_handler: T ) -> io::Result<()> 
-  where T: Fn( ControlSignal, Command, u16 ) + Send + 'static
+  where T: Fn( ControlSignal, Command, PointsBuffered ) + Send + 'static
 {
   loop {
     if let Some( ( control_signal, command, points_buffered ) ) = callback_rx.recv().await {
