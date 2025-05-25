@@ -1,11 +1,10 @@
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{ Arc, atomic::{ AtomicUsize, Ordering } };
 
 use parking_lot::RwLock;
 use tokio::io::{ self, AsyncReadExt, AsyncWriteExt };
 use tokio::net::{ self, tcp };
-use tokio::sync;
-use tokio::sync::mpsc::{ self, error::SendError };
+use tokio::{ sync, sync::mpsc::{ self, error::SendError } };
 use tokio::task;
 use tokio_util::sync::CancellationToken;
 
@@ -22,17 +21,17 @@ const CONTROL_SIGNAL_STOP: u8 = b'!';
 #[repr( u8 )]
 #[derive( Debug )]
 pub enum ControlSignal {
-  // Acknowledged. The previous command was accepted.
+  // The previous command was accepted.
   Ack = CONTROL_SIGNAL_ACK,
 
-  // Full. The write command could not be performed because there was not
+  // The write command could not be performed because there was not
   // enough buffer space when it was received.
   Nak = CONTROL_SIGNAL_NAK,
 
-  // Invalid. The command contained an invalid command byte or parameters.
+  // The command contained an invalid command byte or parameters.
   Invalid = CONTROL_SIGNAL_INVALID,
 
-  // Stop Condition. An emergency-stop condition still exists.
+  // An emergency-stop condition exists.
   Stop = CONTROL_SIGNAL_STOP
 }
 
@@ -70,29 +69,90 @@ impl From<u8> for Command {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Client
 
 pub struct Client {
+  // The remote address for the Etherdream DAC
   address: SocketAddr,
 
-  // Token used to shutdown the client
+  // Token used to shutdown the asynchronous client tasks
   shutdown_token: CancellationToken,
 
-  // Channel used to send commands from the client to the async writer
+  // Channel used to send commands from the run-time client to the async writer task
   command_tx: mpsc::Sender<Command>,
   
-  //
+  // List of task handles that can be joined against
   tasks: Option<[task::JoinHandle<io::Result<()>>; 3]>,
 
-  //
-  current_state: Arc<RwLock<[u8; 20]>>,
-  awaiting_command_acks: usize
+  // The last recorded state of the Etherdream DAC
+  state: Arc<RwLock<[u8; 20]>>,
+
+  // A counter of ack's we are expecting to receive from the Etherdream DAC
+  awaiting_command_acks: Arc<AtomicUsize>
 }
 
 impl Client {
-  pub async fn start( address: SocketAddr ) -> io::Result<Client> {
-    return do_start( address, None ).await;
-  }
+  pub async fn start<T>( address: SocketAddr, on_command_handler: T ) -> io::Result<Client> 
+    where T: Fn( ControlSignal, Command ) + Send + 'static
+  {
+    let notify = Arc::new( sync::Notify::new() );
+    let shutdown_token = CancellationToken::new();
+    let ( command_tx, command_rx ) = mpsc::channel::<Command>( 128 );
+    let state = Arc::new( RwLock::new( [0u8;20] ) );
+    let awaiting_command_acks = Arc::new( AtomicUsize::new( 0 ) );
+  
+    let socket = net::TcpSocket::new_v4()?;
+    let stream = socket.connect( address ).await?;
+    let ( rx, tx ) = stream.into_split();
 
-  pub async fn start_with_notifications( address: SocketAddr, tx_channel: mpsc::Sender<( ControlSignal, Command )> ) -> io::Result<Client> {
-    return do_start( address, Some( tx_channel ) ).await;
+    // Spawn notifier handler
+    let notifier = {
+      let state = state.clone();
+      let notify = notify.clone();
+      let shutdown_token = shutdown_token.child_token();
+
+      tokio::spawn( async move {
+        tokio::select!{
+          _ = shutdown_token.cancelled() => { Ok(()) }
+          result = do_notify( state, notify, on_command_handler ) => { result }
+        }
+      })
+    };
+
+    // Spawn read handler
+    let rx_manager = {
+      let awaiting_command_acks = awaiting_command_acks.clone();
+      let shutdown_token = shutdown_token.child_token();
+
+      tokio::spawn({
+        let state = state.clone();
+
+        async move {
+          tokio::select!{
+            _ = shutdown_token.cancelled() => { Ok(()) }
+            result = do_read( state, notify, rx, awaiting_command_acks ) => { result }
+          }
+        }
+      })
+    };
+
+    // Spawn write handler
+    let tx_manager = {
+      let shutdown_token = shutdown_token.child_token();
+
+      tokio::spawn( async move {
+        tokio::select!{
+          _ = shutdown_token.cancelled() => { Ok(()) }
+          result = do_write( command_rx, tx ) => { result }
+        }
+      })
+    };
+
+    return Ok( Client{ 
+      address: address,
+      awaiting_command_acks: awaiting_command_acks,
+      command_tx: command_tx,
+      shutdown_token: shutdown_token,
+      state: state,
+      tasks: Some([ rx_manager, tx_manager, notifier ])
+    });
   }
 
   // Returns the remote address this client is connected to.
@@ -102,7 +162,7 @@ impl Client {
 
   // Sends a ping request to the DAC. If 
   pub async fn ping( &mut self ) -> Result<(),SendError<Command>> {
-    self.awaiting_command_acks += 1;
+    self.awaiting_command_acks.fetch_add( 1, Ordering::Relaxed );
     return self.send( Command::Ping ).await;
   }
 
@@ -123,69 +183,7 @@ impl Client {
   }
 }
 
-async fn do_start( address: SocketAddr, tx_channel: Option<mpsc::Sender<( ControlSignal, Command )>> ) -> io::Result<Client> {
-  let notify = Arc::new( sync::Notify::new() );
-  let shutdown_token = CancellationToken::new();
-  let ( command_tx, command_rx ) = mpsc::channel::<Command>( 128 );
-  let current_state = Arc::new( RwLock::new( [0u8;20] ) );
-  
-  let socket = net::TcpSocket::new_v4()?;
-  let stream = socket.connect( address ).await?;
-  let ( rx, tx ) = stream.into_split();
-
-  // Spawn notifier handler
-  let notifier = {
-    let current_state = current_state.clone();
-    let notify = notify.clone();
-    let shutdown_token = shutdown_token.child_token();
-
-    tokio::spawn( async move {
-      tokio::select!{
-        _ = shutdown_token.cancelled() => { Ok(()) }
-        result = do_notify( current_state, notify, tx_channel ) => { result }
-      }
-    })
-  };
-
-  // Spawn read handler
-  let rx_manager = {
-    let shutdown_token = shutdown_token.child_token();
-
-    tokio::spawn({
-      let current_state = current_state.clone();
-
-      async move {
-        tokio::select!{
-          _ = shutdown_token.cancelled() => { Ok(()) }
-          result = do_read( current_state, notify, rx ) => { result }
-        }
-      }
-    })
-  };
-
-  // Spawn write handler
-  let tx_manager = {
-    let shutdown_token = shutdown_token.child_token();
-
-    tokio::spawn( async move {
-      tokio::select!{
-        _ = shutdown_token.cancelled() => { Ok(()) }
-        result = do_write( command_rx, tx ) => { result }
-      }
-    })
-  };
-
-  return Ok( Client{ 
-    address: address,
-    awaiting_command_acks: 0,
-    command_tx: command_tx,
-    shutdown_token: shutdown_token,
-    current_state: current_state,
-    tasks: Some([ rx_manager, tx_manager, notifier ])
-  });
-}
-
-async fn do_read( current_state: Arc<RwLock<[u8;20]>>, notify: Arc<sync::Notify>, mut rx: tcp::OwnedReadHalf ) -> io::Result<()> {
+async fn do_read( current_state: Arc<RwLock<[u8;20]>>, notify: Arc<sync::Notify>, mut rx: tcp::OwnedReadHalf, awaiting_command_acks: Arc<AtomicUsize> ) -> io::Result<()> {
   let mut buf = [0 as u8; 22]; // TODO: use size of reponse struct/packed
 
   loop {
@@ -202,6 +200,7 @@ async fn do_read( current_state: Arc<RwLock<[u8;20]>>, notify: Arc<sync::Notify>
       ControlSignal::Ack => {
         match command {
           Command::Ping => {
+            awaiting_command_acks.fetch_sub( 1, Ordering::Relaxed );
             notify.notify_one();
           }
         }
@@ -225,12 +224,13 @@ async fn do_write( mut command_rx: mpsc::Receiver<Command>, mut tx: tcp::OwnedWr
   }
 }
 
-async fn do_notify( _current_state: Arc<RwLock<[u8;20]>>, notify: Arc<sync::Notify>, ch: Option<mpsc::Sender<( ControlSignal, Command )>> ) -> io::Result<()> {
+async fn do_notify<T>( _current_state: Arc<RwLock<[u8;20]>>, notify: Arc<sync::Notify>, on_command_handler: T ) -> io::Result<()> 
+  where T: Fn( ControlSignal, Command ) + Send + 'static
+{
   loop {
     notify.notified().await;
 
-    if let Some( ch ) = &ch {
-      let _ = ch.send( ( ControlSignal::Ack, Command::Ping ) ).await;
-    }
+    //
+    on_command_handler( ControlSignal::Ack, Command::Ping );
   }
 }

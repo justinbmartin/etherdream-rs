@@ -4,12 +4,14 @@ use std::time::Duration;
 
 use tokio::io::{ AsyncReadExt, AsyncWriteExt };
 use tokio::net;
-use tokio::sync::mpsc;
+use tokio::sync;
 use tokio::task;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
 use etherdream::client;
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Etherdream Response
 
 #[repr( C, packed )]
 #[derive( Default )]
@@ -59,6 +61,8 @@ impl EtherdreamResponseBuilder {
     }
   }
 }
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Mock Etherdream DAC
 
 struct MockEtherdream {
   shutdown_token: CancellationToken,
@@ -119,6 +123,8 @@ impl MockEtherdream {
   }
 }
 
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Tests
+
 #[tokio::test]
 async fn send_ping_and_receive_notification_via_channel() {
   let address = SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), client::DEFAULT_PORT );
@@ -127,11 +133,18 @@ async fn send_ping_and_receive_notification_via_channel() {
   let dac = MockEtherdream::start( address ).await.unwrap();
 
   // Setup a channel to receive command notifications from the server
-  let ( tx, mut rx ) = mpsc::channel::<( client::ControlSignal, client::Command )>( 32 );
+  let ( tx, mut rx ) = sync::mpsc::channel( 1 );
+
+  let on_command_handler = move | control_signal, command | {
+    let _ = match ( control_signal, command ) {
+      ( client::ControlSignal::Ack, client::Command::Ping ) => tx.try_send( true ),
+      _ => tx.try_send( false )
+    };
+  };
 
   // Create and start a client
   let mut client = 
-    client::Client::start_with_notifications( address, tx ).await
+    client::Client::start( address, on_command_handler ).await
     .expect( "Failed to connect to Etherdream device" );
 
   // Send a ping
@@ -139,14 +152,11 @@ async fn send_ping_and_receive_notification_via_channel() {
 
   // Setup future to receive the ping
   let handle = timeout( Duration::from_secs( 2 ), async move {
-    return match rx.recv().await.unwrap() {
-      ( client::ControlSignal::Ack, client::Command::Ping ) => Ok(()),
-      ( control_signal, command ) => Err( format!( "Received incorrect notification: control={:?}, command={:?}", control_signal, command ) )
-    };
+    return rx.recv().await;
   });
 
   // Validate that we received the ping (Ok())
-  assert_eq!( Ok(()), handle.await.unwrap() );
+  assert_eq!( Some( true ), handle.await.unwrap() );
 
   // Shut it down
   let _ = dac.shutdown().await;
