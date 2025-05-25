@@ -11,8 +11,7 @@ pub enum LightEngineState {
   Ready = 0,
   WarmUp = 1,
   CoolDown = 2,
-  Estop = 3,
-  UNKNOWN = u8::MAX
+  Estop = 3
 }
 
 #[repr( u8 )]
@@ -20,8 +19,7 @@ pub enum LightEngineState {
 pub enum PlaybackState {
   Idle = 0,
   Prepared = 1,
-  Playing = 2,
-  UNKNOWN = u8::MAX
+  Playing = 2
 }
 
 #[repr( u8 )]
@@ -29,8 +27,7 @@ pub enum PlaybackState {
 pub enum Source {
   Network = 0,
   Ilda = 1,
-  Internal = 2,
-  UNKNOWN = u8::MAX
+  Internal = 2
 }
 
 #[repr( C )]
@@ -193,7 +190,7 @@ impl Device {
       1 => LightEngineState::WarmUp,
       2 => LightEngineState::CoolDown,
       3 => LightEngineState::Estop,
-      _ => LightEngineState::UNKNOWN
+      _ => LightEngineState::Ready
     }
   }
 
@@ -206,7 +203,7 @@ impl Device {
       0 => PlaybackState::Idle,
       1 => PlaybackState::Prepared,
       2 => PlaybackState::Playing,
-      _ => PlaybackState::UNKNOWN
+      _ => PlaybackState::Idle
     }
   }
 
@@ -219,7 +216,7 @@ impl Device {
       0 => Source::Network,
       1 => Source::Ilda,
       2 => Source::Internal,
-      _ => Source::UNKNOWN
+      _ => Source::Network
     }
   }
 

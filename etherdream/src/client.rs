@@ -197,7 +197,7 @@ async fn do_read( current_state: StateRef, callback_tx: CallbackSender, mut dac_
   loop {
     let _ = dac_rx.read_exact( &mut buf ).await?;
     
-    // Unpack control data: todo: might be better to just match against the byte (instead of copy)
+    // Unpack control data
     let control_signal: ControlSignal = buf[0].into();
     let command: Command = buf[1].into();
 
@@ -209,7 +209,7 @@ async fn do_read( current_state: StateRef, callback_tx: CallbackSender, mut dac_
         match command {
           Command::Ping => {
             if let Err( _ ) = callback_tx.try_send( ( control_signal, command, 0 ) ) {
-              // todo: log warning, or call on_error-like callback?
+              // todo: log warning, or call an on_error-like callback?
             }
           }
         }

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::{ stdin, stdout, Write };
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -5,7 +6,7 @@ use std::sync::Arc;
 use clap::{ Parser, Subcommand };
 use parking_lot::RwLock;
 
-use etherdream::{ Device, discovery };
+use etherdream::{ Client, Device, discovery };
 
 type Devices = Arc<RwLock<Vec<( SocketAddr, Device )>>>;
 
@@ -33,6 +34,13 @@ enum Commands {
     index: usize,
   },
 
+  /// Print details about a discovered device by index.
+  #[clap( alias = "c" )]
+  Connect {
+    /// Index of device to connect to.
+    index: usize,
+  },
+
   /// Exit the application.
   Exit,
 }
@@ -40,29 +48,24 @@ enum Commands {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Main
 
+struct State {
+  devices: Vec<( SocketAddr, Device )>,
+  clients: HashMap<SocketAddr,Client>
+}
+
 #[tokio::main]
 async fn main() {
-  let devices: Devices = Arc::new( RwLock::new( Vec::new() ) );
+  let state = Arc::new( RwLock::new( State{ devices: Vec::new(), clients: HashMap::new() }));
   let mut input = String::new();
-
-  //
-  /*
-    let client = Client::new( address );
-    client.ping(| state |{ ... });
-    client.push_points( Vec<glm::vec2> );
-    client.set_queue_speed(  );
-
-    client.set_generator( Box::new() )
-   */
 
   // Start the discovery service
   tokio::task::spawn({
-    let devices = devices.clone();
+    let state = state.clone();
 
     async move {
       return discovery::Server::new()
         .serve( move | address, device |{
-          devices.write().push( ( address, device ) );
+          state.write().devices.push( ( address, device ) );
         })
         .await;
     }
@@ -70,22 +73,16 @@ async fn main() {
 
   // REPL
   loop {
-    match process_command_from_input( &mut input, &devices ) {
-      Ok( quit ) => {
-        if quit { break; }
-      }
-      
-      Err( msg ) => {
-        println!( "{msg}" );
-      }
+    match process_command_from_input( &mut input, &state ).await {
+      Ok( quit ) => if quit { break; },
+      Err( msg ) => println!( "{msg}" )
     }
   }
 }
 
-
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Support
 
-fn process_command_from_input( input: &mut String, devices: &Devices ) -> Result<bool,String> {
+async fn process_command_from_input( input: &mut String, state: &Arc<RwLock<State>> ) -> Result<bool,String> {
   input.clear();
 
   // Read input
@@ -99,8 +96,18 @@ fn process_command_from_input( input: &mut String, devices: &Devices ) -> Result
 
   // Handle command
   match cli.command {
+    Commands::Connect{ index } => {
+      return match state.read().devices.get( index ) {
+        Some(( address, _ )) => {
+          let _ = Client::start( *address, |_, _, _|{  }).await;
+          Ok( false )
+        },
+        None => { return Err( String::from( "(does not exist)" ) ); }
+      }
+    }
+
     Commands::Device{ index } => {
-      return match devices.read().get( index ) {
+      return match state.read().devices.get( index ) {
         Some(( address, device )) => {
           println!( "Address = {address}\n" );
           println!( "{device}" );
@@ -111,7 +118,7 @@ fn process_command_from_input( input: &mut String, devices: &Devices ) -> Result
     }
 
     Commands::List => {
-      let devices = devices.read();
+      let devices = &state.read().devices;
 
       if devices.is_empty() {
         println!( "(no devices)" );
