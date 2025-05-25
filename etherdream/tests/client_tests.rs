@@ -35,19 +35,12 @@ struct EtherdreamResponse {
 
 const ETHERDREAM_RESPONSE_SIZE: usize = size_of::<EtherdreamResponse>();
 
-// Convenience struct and routines to build responses for unit tests.
-struct EtherdreamResponseBuilder {
-  response: EtherdreamResponse
-}
-
-impl EtherdreamResponseBuilder {
+impl EtherdreamResponse {
   fn new( signal: client::ControlSignal, command: client::Command ) -> Self {
     return Self{
-      response: EtherdreamResponse { 
-        signal: signal as u8, 
-        command: command as u8,
-        ..Default::default() 
-      }
+      signal: signal as u8, 
+      command: command as u8,
+      ..Default::default() 
     };
   }
 
@@ -57,20 +50,20 @@ impl EtherdreamResponseBuilder {
     // * `[u8; ETHERDREAM_RESPONSE_SIZE]` has no alignment requirement.
     // * Since it is packed, this type has no padding.
     unsafe {
-      return std::mem::transmute( self.response );
+      return std::mem::transmute( self );
     }
   }
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Mock Etherdream DAC
+// - - - - - - - - - - - - - - - - - - - - - - - - - Mock Etherdream Server DAC
 
-struct MockEtherdream {
+struct EtherdreamServer {
   shutdown_token: CancellationToken,
   handle: task::JoinHandle<io::Result<()>>
 }
 
-impl MockEtherdream {
-  async fn start( address: SocketAddr ) -> io::Result<MockEtherdream> {
+impl EtherdreamServer {
+  async fn start( address: SocketAddr ) -> io::Result<Self> {
     let shutdown_token = CancellationToken::new();
 
     // Bind to the defined Etherdream port
@@ -102,7 +95,7 @@ impl MockEtherdream {
               // For each action, return the expected response.
               match buf[0].into() {
                 client::Command::Ping => {
-                  let response = EtherdreamResponseBuilder::new( client::ControlSignal::Ack, client::Command::Ping ).to_bytes();
+                  let response = EtherdreamResponse::new( client::ControlSignal::Ack, client::Command::Ping ).to_bytes();
                   let _ = stream.write( &response ).await?;
                 }
               }
@@ -111,7 +104,7 @@ impl MockEtherdream {
       }
     }});
     
-    return Ok( MockEtherdream{
+    return Ok( Self{
       shutdown_token: shutdown_token,
       handle: handle
     });
@@ -130,7 +123,7 @@ async fn send_ping_and_receive_notification_via_channel() {
   let address = SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), client::DEFAULT_PORT );
 
   // Create and start a mock Etherdream DAC
-  let dac = MockEtherdream::start( address ).await.unwrap();
+  let dac = EtherdreamServer::start( address ).await.unwrap();
 
   // Setup a channel to receive command notifications from the server
   let ( tx, mut rx ) = sync::mpsc::channel( 1 );
@@ -150,14 +143,10 @@ async fn send_ping_and_receive_notification_via_channel() {
   // Send a ping
   let _ = client.ping().await;
 
-  // Setup future to receive the ping
-  let handle = timeout( Duration::from_secs( 2 ), async move {
-    return rx.recv().await;
-  });
-
-  // Validate that we received the ping (Ok())
+  // Validate that we received the ping (w/ timeout on fail)
+  let handle = timeout( Duration::from_secs( 2 ), async move { return rx.recv().await; });
   assert_eq!( Some( true ), handle.await.unwrap() );
 
-  // Shut it down
+  // Shut down the mock etherdream server
   let _ = dac.shutdown().await;
 }
