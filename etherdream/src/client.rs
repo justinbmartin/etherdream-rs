@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use std::sync::{ Arc, atomic::{ AtomicUsize, Ordering } };
+use std::sync::Arc;
 
 use parking_lot::RwLock;
 use tokio::io::{ self, AsyncReadExt, AsyncWriteExt };
@@ -8,13 +8,17 @@ use tokio::sync::mpsc::{ self, error::TrySendError };
 use tokio::task;
 use tokio_util::sync::CancellationToken;
 
+use crate::device;
+
 pub const DEFAULT_PORT: u16 = 7765;
 
 const ETHERDREAM_RESPONSE_CONTROL_SIZE: usize = 2;
 const ETHERDREAM_RESPONSE_STATE_SIZE: usize = 20;
 const ETHERDREAM_RESPONSE_SIZE: usize = ETHERDREAM_RESPONSE_CONTROL_SIZE + ETHERDREAM_RESPONSE_STATE_SIZE;
 
-type CallbackPayload = ( ControlSignal, Command );
+type PointsBufferedCount = u16;
+
+type CallbackPayload = ( ControlSignal, Command, PointsBufferedCount );
 type CallbackReceiver = mpsc::Receiver<CallbackPayload>;
 type CallbackSender = mpsc::Sender<CallbackPayload>;
 type StateRef = Arc<RwLock<[u8;ETHERDREAM_RESPONSE_STATE_SIZE]>>;
@@ -95,14 +99,14 @@ pub struct Client {
 
 impl Client {
   pub async fn start<T>( address: SocketAddr, on_command_handler: T ) -> io::Result<Client> 
-    where T: Fn( ControlSignal, Command ) + Send + 'static
+    where T: Fn( ControlSignal, Command, u16 ) + Send + 'static
   {
     let shutdown_token = CancellationToken::new();
     let state = Arc::new( RwLock::new( [0u8;ETHERDREAM_RESPONSE_STATE_SIZE] ) );
 
     // Responsible for communicating responses received from the DAC to the
     // asyncronous client notifier, `do_notify`
-    let ( callback_tx, callback_rx ) = mpsc::channel::<CallbackPayload>( 32 );
+    let ( callback_tx, callback_rx ) = mpsc::channel::<CallbackPayload>( 128 );
 
     // Responsible to communicating commands from the client run-time to the
     // asynchronous DAC writer, `do_write`
@@ -114,20 +118,19 @@ impl Client {
     let ( dac_rx, dac_tx ) = dac_stream.into_split();
 
     // Start the callback/notification handler
-    let notifier = {
-      let state = state.clone();
+    let callback_handle = {
       let shutdown_token = shutdown_token.child_token();
 
       tokio::spawn( async move {
         tokio::select!{
           _ = shutdown_token.cancelled() => { Ok(()) }
-          result = do_callback( state, callback_rx, on_command_handler ) => { result }
+          result = do_callback( callback_rx, on_command_handler ) => { result }
         }
       })
     };
 
     // Start the DAC read handler
-    let rx_manager = {
+    let dac_rx_handle = {
       let shutdown_token = shutdown_token.child_token();
 
       tokio::spawn({
@@ -143,7 +146,7 @@ impl Client {
     };
 
     // Start the DAC write handler
-    let tx_manager = {
+    let dac_tx_handle = {
       let shutdown_token = shutdown_token.child_token();
 
       tokio::spawn( async move {
@@ -159,20 +162,22 @@ impl Client {
       command_tx: command_tx,
       shutdown_token: shutdown_token,
       state: state,
-      tasks: Some([ rx_manager, tx_manager, notifier ])
+      tasks: Some([ dac_rx_handle, dac_tx_handle, callback_handle ])
     });
   }
 
-  // Returns the remote address this client is connected to.
+  // Return the remote address for the DAC that this client is connected to.
   pub fn remote( &self ) -> SocketAddr {
     return self.address;
   }
 
-  // Sends a ping request to the DAC.
+  // Send a ping request to the DAC. Response will be delivered asynchronously
+  // via the user-provided callback.
   pub fn ping( &mut self ) -> Result<(),TrySendError<Command>> {
     return self.command_tx.try_send( Command::Ping );
   }
 
+  // Stops the client, disconnecting it from the DAC.
   pub async fn stop( &mut self ) -> Result<(),task::JoinError> {
     self.shutdown_token.cancel();
 
@@ -203,14 +208,14 @@ async fn do_read( current_state: StateRef, callback_tx: CallbackSender, mut dac_
       ControlSignal::Ack => {
         match command {
           Command::Ping => {
-            if let Err( _ ) = callback_tx.try_send( ( control_signal, command ) ) {
+            if let Err( _ ) = callback_tx.try_send( ( control_signal, command, 0 ) ) {
               // todo: log warning, or call on_error-like callback?
             }
           }
         }
       },
       _ => {
-        // todo: log warning, or call on_error-like callback?
+        todo!();
       }
     }
   }
@@ -228,12 +233,12 @@ async fn do_write( mut client_rx: mpsc::Receiver<Command>, mut dac_tx: tcp::Owne
   }
 }
 
-async fn do_callback<T>( _current_state: StateRef, mut callback_rx: CallbackReceiver, on_command_handler: T ) -> io::Result<()> 
-  where T: Fn( ControlSignal, Command ) + Send + 'static
+async fn do_callback<T>( mut callback_rx: CallbackReceiver, on_command_handler: T ) -> io::Result<()> 
+  where T: Fn( ControlSignal, Command, u16 ) + Send + 'static
 {
   loop {
-    if let Some( ( control_signal, command ) ) = callback_rx.recv().await {
-      on_command_handler( control_signal, command );
+    if let Some( ( control_signal, command, points_buffered ) ) = callback_rx.recv().await {
+      on_command_handler( control_signal, command, points_buffered );
     }
   }
 }

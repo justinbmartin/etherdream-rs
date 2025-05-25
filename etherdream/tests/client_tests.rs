@@ -123,7 +123,7 @@ async fn send_and_receive_ping() {
   // Define a channel and callback for our client to validate that a ping was received
   let ( tx, mut rx ) = sync::mpsc::channel( 1 );
 
-  let on_command_handler = move | control_signal, command | {
+  let on_command_handler = move | control_signal, command, _points_buffered | {
     let _ = match ( control_signal, command ) {
       ( client::ControlSignal::Ack, client::Command::Ping ) => tx.try_send( true ),
       _ => tx.try_send( false )
