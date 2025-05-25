@@ -82,11 +82,10 @@ async fn main() {
   }
 }
 
-//
 async fn process_command( input: &mut String, state: &Arc<RwLock<State>> ) -> Result<bool,String> {
   input.clear();
 
-  // Print console prefix (one of "> " or "[device index] >")
+  // Print console prefix (one of "> " or "[<device index>] >")
   let prefix = if let Some( index ) = state.read().current_client { format!( "[{}]", index ) } else { String::from( "" ) };
   print!( "{}> ", prefix );
   
@@ -97,7 +96,7 @@ async fn process_command( input: &mut String, state: &Arc<RwLock<State>> ) -> Re
   let args = shlex::split( input.trim() ).ok_or( "Failed to read input." )?;
   let cli = Cli::try_parse_from( args ).map_err( |e| e.to_string() )?;
 
-  // Execute the command
+  // Execute the user-provided command
   match cli.command {
     Commands::Connect{ index } => {
       if state.read().clients.contains_key( &index ) {
@@ -105,15 +104,21 @@ async fn process_command( input: &mut String, state: &Arc<RwLock<State>> ) -> Re
         Ok( false )
 
       } else {
-        return match state.read().devices.get( index ) {
+        match state.read().devices.get( index ) {
           Some( ( address, _ ) ) => {
-            let client = Client::start( *address, |_, _, _|{  }).await.unwrap();
+            match Client::start( *address, |_, _, _|{  }).await {
+              Ok( client ) => {
+                let mut state = state.write();
+                state.clients.insert( index, client );
+                state.current_client = Some( index );
+    
+                return Ok( false );
+              }
 
-            let mut state = state.write();
-            state.clients.insert( index, client );
-            state.current_client = Some( index );
-
-            Ok( false )
+              Err( msg ) => {
+                return Err( String::from( format!( "Failed to connect to Etherdream DAC: {}", msg ) ) ); 
+              }
+            }
           },
 
           None => { 
@@ -124,13 +129,15 @@ async fn process_command( input: &mut String, state: &Arc<RwLock<State>> ) -> Re
     },
 
     Commands::Device{ index } => {
-      return match state.read().devices.get( index ) {
+      match state.read().devices.get( index ) {
         Some(( address, device )) => {
           println!( "Address = {address}\n" );
           println!( "{device}" );
-          Ok(false)
+          return Ok(false);
         },
-        None => { return Err( String::from( "(does not exist)" ) ); }
+        None => { 
+          return Err( String::from( "(does not exist)" ) ); 
+        }
       }
     }
 
