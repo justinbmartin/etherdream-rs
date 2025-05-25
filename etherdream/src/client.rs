@@ -14,6 +14,10 @@ const ETHERDREAM_RESPONSE_CONTROL_SIZE: usize = 2;
 const ETHERDREAM_RESPONSE_STATE_SIZE: usize = 20;
 const ETHERDREAM_RESPONSE_SIZE: usize = ETHERDREAM_RESPONSE_CONTROL_SIZE + ETHERDREAM_RESPONSE_STATE_SIZE;
 
+type CallbackPayload = ( ControlSignal, Command );
+type CallbackReceiver = mpsc::Receiver<CallbackPayload>;
+type CallbackSender = mpsc::Sender<CallbackPayload>;
+type StateRef = Arc<RwLock<[u8;ETHERDREAM_RESPONSE_STATE_SIZE]>>;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Control Signal
 
@@ -94,16 +98,22 @@ impl Client {
     where T: Fn( ControlSignal, Command ) + Send + 'static
   {
     let shutdown_token = CancellationToken::new();
-    let ( callback_tx, callback_rx ) = mpsc::channel::<( ControlSignal, Command )>( 128 );
-    let ( command_tx, command_rx ) = mpsc::channel::<Command>( 128 );
-    let state = Arc::new( RwLock::new( [0u8;20] ) );
-  
-    // Connect to the Etherdream DAC at `address`
-    let socket = net::TcpSocket::new_v4()?;
-    let stream = socket.connect( address ).await?;
-    let ( rx, tx ) = stream.into_split();
+    let state = Arc::new( RwLock::new( [0u8;ETHERDREAM_RESPONSE_STATE_SIZE] ) );
 
-    // Spawn notifier handler
+    // Responsible for communicating responses received from the DAC to the
+    // asyncronous client notifier, `do_notify`
+    let ( callback_tx, callback_rx ) = mpsc::channel::<CallbackPayload>( 32 );
+
+    // Responsible to communicating commands from the client run-time to the
+    // asynchronous DAC writer, `do_write`
+    let ( command_tx, command_rx ) = mpsc::channel::<Command>( 128 );
+
+    // Connect to the Etherdream DAC at `address`
+    let dac_socket = net::TcpSocket::new_v4()?;
+    let dac_stream = dac_socket.connect( address ).await?;
+    let ( dac_rx, dac_tx ) = dac_stream.into_split();
+
+    // Start the callback/notification handler
     let notifier = {
       let state = state.clone();
       let shutdown_token = shutdown_token.child_token();
@@ -111,12 +121,12 @@ impl Client {
       tokio::spawn( async move {
         tokio::select!{
           _ = shutdown_token.cancelled() => { Ok(()) }
-          result = do_notify( state, callback_rx, on_command_handler ) => { result }
+          result = do_callback( state, callback_rx, on_command_handler ) => { result }
         }
       })
     };
 
-    // Spawn read handler
+    // Start the DAC read handler
     let rx_manager = {
       let shutdown_token = shutdown_token.child_token();
 
@@ -126,20 +136,20 @@ impl Client {
         async move {
           tokio::select!{
             _ = shutdown_token.cancelled() => { Ok(()) }
-            result = do_read( state, callback_tx, rx ) => { result }
+            result = do_read( state, callback_tx, dac_rx ) => { result }
           }
         }
       })
     };
 
-    // Spawn write handler
+    // Start the DAC write handler
     let tx_manager = {
       let shutdown_token = shutdown_token.child_token();
 
       tokio::spawn( async move {
         tokio::select!{
           _ = shutdown_token.cancelled() => { Ok(()) }
-          result = do_write( command_rx, tx ) => { result }
+          result = do_write( command_rx, dac_tx ) => { result }
         }
       })
     };
@@ -176,18 +186,18 @@ impl Client {
   }
 }
 
-async fn do_read( current_state: Arc<RwLock<[u8;ETHERDREAM_RESPONSE_STATE_SIZE]>>, callback_tx: mpsc::Sender<( ControlSignal, Command )>, mut rx: tcp::OwnedReadHalf ) -> io::Result<()> {
+async fn do_read( current_state: StateRef, callback_tx: CallbackSender, mut dac_rx: tcp::OwnedReadHalf ) -> io::Result<()> {
   let mut buf = [0u8; ETHERDREAM_RESPONSE_SIZE];
 
   loop {
-    let _ = rx.read_exact( &mut buf ).await?;
+    let _ = dac_rx.read_exact( &mut buf ).await?;
     
-    // Unpack control data
+    // Unpack control data: todo: might be better to just match against the byte (instead of copy)
     let control_signal: ControlSignal = buf[0].into();
     let command: Command = buf[1].into();
 
     // Copy the state from our buffer into the client
-    current_state.write().copy_from_slice( &buf[2..22] );
+    current_state.write().copy_from_slice( &buf[2..] );
 
     match control_signal {
       ControlSignal::Ack => {
@@ -206,19 +216,19 @@ async fn do_read( current_state: Arc<RwLock<[u8;ETHERDREAM_RESPONSE_STATE_SIZE]>
   }
 }
 
-async fn do_write( mut command_rx: mpsc::Receiver<Command>, mut tx: tcp::OwnedWriteHalf ) -> io::Result<()> {
+async fn do_write( mut client_rx: mpsc::Receiver<Command>, mut dac_tx: tcp::OwnedWriteHalf ) -> io::Result<()> {
   loop {
-    while let Some( command ) = command_rx.recv().await {
+    while let Some( command ) = client_rx.recv().await {
       match command {
         Command::Ping => {
-          let _ = tx.write_u8( COMMAND_PING ).await?;
+          let _ = dac_tx.write_u8( COMMAND_PING ).await?;
         }
       }
     }
   }
 }
 
-async fn do_notify<T>( _current_state: Arc<RwLock<[u8;ETHERDREAM_RESPONSE_STATE_SIZE]>>, mut callback_rx: mpsc::Receiver<( ControlSignal, Command )>, on_command_handler: T ) -> io::Result<()> 
+async fn do_callback<T>( _current_state: StateRef, mut callback_rx: CallbackReceiver, on_command_handler: T ) -> io::Result<()> 
   where T: Fn( ControlSignal, Command ) + Send + 'static
 {
   loop {
