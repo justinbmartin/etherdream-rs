@@ -133,8 +133,8 @@ async fn send_and_receive_ping() {
   };
 
   // Create and start a client
-  let mut client = 
-    client::Client::start( address, on_command_handler ).await
+  let client = 
+    client::Client::connect( address.ip(), on_command_handler ).await
     .expect( "Failed to connect to Etherdream device" );
 
   // Send a ping

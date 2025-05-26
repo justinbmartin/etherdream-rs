@@ -24,22 +24,22 @@ enum Commands {
   #[clap( alias = "ls" )]
   List,
 
-  /// Print details about a discovered device by index.
-  #[clap( alias = "d" )]
-  Device {
+  /// Print information about a discovered device by index.
+  Info {
     /// Index of device to view.
     index: usize,
   },
 
-  /// Print details about a discovered device by index.
-  #[clap( alias = "c" )]
+  /// Connects to a discovered Etherdream by index.
   Connect {
     /// Index of device to connect to.
     index: usize,
   },
 
-  /// Ping the currently selected device.
-  #[clap( alias = "p" )]
+  /// Disconnects from the currently active Etherdream client.
+  Disconnect,
+
+  /// Ping the currently selected device and print the current state.
   Ping,
 
   /// Exit the application.
@@ -93,11 +93,12 @@ async fn main() {
       if let Ok( cli ) = Cli::try_parse_from( args ) {
 
         match cli.command {
-          Commands::Connect{ index } => do_connect_device( &state, index ).await,
-          Commands::Device{ index } => do_inspect_device( &state, index ),
+          Commands::Connect{ index } => do_connect( &state, index ).await,
+          Commands::Disconnect => do_disconnect( &state ).await,
           Commands::Exit => break,
+          Commands::Info{ index } => do_print_device_info( &state, index ),
           Commands::List => do_list_devices( &state ),
-          Commands::Ping => do_ping_device( &state )
+          Commands::Ping => do_ping_current_device( &state )
         }
       }
     }
@@ -118,16 +119,25 @@ fn do_list_devices( state: &StateRef ) {
   }
 }
 
-async fn do_connect_device( state: &StateRef, device_index: usize ) {
+async fn do_connect( state: &StateRef, device_index: usize ) {
   let mut state = state.write();
 
+  // Define client command callback
+  let callback_fn = move | _control, command, _points_remaining | { 
+    println!( "COMMAND RECEIVED: {:?}", command );
+  };
+
+  // If client already exists, set it as the current device
   if state.clients.contains_key( &device_index ) {
     state.current_client = Some( device_index );
 
-  } else {
+  } 
+  
+  // Create a new client for the device at `device_index`
+  else {
     match state.devices.get( device_index ) {
-      Some( ( address, _ ) ) => {
-        match etherdream::Client::start( *address, |_, command, _|{ println!( "COMMAND RECEIVED: {:?}", command ) }).await {
+      Some( &( address, _ ) ) => {
+        match etherdream::Client::connect( address.ip(), callback_fn ).await {
           Ok( client ) => {
             state.clients.insert( device_index, client );
             state.current_client = Some( device_index );
@@ -146,7 +156,17 @@ async fn do_connect_device( state: &StateRef, device_index: usize ) {
   }
 }
 
-fn do_inspect_device( state: &StateRef, device_index: usize ) {
+async fn do_disconnect( state: &StateRef ) {
+  let mut state = state.write();
+
+  if let Some( index ) = state.current_client {
+    if let Some( client ) = state.clients.remove( &index ) {
+      let _ = client.disconnect().await;
+    }
+  }
+}
+
+fn do_print_device_info( state: &StateRef, device_index: usize ) {
   match state.read().devices.get( device_index ) {
     Some(( address, device )) => {
       println!( "Address = {address}\n" );
@@ -158,7 +178,7 @@ fn do_inspect_device( state: &StateRef, device_index: usize ) {
   }
 }
 
-fn do_ping_device( state: &StateRef ) {
+fn do_ping_current_device( state: &StateRef ) {
   let state = state.read();
 
   if let Some( client_index ) = state.current_client {

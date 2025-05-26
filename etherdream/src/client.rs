@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::net::{ IpAddr, SocketAddr };
 use std::sync::Arc;
 
 use parking_lot::RwLock;
@@ -96,7 +96,7 @@ pub struct Client {
 }
  
 impl Client {
-  pub async fn start<T>( address: SocketAddr, on_command_handler: T ) -> io::Result<Client> 
+  pub async fn connect<T>( address: IpAddr, on_command_handler: T ) -> io::Result<Client> 
     where T: Fn( ControlSignal, Command, PointsBuffered ) + Send + 'static
   {
     let shutdown_token = CancellationToken::new();
@@ -111,7 +111,7 @@ impl Client {
     let ( command_tx, command_rx ) = mpsc::channel::<Command>( 64 );
 
     // Connect to the Etherdream DAC at `address`
-    let address = SocketAddr::new( address.ip(), device::DEFAULT_PORT );
+    let address = SocketAddr::new( address, device::DEFAULT_PORT );
     let dac_stream = net::TcpSocket::new_v4()?.connect( address ).await?;
     let ( dac_rx, dac_tx ) = dac_stream.into_split();
 
@@ -164,19 +164,8 @@ impl Client {
     });
   }
 
-  // Return the remote address for the DAC that this client is connected to.
-  pub fn remote( &self ) -> SocketAddr {
-    return self.address;
-  }
-
-  // Send a ping request to the DAC. Response will be delivered asynchronously
-  // via the user-provided callback.
-  pub fn ping( &self ) -> Result<(),TrySendError<Command>> {
-    return self.command_tx.try_send( Command::Ping );
-  }
-
-  // Stops the client, disconnecting it from the DAC.
-  pub async fn stop( &mut self ) -> Result<(),task::JoinError> {
+  // Stops the client and consumes self. Returns Ok on success.
+  pub async fn disconnect( mut self ) -> Result<(),task::JoinError> {
     self.shutdown_token.cancel();
 
     if let Some( tasks ) = self.tasks.take() {
@@ -186,6 +175,17 @@ impl Client {
     }
 
     return Ok(());
+  }
+
+  // Return the remote address for the DAC that this client is connected to.
+  pub fn remote( &self ) -> SocketAddr {
+    return self.address;
+  }
+
+  // Send a ping request to the DAC. Response will be delivered asynchronously
+  // via the user-provided callback.
+  pub fn ping( &self ) -> Result<(),TrySendError<Command>> {
+    return self.command_tx.try_send( Command::Ping );
   }
 }
 
