@@ -10,42 +10,28 @@ use etherdream;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  CLI
 
-/// Discover and manage Etherdream devices.
-#[derive( Debug, clap::Parser )]
-#[command( multicall=true )]
-struct Cli {
-  #[command( subcommand )]
-  command: Commands,
+fn cli() -> clap::Command {
+  return clap::Command::new( "Etherdream" )
+    .about( "Discover and manage Etherdream devices." )
+    .multicall( true )
+    .subcommand_required( true )
+    .subcommands([
+      clap::Command::new( "list" )
+        .about( "List discovered Etherdream devices." )
+        .visible_alias( "ls" ),
+      clap::Command::new( "info" )
+        .about( "Prints details about a discovered device at `index`" )
+        .arg( clap::Arg::new( "index" ).required( true ).value_parser( clap::value_parser!( usize ) ) ),
+      clap::Command::new( "connect" )
+        .about( "Connects to a discovered Etherdream device at the provided `index`." )
+        .arg( clap::Arg::new( "index" ).required( true ).value_parser( clap::value_parser!( usize ) ) ),
+      clap::Command::new( "disconnect" )
+        .about( "Disconnects from the currently active Etherdream device." ),
+      clap::Command::new( "ping" )
+        .about( "Pings the currently active Etherdream device and prints the active device state." ),
+      clap::Command::new( "exit" )
+    ]);
 }
-
-#[derive( Debug, clap::Subcommand )]
-enum Commands {
-  /// List discovered devices.
-  #[clap( alias = "ls" )]
-  List,
-
-  /// Print information about a discovered device by index.
-  Info {
-    /// Index of device to view.
-    index: usize,
-  },
-
-  /// Connects to a discovered Etherdream by index.
-  Connect {
-    /// Index of device to connect to.
-    index: usize,
-  },
-
-  /// Disconnects from the currently active Etherdream client.
-  Disconnect,
-
-  /// Ping the currently selected device and print the current state.
-  Ping,
-
-  /// Exit the application.
-  Exit,
-}
-
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Main
 
 type StateRef = Arc<RwLock<State>>;
@@ -65,7 +51,7 @@ struct State {
 async fn main() {
   let mut input = String::new();
   let state = Arc::new( RwLock::new( State{ clients: HashMap::new(), current_client: None, devices: Vec::new() }));
-  
+
   // Start the Etherdream discovery service. All discovered devices will be
   // stored in `state.devices`.
   tokio::task::spawn({
@@ -90,15 +76,15 @@ async fn main() {
     let _ = io::stdin().read_line( &mut input );
   
     if let Some( args ) = shlex::split( input.trim() ) {
-      if let Ok( cli ) = Cli::try_parse_from( args ) {
-
-        match cli.command {
-          Commands::Connect{ index } => do_connect( &state, index ).await,
-          Commands::Disconnect => do_disconnect( &state ).await,
-          Commands::Exit => break,
-          Commands::Info{ index } => do_print_device_info( &state, index ),
-          Commands::List => do_list_devices( &state ),
-          Commands::Ping => do_ping_current_device( &state )
+      if let Ok( matches ) = cli().try_get_matches_from( args ) {
+        match matches.subcommand() {
+          Some(( "connect", args )) => do_connect( &state, *args.get_one::<usize>( "index" ).unwrap() ).await,
+          Some(( "disconnect", _ )) => do_disconnect( &state ).await,
+          Some(( "exit", _ )) => break,
+          Some(( "info", args )) => do_print_device_info( &state, *args.get_one::<usize>( "index" ).unwrap() ),
+          Some(( "list", _ )) => do_list_devices( &state ),
+          Some(( "ping", _ )) => do_ping_current_device( &state ),
+          _ => println!( "(unknown command)" )
         }
       }
     }
