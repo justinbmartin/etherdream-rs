@@ -45,11 +45,11 @@ impl Version {
 #[repr( C )]
 #[derive( Clone, Copy, Debug, Default, PartialEq )]
 pub struct MacAddress {
-  address: [u8;6]
+  address: [u8; 6]
 }
 
 impl MacAddress {
-  pub fn new( address: [u8;6] ) -> MacAddress {
+  pub fn new( address: [u8; 6] ) -> MacAddress {
     return MacAddress{ address: address };
   }
 }
@@ -147,15 +147,15 @@ pub struct State {
 }
 
 impl Device {
-  pub fn from_bytes( bytes: [u8;36] ) -> Device {
+  pub fn from_bytes( bytes: [u8; 36] ) -> Device {
     // SAFETY:
-    // * `EtherdreamResponse` has the same size as `[u8; ETHERDREAM_RESPONSE_SIZE]`.
-    // * `[u8; ETHERDREAM_RESPONSE_SIZE]` has no alignment requirement.
+    // * `Device` has the same size as `[u8; 36]`.
+    // * `[u8; 36]` has no alignment requirement.
     // * Since it is packed, this type has no padding.
     unsafe{ return std::mem::transmute( bytes ); }
   }
 
-  pub fn as_bytes( self ) -> [u8;36] {
+  pub fn as_bytes( self ) -> [u8; 36] {
     unsafe{ return std::mem::transmute( self ); }
   }
 
@@ -189,7 +189,7 @@ impl Device {
       1 => LightEngineState::WarmUp,
       2 => LightEngineState::CoolDown,
       3 => LightEngineState::Estop,
-      _ => LightEngineState::Ready
+      _ => LightEngineState::Ready // TODO: how to handle incorrect values? they should not exist per contract w/ DAC? panic?
     }
   }
 

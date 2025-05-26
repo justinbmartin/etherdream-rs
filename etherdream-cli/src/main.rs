@@ -38,6 +38,10 @@ enum Commands {
     index: usize,
   },
 
+  /// Ping the currently selected device.
+  #[clap( alias = "p" )]
+  Ping,
+
   /// Exit the application.
   Exit,
 }
@@ -76,7 +80,7 @@ async fn main() {
   // Start the REPL (via a naive loop)
   loop {
     match process_command( &mut input, &state ).await {
-      Ok( quit ) => if quit { break; },
+      Ok( quit ) => if quit { break; } else { continue; },
       Err( msg ) => println!( "{msg}" )
     }
   }
@@ -86,7 +90,7 @@ async fn process_command( input: &mut String, state: &Arc<RwLock<State>> ) -> Re
   input.clear();
 
   // Print console prefix (one of "> " or "[<device index>] >")
-  let prefix = if let Some( index ) = state.read().current_client { format!( "[{}]", index ) } else { String::from( "" ) };
+  let prefix = if let Some( index ) = state.read().current_client { format!( "[{}] ", index ) } else { String::from( "" ) };
   print!( "{}> ", prefix );
   
   // Read and parse console input
@@ -96,19 +100,21 @@ async fn process_command( input: &mut String, state: &Arc<RwLock<State>> ) -> Re
   let args = shlex::split( input.trim() ).ok_or( "Failed to read input." )?;
   let cli = Cli::try_parse_from( args ).map_err( |e| e.to_string() )?;
 
+  // TODO: taking write-access here...
+  let mut state = state.write();
+
   // Execute the user-provided command
   match cli.command {
     Commands::Connect{ index } => {
-      if state.read().clients.contains_key( &index ) {
-        state.write().current_client = Some( index );
+      if state.clients.contains_key( &index ) {
+        state.current_client = Some( index );
         Ok( false )
 
       } else {
-        match state.read().devices.get( index ) {
+        match state.devices.get( index ) {
           Some( ( address, _ ) ) => {
-            match Client::start( *address, |_, _, _|{  }).await {
+            match Client::start( *address, |_, command, _|{ println!( "COMMAND RECEIVED: {:?}", command ) }).await {
               Ok( client ) => {
-                let mut state = state.write();
                 state.clients.insert( index, client );
                 state.current_client = Some( index );
     
@@ -128,8 +134,17 @@ async fn process_command( input: &mut String, state: &Arc<RwLock<State>> ) -> Re
       }
     },
 
+    Commands::Ping => {
+      if let Some( client_index ) = state.current_client {
+        let client = state.clients.get( &client_index ).unwrap();
+        let _ = client.ping();
+      }
+
+      return Ok( false );
+    }
+
     Commands::Device{ index } => {
-      match state.read().devices.get( index ) {
+      match state.devices.get( index ) {
         Some(( address, device )) => {
           println!( "Address = {address}\n" );
           println!( "{device}" );
@@ -142,12 +157,10 @@ async fn process_command( input: &mut String, state: &Arc<RwLock<State>> ) -> Re
     }
 
     Commands::List => {
-      let devices = &state.read().devices;
-
-      if devices.is_empty() {
+      if state.devices.is_empty() {
         println!( "(no devices)" );
       } else {
-        for ( index, ( address, device ) ) in devices.iter().enumerate() {
+        for ( index, ( address, device ) ) in state.devices.iter().enumerate() {
           println!( "  [{}] {} (MAC: {})", index, address, device.mac_address() );
         }
       }

@@ -8,6 +8,8 @@ use tokio::sync::mpsc::{ self, error::TrySendError };
 use tokio::task;
 use tokio_util::sync::CancellationToken;
 
+use crate::device;
+
 const ETHERDREAM_RESPONSE_CONTROL_SIZE: usize = 2;
 const ETHERDREAM_RESPONSE_STATE_SIZE: usize = 20;
 const ETHERDREAM_RESPONSE_SIZE: usize = ETHERDREAM_RESPONSE_CONTROL_SIZE + ETHERDREAM_RESPONSE_STATE_SIZE;
@@ -57,7 +59,7 @@ impl From<u8> for ControlSignal {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Command
 
-const COMMAND_PING: u8 = b'p';
+const COMMAND_PING: u8 = b'?';
 
 #[repr( u8 )]
 #[derive( Debug )]
@@ -109,6 +111,7 @@ impl Client {
     let ( command_tx, command_rx ) = mpsc::channel::<Command>( 64 );
 
     // Connect to the Etherdream DAC at `address`
+    let address = SocketAddr::new( address.ip(), device::DEFAULT_PORT );
     let dac_stream = net::TcpSocket::new_v4()?.connect( address ).await?;
     let ( dac_rx, dac_tx ) = dac_stream.into_split();
 
@@ -168,7 +171,7 @@ impl Client {
 
   // Send a ping request to the DAC. Response will be delivered asynchronously
   // via the user-provided callback.
-  pub fn ping( &mut self ) -> Result<(),TrySendError<Command>> {
+  pub fn ping( &self ) -> Result<(),TrySendError<Command>> {
     return self.command_tx.try_send( Command::Ping );
   }
 
