@@ -3,35 +3,12 @@ use std::io::{ self, Write };
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use clap::{ self, Parser };
+use clap;
 use parking_lot::RwLock;
+use tokio::{ self, time::Duration };
 
 use etherdream;
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  CLI
-
-fn cli() -> clap::Command {
-  return clap::Command::new( "Etherdream" )
-    .about( "Discover and manage Etherdream devices." )
-    .multicall( true )
-    .subcommand_required( true )
-    .subcommands([
-      clap::Command::new( "list" )
-        .about( "List discovered Etherdream devices." )
-        .visible_alias( "ls" ),
-      clap::Command::new( "info" )
-        .about( "Prints details about a discovered device at `index`" )
-        .arg( clap::Arg::new( "index" ).required( true ).value_parser( clap::value_parser!( usize ) ) ),
-      clap::Command::new( "connect" )
-        .about( "Connects to a discovered Etherdream device at the provided `index`." )
-        .arg( clap::Arg::new( "index" ).required( true ).value_parser( clap::value_parser!( usize ) ) ),
-      clap::Command::new( "disconnect" )
-        .about( "Disconnects from the currently active Etherdream device." ),
-      clap::Command::new( "ping" )
-        .about( "Pings the currently active Etherdream device and prints the active device state." ),
-      clap::Command::new( "exit" )
-    ]);
-}
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Main
 
 type StateRef = Arc<RwLock<State>>;
@@ -51,6 +28,27 @@ struct State {
 async fn main() {
   let mut input = String::new();
   let state = Arc::new( RwLock::new( State{ clients: HashMap::new(), current_client: None, devices: Vec::new() }));
+
+  let mut cli = clap::Command::new( "Etherdream" )
+    .about( "Discover and manage Etherdream devices." )
+    .multicall( true )
+    .subcommand_required( true )
+    .subcommands([
+      clap::Command::new( "list" )
+        .about( "List discovered Etherdream devices." )
+        .visible_alias( "ls" ),
+      clap::Command::new( "info" )
+        .about( "Prints details about a discovered device at `index`" )
+        .arg( clap::Arg::new( "index" ).required( true ).value_parser( clap::value_parser!( usize ) ) ),
+      clap::Command::new( "connect" )
+        .about( "Connects to a discovered Etherdream device at the provided `index`." )
+        .arg( clap::Arg::new( "index" ).required( true ).value_parser( clap::value_parser!( usize ) ) ),
+      clap::Command::new( "disconnect" )
+        .about( "Disconnects from the currently active Etherdream device." ),
+      clap::Command::new( "ping" )
+        .about( "Pings the currently active Etherdream device and prints the active device state." ),
+      clap::Command::new( "exit" )
+    ]);
 
   // Start the Etherdream discovery service. All discovered devices will be
   // stored in `state.devices`.
@@ -76,16 +74,19 @@ async fn main() {
     let _ = io::stdin().read_line( &mut input );
   
     if let Some( args ) = shlex::split( input.trim() ) {
-      if let Ok( matches ) = cli().try_get_matches_from( args ) {
-        match matches.subcommand() {
-          Some(( "connect", args )) => do_connect( &state, *args.get_one::<usize>( "index" ).unwrap() ).await,
-          Some(( "disconnect", _ )) => do_disconnect( &state ).await,
-          Some(( "exit", _ )) => break,
-          Some(( "info", args )) => do_print_device_info( &state, *args.get_one::<usize>( "index" ).unwrap() ),
-          Some(( "list", _ )) => do_list_devices( &state ),
-          Some(( "ping", _ )) => do_ping_current_device( &state ),
-          _ => println!( "(unknown command)" )
-        }
+      match cli.try_get_matches_from_mut( args ) {
+        Ok( matches ) =>
+          match matches.subcommand() {
+            Some(( "connect", args )) => do_connect( &state, *args.get_one::<usize>( "index" ).unwrap() ).await,
+            Some(( "disconnect", _ )) => do_disconnect( &state ).await,
+            Some(( "exit", _ )) => break,
+            Some(( "info", args )) => do_print_device_info( &state, *args.get_one::<usize>( "index" ).unwrap() ),
+            Some(( "list", _ )) => do_list_devices( &state ),
+            Some(( "ping", _ )) => do_ping_current_device( &state ).await,
+            _ => {}
+          },
+        Err( err ) => 
+          { println!( "{err}" ); }
       }
     }
   }
@@ -116,7 +117,6 @@ async fn do_connect( state: &StateRef, device_index: usize ) {
   // If client already exists, set it as the current device
   if state.clients.contains_key( &device_index ) {
     state.current_client = Some( device_index );
-
   } 
   
   // Create a new client for the device at `device_index`
@@ -164,7 +164,7 @@ fn do_print_device_info( state: &StateRef, device_index: usize ) {
   }
 }
 
-fn do_ping_current_device( state: &StateRef ) {
+async fn do_ping_current_device( state: &StateRef ) {
   let state = state.read();
 
   if let Some( client_index ) = state.current_client {
@@ -172,6 +172,9 @@ fn do_ping_current_device( state: &StateRef ) {
     let _ = client.ping();
     
     //
+    let _response = tokio::time::timeout( Duration::from_secs( 3 ), async move {
+      
+    }).await;
 
   } else {
     println!( "(no device connected)" );
