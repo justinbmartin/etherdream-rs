@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 use std::io::{ self, Write };
 use std::net::SocketAddr;
+use std::ops::Deref;
 use std::sync::Arc;
 
 use clap;
 use parking_lot::RwLock;
-use tokio::{ self, time::Duration };
+use tokio::{ self, sync, time::Duration };
 
 use etherdream;
 
@@ -62,7 +63,7 @@ async fn main() {
     }
   });
 
-  // Start the REPL
+  // REPL
   loop {
     // Print console prefix, one of "> " or "[<device index>] >"
     let prefix = if let Some( index ) = state.read().current_client { format!( "[{}] ", index ) } else { String::from( "" ) };
@@ -107,12 +108,24 @@ fn do_list_devices( state: &StateRef ) {
 }
 
 async fn do_connect( state: &StateRef, device_index: usize ) {
-  let mut state = state.write();
+  let on_ping_notifier : Arc<RwLock<Option<sync::Notify>>> = Arc::new( RwLock::new( None ) );
 
   // Define client command callback
-  let callback_fn = move | _control, command, _points_remaining | { 
-    println!( "COMMAND RECEIVED: {:?}", command );
+  let callback_fn = {
+    let on_ping_notifier = on_ping_notifier.clone();
+
+    move | _control, command, _points_remaining | { 
+      if let Some( notifier ) = on_ping_notifier.read().deref() {
+        match command {
+          etherdream::client::Command::Ping => notifier.notify_one()
+        }
+      }
+
+      println!( "COMMAND RECEIVED: {:?}", command );
+    }
   };
+
+  let mut state = state.write();
 
   // If client already exists, set it as the current device
   if state.clients.contains_key( &device_index ) {
@@ -169,13 +182,12 @@ async fn do_ping_current_device( state: &StateRef ) {
 
   if let Some( client_index ) = state.current_client {
     let client = state.clients.get( &client_index ).unwrap();
-    let _ = client.ping();
     
-    //
-    let _response = tokio::time::timeout( Duration::from_secs( 3 ), async move {
-      
-    }).await;
-
+    match client.ping().await {
+      Ok( true ) => println!( "Ping ACK'd..." ),
+      Ok( false ) => println!( "Ping NAK'd" ),
+      _ => println!( "Ping error..." )
+    }
   } else {
     println!( "(no device connected)" );
   }

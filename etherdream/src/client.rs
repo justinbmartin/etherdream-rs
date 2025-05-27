@@ -4,29 +4,31 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 use tokio::io::{ self, AsyncReadExt, AsyncWriteExt };
 use tokio::net::{ self, tcp };
-use tokio::sync::mpsc::{ self, error::TrySendError };
+use tokio::sync::{ mpsc, oneshot };
 use tokio::task;
+use tokio::time;
 use tokio_util::sync::CancellationToken;
 
 use crate::device;
 
+const COMMAND_PING: u8                        = b'?';
+const CONTROL_SIGNAL_ACK: u8                  = b'a';
+const CONTROL_SIGNAL_NAK: u8                  = b'F';
+const CONTROL_SIGNAL_INVALID: u8              = b'I';
+const CONTROL_SIGNAL_STOP: u8                 = b'!';
 const ETHERDREAM_RESPONSE_CONTROL_SIZE: usize = 2;
-const ETHERDREAM_RESPONSE_STATE_SIZE: usize = 20;
-const ETHERDREAM_RESPONSE_SIZE: usize = ETHERDREAM_RESPONSE_CONTROL_SIZE + ETHERDREAM_RESPONSE_STATE_SIZE;
+const ETHERDREAM_RESPONSE_STATE_SIZE: usize   = 20;
+const ETHERDREAM_RESPONSE_SIZE: usize         = ETHERDREAM_RESPONSE_CONTROL_SIZE + ETHERDREAM_RESPONSE_STATE_SIZE;
 
 type PointsBuffered = u16;
 
-type CallbackPayload  = ( ControlSignal, Command, PointsBuffered );
-type CallbackReceiver = mpsc::Receiver<CallbackPayload>;
-type CallbackSender   = mpsc::Sender<CallbackPayload>;
-type StateRef         = Arc<RwLock<[u8;ETHERDREAM_RESPONSE_STATE_SIZE]>>;
+type CallbackPayload    = ( ControlSignal, Command, PointsBuffered );
+type CallbackReceiver   = mpsc::Receiver<CallbackPayload>;
+type CallbackSender     = mpsc::Sender<CallbackPayload>;
+type DeviceStateBytes   = [u8;ETHERDREAM_RESPONSE_STATE_SIZE];
+type DeviceStateRef     = Arc<RwLock<DeviceStateBytes>>;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Control Signal
-
-const CONTROL_SIGNAL_ACK: u8      = b'a';
-const CONTROL_SIGNAL_NAK: u8      = b'F';
-const CONTROL_SIGNAL_INVALID: u8  = b'I';
-const CONTROL_SIGNAL_STOP: u8     = b'!';
 
 #[repr( u8 )]
 #[derive( Debug )]
@@ -59,8 +61,6 @@ impl From<u8> for ControlSignal {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Command
 
-const COMMAND_PING: u8 = b'?';
-
 #[repr( u8 )]
 #[derive( Debug )]
 pub enum Command {
@@ -92,13 +92,17 @@ pub struct Client {
   tasks: Option<[task::JoinHandle<io::Result<()>>; 3]>,
 
   // The last recorded state of the Etherdream DAC
-  state: Arc<RwLock<[u8; ETHERDREAM_RESPONSE_STATE_SIZE]>>
+  state: DeviceStateRef,
+
+  //
+  ping_notifier: Arc<RwLock<Option<oneshot::Sender<DeviceStateBytes>>>>
 }
  
 impl Client {
   pub async fn connect<T>( address: IpAddr, on_command_handler: T ) -> io::Result<Client> 
     where T: Fn( ControlSignal, Command, PointsBuffered ) + Send + 'static
   {
+    let ping_notifier = Arc::new( RwLock::new( None::<oneshot::Sender<DeviceStateBytes>> ) );
     let shutdown_token = CancellationToken::new();
     let state = Arc::new( RwLock::new( [0u8; ETHERDREAM_RESPONSE_STATE_SIZE] ) );
 
@@ -132,12 +136,13 @@ impl Client {
       let shutdown_token = shutdown_token.child_token();
 
       tokio::spawn({
+        let ping_notifier = ping_notifier.clone();
         let state = state.clone();
 
         async move {
           tokio::select!{
             _ = shutdown_token.cancelled() => { Ok(()) }
-            result = do_read( state, callback_tx, dac_rx ) => { result }
+            result = do_read( state, dac_rx, callback_tx, ping_notifier ) => { result }
           }
         }
       })
@@ -158,6 +163,7 @@ impl Client {
     return Ok( Client{ 
       address: address,
       command_tx: command_tx,
+      ping_notifier: ping_notifier,
       shutdown_token: shutdown_token,
       state: state,
       tasks: Some([ dac_rx_handle, dac_tx_handle, callback_handle ])
@@ -184,13 +190,32 @@ impl Client {
 
   // Send a ping request to the DAC. Response will be delivered asynchronously
   // via the user-provided callback.
-  pub fn ping( &self ) -> Result<(),TrySendError<Command>> {
-    return self.command_tx.try_send( Command::Ping );
+  pub async fn ping( &self ) -> Result<bool,String> {
+    //
+    let( ping_tx, ping_rx ) = tokio::sync::oneshot::channel::<DeviceStateBytes>();
+    *self.ping_notifier.write() = Some( ping_tx );
+
+    //
+    let result = time::timeout( time::Duration::from_secs( 2 ), async move {
+      let _ = self.command_tx.try_send( Command::Ping );
+      
+      if let Ok( _ ) = ping_rx.await {
+        return Ok::<bool,String>( true );
+      } else {
+        return Ok::<bool,String>( false );
+      }
+    }).await;
+
+    return match result.unwrap() {
+      Ok( result ) => Ok( result ),
+      _ => Err( String::from( "CLIENT: Ping timed out..." ) )
+    }
   }
 }
 
-async fn do_read( current_state: StateRef, callback_tx: CallbackSender, mut dac_rx: tcp::OwnedReadHalf ) -> io::Result<()> {
+async fn do_read( current_state: DeviceStateRef, mut dac_rx: tcp::OwnedReadHalf, callback_tx: CallbackSender, ping_notifier: Arc<RwLock<Option<oneshot::Sender<DeviceStateBytes>>>> ) -> io::Result<()> {
   let mut buf = [0u8; ETHERDREAM_RESPONSE_SIZE];
+  let mut local_state = [0u8;20];
 
   loop {
     let _ = dac_rx.read_exact( &mut buf ).await?;
@@ -209,6 +234,11 @@ async fn do_read( current_state: StateRef, callback_tx: CallbackSender, mut dac_
             if let Err( _ ) = callback_tx.try_send( ( control_signal, command, 0 ) ) {
               // todo: log warning, or call an on_error-like callback?
             }
+
+            if let Some( notifier ) = ping_notifier.write().take() {
+              local_state.clone_from_slice( &buf[2..] );
+              let _ = notifier.send( local_state );
+            }
           }
         }
       },
@@ -219,9 +249,9 @@ async fn do_read( current_state: StateRef, callback_tx: CallbackSender, mut dac_
   }
 }
 
-async fn do_write( mut client_rx: mpsc::Receiver<Command>, mut dac_tx: tcp::OwnedWriteHalf ) -> io::Result<()> {
+async fn do_write( mut command_rx: mpsc::Receiver<Command>, mut dac_tx: tcp::OwnedWriteHalf ) -> io::Result<()> {
   loop {
-    while let Some( command ) = client_rx.recv().await {
+    while let Some( command ) = command_rx.recv().await {
       match command {
         Command::Ping => {
           let _ = dac_tx.write_u8( COMMAND_PING ).await?;

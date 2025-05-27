@@ -122,25 +122,13 @@ async fn send_and_receive_ping() {
   // Create and start a mock Etherdream Server
   let _ = EtherdreamServer::start( address ).await.unwrap();
 
-  // Define a channel and callback for our client to validate that a ping was received
-  let ( tx, mut rx ) = sync::mpsc::channel( 1 );
-
-  let on_command_handler = move | control_signal, command, _points_buffered | {
-    let _ = match ( control_signal, command ) {
-      ( client::ControlSignal::Ack, client::Command::Ping ) => tx.try_send( true ),
-      _ => tx.try_send( false )
-    };
-  };
+  let on_command_handler = move | _control_signal, _command, _points_buffered | { };
 
   // Create and start a client
   let client = 
     client::Client::connect( address.ip(), on_command_handler ).await
     .expect( "Failed to connect to Etherdream device" );
 
-  // Send a ping
-  let _ = client.ping();
-
-  // Validate that we received the ping via our channel (w/ timeout)
-  let handle = timeout( Duration::from_secs( 2 ), async move { return rx.recv().await; });
-  assert_eq!( Some( true ), handle.await.unwrap() );
+  // Send a ping and assert success
+  assert_eq!( Ok( true ), client.ping().await );
 }
