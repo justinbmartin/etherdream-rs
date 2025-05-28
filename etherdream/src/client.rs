@@ -44,17 +44,20 @@ pub enum ControlSignal {
   Invalid = CONTROL_SIGNAL_INVALID,
 
   // An emergency-stop condition exists.
-  Stop = CONTROL_SIGNAL_STOP
+  Stop = CONTROL_SIGNAL_STOP,
+
+  // An unknown control signal was received.
+  UNKNOWN = u8::MAX
 }
 
-impl From<u8> for ControlSignal {
-  fn from( signal: u8 ) -> Self {
+impl ControlSignal {
+  pub fn from_byte( signal: u8 ) -> Self {
     return match signal {
       CONTROL_SIGNAL_ACK      => ControlSignal::Ack,
       CONTROL_SIGNAL_NAK      => ControlSignal::Nak,
       CONTROL_SIGNAL_INVALID  => ControlSignal::Invalid,
       CONTROL_SIGNAL_STOP     => ControlSignal::Stop,
-      _ => panic!( "An unknown control signal was provided: {}", signal )
+      _                       => ControlSignal::UNKNOWN 
     };
   }
 }
@@ -64,11 +67,12 @@ impl From<u8> for ControlSignal {
 #[repr( u8 )]
 #[derive( Debug )]
 pub enum Command {
-  Ping = COMMAND_PING
+  Ping    = COMMAND_PING,
+  UNKNOWN = u8::MAX
 }
 
-impl From<u8> for Command {
-  fn from( command: u8 ) -> Self {
+impl Command {
+  pub fn from_byte( command: u8 ) -> Self {
     return match command {
       COMMAND_PING => Command::Ping,
       _ => panic!( "An unknown command was provided: {}", command )
@@ -94,7 +98,7 @@ pub struct Client {
   // The last recorded state of the Etherdream DAC
   state: DeviceStateRef,
 
-  //
+  // Channel used to acknowledge user-initiated ping requests
   ping_notifier: Arc<RwLock<Option<oneshot::Sender<DeviceStateBytes>>>>
 }
  
@@ -190,7 +194,7 @@ impl Client {
 
   // Send a ping request to the DAC. Response will be delivered asynchronously
   // via the user-provided callback.
-  pub async fn ping( &self ) -> Result<bool,String> {
+  pub async fn ping( &self ) -> Result<DeviceStateBytes,String> {
     //
     let( ping_tx, ping_rx ) = tokio::sync::oneshot::channel::<DeviceStateBytes>();
     *self.ping_notifier.write() = Some( ping_tx );
@@ -199,10 +203,10 @@ impl Client {
     let result = time::timeout( time::Duration::from_secs( 2 ), async move {
       let _ = self.command_tx.try_send( Command::Ping );
       
-      if let Ok( _ ) = ping_rx.await {
-        return Ok::<bool,String>( true );
+      if let Ok( state ) = ping_rx.await {
+        return Ok( state );
       } else {
-        return Ok::<bool,String>( false );
+        return Err( String::from( "failed" ) );
       }
     }).await;
 
@@ -221,8 +225,8 @@ async fn do_read( current_state: DeviceStateRef, mut dac_rx: tcp::OwnedReadHalf,
     let _ = dac_rx.read_exact( &mut buf ).await?;
     
     // Unpack control data
-    let control_signal: ControlSignal = buf[0].into();
-    let command: Command = buf[1].into();
+    let control_signal = ControlSignal::from_byte( buf[0] );
+    let command = Command::from_byte( buf[1] );
 
     // Copy the state from our buffer into the client
     current_state.write().copy_from_slice( &buf[2..] );
@@ -239,6 +243,9 @@ async fn do_read( current_state: DeviceStateRef, mut dac_rx: tcp::OwnedReadHalf,
               local_state.clone_from_slice( &buf[2..] );
               let _ = notifier.send( local_state );
             }
+          },
+          _ => {
+            // todo: log warning? error-like callback?
           }
         }
       },
@@ -255,6 +262,9 @@ async fn do_write( mut command_rx: mpsc::Receiver<Command>, mut dac_tx: tcp::Own
       match command {
         Command::Ping => {
           let _ = dac_tx.write_u8( COMMAND_PING ).await?;
+        },
+        _ => {
+          // todo: error?
         }
       }
     }

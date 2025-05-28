@@ -1,12 +1,10 @@
 use std::collections::HashMap;
 use std::io::{ self, Write };
 use std::net::SocketAddr;
-use std::ops::Deref;
 use std::sync::Arc;
 
 use clap;
 use parking_lot::RwLock;
-use tokio::{ self, sync, time::Duration };
 
 use etherdream;
 
@@ -108,19 +106,9 @@ fn do_list_devices( state: &StateRef ) {
 }
 
 async fn do_connect( state: &StateRef, device_index: usize ) {
-  let on_ping_notifier : Arc<RwLock<Option<sync::Notify>>> = Arc::new( RwLock::new( None ) );
-
   // Define client command callback
   let callback_fn = {
-    let on_ping_notifier = on_ping_notifier.clone();
-
     move | _control, command, _points_remaining | { 
-      if let Some( notifier ) = on_ping_notifier.read().deref() {
-        match command {
-          etherdream::client::Command::Ping => notifier.notify_one()
-        }
-      }
-
       println!( "COMMAND RECEIVED: {:?}", command );
     }
   };
@@ -184,8 +172,7 @@ async fn do_ping_current_device( state: &StateRef ) {
     let client = state.clients.get( &client_index ).unwrap();
     
     match client.ping().await {
-      Ok( true ) => println!( "Ping ACK'd..." ),
-      Ok( false ) => println!( "Ping NAK'd" ),
+      Ok( _state ) => println!( "Ping ACK'd..." ),
       _ => println!( "Ping error..." )
     }
   } else {

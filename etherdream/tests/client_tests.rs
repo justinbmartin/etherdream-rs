@@ -1,16 +1,16 @@
 use std::io;
 use std::net::{ IpAddr, Ipv4Addr, SocketAddr };
-use std::time::Duration;
 
 use tokio::io::{ AsyncReadExt, AsyncWriteExt };
 use tokio::net;
-use tokio::sync;
 use tokio::task;
-use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
 use etherdream::client;
 use etherdream::device;
+
+// Shared mutex to force serial execution of discovery tests, where required
+static SERVER_MUTEX: std::sync::Mutex<u8> = std::sync::Mutex::new( 0 );
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Etherdream Response
 
@@ -60,12 +60,14 @@ impl EtherdreamResponse {
 
 #[allow( dead_code )]
 struct EtherdreamServer {
+  address: SocketAddr,
   shutdown_token: CancellationToken,
   handle: task::JoinHandle<io::Result<()>>
 }
 
 impl EtherdreamServer {
-  async fn start( address: SocketAddr ) -> io::Result<Self> {
+  async fn start() -> io::Result<Self> {
+    let address = SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), device::DEFAULT_PORT );
     let shutdown_token = CancellationToken::new();
 
     // Bind to the defined Etherdream port
@@ -95,11 +97,12 @@ impl EtherdreamServer {
       
               // Extract the first byte and determine what action was requested. 
               // For each action, return the expected response.
-              match buf[0].into() {
+              match client::Command::from_byte( buf[0] ) {
                 client::Command::Ping => {
                   let response = EtherdreamResponse::new( client::ControlSignal::Ack, client::Command::Ping ).to_bytes();
                   let _ = stream.write( &response ).await?;
-                }
+                },
+                _ => { /* unknown command */ }
               }
             }
           } => { result }
@@ -107,28 +110,36 @@ impl EtherdreamServer {
     }});
     
     return Ok( Self{
+      address: address,
       shutdown_token: shutdown_token,
       handle: handle
     });
+  }
+
+  fn address( &self ) -> SocketAddr {
+    return self.address;
   }
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Tests
 
 #[tokio::test]
-async fn send_and_receive_ping() {
-  let address = SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), device::DEFAULT_PORT );
+async fn a_ping_will_be_sent_and_acknowledged() {
+  let _lock = SERVER_MUTEX.lock();
 
-  // Create and start a mock Etherdream Server
-  let _ = EtherdreamServer::start( address ).await.unwrap();
+  let server = EtherdreamServer::start().await.unwrap();
 
   let on_command_handler = move | _control_signal, _command, _points_buffered | { };
 
   // Create and start a client
   let client = 
-    client::Client::connect( address.ip(), on_command_handler ).await
+    client::Client::connect( server.address().ip(), on_command_handler ).await
     .expect( "Failed to connect to Etherdream device" );
 
   // Send a ping and assert success
-  assert_eq!( Ok( true ), client.ping().await );
+  if let Ok(_) = client.ping().await {
+    assert!( true );
+  } else {
+    assert!( false );
+  }
 }
