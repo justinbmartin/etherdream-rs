@@ -1,6 +1,10 @@
 use std::fmt;
 
+pub const DEVICE_BYTES_SIZE: usize = 36;
+pub const DEVICE_STATE_BYTES_SIZE: usize = 20;
 pub const DEFAULT_PORT: u16 = 7765;
+
+
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Device
 
@@ -66,32 +70,7 @@ impl fmt::Display for MacAddress {
   }
 }
 
-#[repr( C )]
-#[derive( Clone, Copy, Default )]
-pub struct Device {
-  mac_address: MacAddress,
-  version: Version,
-  buffer_capacity: u16,
-  max_points_per_second: u32,
-  state: State
-}
-
-impl fmt::Display for Device {
-  fn fmt( &self, f: &mut fmt::Formatter ) -> fmt::Result {
-    writeln!( f, "Core properties:" )?;
-    writeln!( f, "  Buffer capacity = {}", self.buffer_capacity )?;
-    writeln!( f, "  Mac address = {}", self.mac_address )?;
-    writeln!( f, "  Max points per second = {}", self.max_points_per_second )?;
-    writeln!( f, "  Version = hardware: {}; software: {}", self.version.hardware, self.version.software )?;
-
-    writeln!( f, "\nCurrent state:" )?;
-    writeln!( f, "  Light engine = {:?}", self.light_engine_state() )?;
-    writeln!( f, "  Playback = {:?}", self.playback_state() )?;
-    writeln!( f, "  Points lifetime = {:?}", self.state.points_lifetime )?;
-    writeln!( f, "  Points per second = {:?}", self.state.points_per_second )?;
-    return writeln!( f, "  Source = {:?}", self.source() );
-  }
-}
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  State
 
 #[repr( C )]
 #[derive( Clone, Copy, Default )]
@@ -146,12 +125,34 @@ pub struct State {
   points_lifetime: u32
 }
 
-impl Device {
-  pub fn from_bytes( bytes: [u8; 36] ) -> Device {
+impl State {
+  pub fn from_bytes( bytes: [u8; DEVICE_STATE_BYTES_SIZE] ) -> Self {
     // SAFETY:
-    // * `Device` has the same size as `[u8; 36]`.
-    // * `[u8; 36]` has no alignment requirement.
-    // * Since it is packed, this type has no padding.
+    // * `State` has the same size as `[u8; DEVICE_STATE_BYTES_SIZE]`.
+    // * `[u8; DEVICE_STATE_BYTES_SIZE]` has no alignment requirement.
+    // * Since `State` is desgined as packed, this type has no padding.
+    unsafe{ return std::mem::transmute( bytes ); }
+  }
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Device
+
+#[repr( C )]
+#[derive( Clone, Copy, Default )]
+pub struct Device {
+  mac_address: MacAddress,
+  version: Version,
+  buffer_capacity: u16,
+  max_points_per_second: u32,
+  state: State
+}
+
+impl Device {
+  pub fn from_bytes( bytes: [u8; DEVICE_BYTES_SIZE] ) -> Device {
+    // SAFETY:
+    // * `Device` has the same size as `[u8; DEVICE_BYTES_SIZE]`.
+    // * `[u8; DEVICE_BYTES_SIZE]` has no alignment requirement.
+    // * Since `Device` is designed as packed, this type has no padding.
     unsafe{ return std::mem::transmute( bytes ); }
   }
 
@@ -221,6 +222,23 @@ impl Device {
 
   pub fn is_source( &self, source: Source ) -> bool {
     return self.state.source == source as u8;
+  }
+}
+
+impl fmt::Display for Device {
+  fn fmt( &self, f: &mut fmt::Formatter ) -> fmt::Result {
+    writeln!( f, "Core properties:" )?;
+    writeln!( f, "  Buffer capacity = {}", self.buffer_capacity )?;
+    writeln!( f, "  Mac address = {}", self.mac_address )?;
+    writeln!( f, "  Max points per second = {}", self.max_points_per_second )?;
+    writeln!( f, "  Version = hardware: {}; software: {}", self.version.hardware, self.version.software )?;
+
+    writeln!( f, "\nCurrent state:" )?;
+    writeln!( f, "  Light engine = {:?}", self.light_engine_state() )?;
+    writeln!( f, "  Playback = {:?}", self.playback_state() )?;
+    writeln!( f, "  Points lifetime = {:?}", self.state.points_lifetime )?;
+    writeln!( f, "  Points per second = {:?}", self.state.points_per_second )?;
+    return writeln!( f, "  Source = {:?}", self.source() );
   }
 }
 

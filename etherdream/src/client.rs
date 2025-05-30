@@ -1,6 +1,7 @@
 use std::net::{ IpAddr, SocketAddr };
 use std::sync::Arc;
 
+use bytes::{ BufMut, BytesMut };
 use parking_lot::RwLock;
 use tokio::io::{ self, AsyncReadExt, AsyncWriteExt };
 use tokio::net::{ self, tcp };
@@ -11,21 +12,20 @@ use tokio_util::sync::CancellationToken;
 
 use crate::device;
 
-const COMMAND_PING: u8                        = b'?';
-const CONTROL_SIGNAL_ACK: u8                  = b'a';
-const CONTROL_SIGNAL_NAK: u8                  = b'F';
-const CONTROL_SIGNAL_INVALID: u8              = b'I';
-const CONTROL_SIGNAL_STOP: u8                 = b'!';
-const ETHERDREAM_RESPONSE_CONTROL_SIZE: usize = 2;
-const ETHERDREAM_RESPONSE_STATE_SIZE: usize   = 20;
-const ETHERDREAM_RESPONSE_SIZE: usize         = ETHERDREAM_RESPONSE_CONTROL_SIZE + ETHERDREAM_RESPONSE_STATE_SIZE;
+const DAC_COMMAND_PING: u8              = b'?';
+const DAC_CONTROL_ACK: u8               = b'a';
+const DAC_CONTROL_NAK: u8               = b'F';
+const DAC_CONTROL_INVALID: u8           = b'I';
+const DAC_CONTROL_STOP: u8              = b'!';
+const DAC_RESPONSE_CONTROL_SIZE: usize  = 2;
+const DAC_RESPONSE_SIZE: usize          = DAC_RESPONSE_CONTROL_SIZE + device::DEVICE_STATE_BYTES_SIZE;
 
 type PointsBuffered = u16;
 
 type CallbackPayload    = ( ControlSignal, Command, PointsBuffered );
 type CallbackReceiver   = mpsc::Receiver<CallbackPayload>;
 type CallbackSender     = mpsc::Sender<CallbackPayload>;
-type DeviceStateBytes   = [u8;ETHERDREAM_RESPONSE_STATE_SIZE];
+type DeviceStateBytes   = [u8;device::DEVICE_STATE_BYTES_SIZE];
 type DeviceStateRef     = Arc<RwLock<DeviceStateBytes>>;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Control Signal
@@ -34,17 +34,17 @@ type DeviceStateRef     = Arc<RwLock<DeviceStateBytes>>;
 #[derive( Debug )]
 pub enum ControlSignal {
   // The previous command was accepted.
-  Ack = CONTROL_SIGNAL_ACK,
+  Ack = DAC_CONTROL_ACK,
 
   // The write command could not be performed because there was not
   // enough buffer space when it was received.
-  Nak = CONTROL_SIGNAL_NAK,
+  Nak = DAC_CONTROL_NAK,
 
   // The command contained an invalid command byte or parameters.
-  Invalid = CONTROL_SIGNAL_INVALID,
+  Invalid = DAC_CONTROL_INVALID,
 
   // An emergency-stop condition exists.
-  Stop = CONTROL_SIGNAL_STOP,
+  Stop = DAC_CONTROL_STOP,
 
   // An unknown control signal was received.
   UNKNOWN = u8::MAX
@@ -53,11 +53,11 @@ pub enum ControlSignal {
 impl ControlSignal {
   pub fn from_byte( signal: u8 ) -> Self {
     return match signal {
-      CONTROL_SIGNAL_ACK      => ControlSignal::Ack,
-      CONTROL_SIGNAL_NAK      => ControlSignal::Nak,
-      CONTROL_SIGNAL_INVALID  => ControlSignal::Invalid,
-      CONTROL_SIGNAL_STOP     => ControlSignal::Stop,
-      _                       => ControlSignal::UNKNOWN 
+      DAC_CONTROL_ACK      => ControlSignal::Ack,
+      DAC_CONTROL_NAK      => ControlSignal::Nak,
+      DAC_CONTROL_INVALID  => ControlSignal::Invalid,
+      DAC_CONTROL_STOP     => ControlSignal::Stop,
+      _                    => ControlSignal::UNKNOWN 
     };
   }
 }
@@ -67,14 +67,14 @@ impl ControlSignal {
 #[repr( u8 )]
 #[derive( Debug )]
 pub enum Command {
-  Ping    = COMMAND_PING,
+  Ping    = DAC_COMMAND_PING,
   UNKNOWN = u8::MAX
 }
 
 impl Command {
   pub fn from_byte( command: u8 ) -> Self {
     return match command {
-      COMMAND_PING => Command::Ping,
+      DAC_COMMAND_PING => Command::Ping,
       _ => panic!( "An unknown command was provided: {}", command )
     };
   }
@@ -108,7 +108,7 @@ impl Client {
   {
     let ping_notifier = Arc::new( RwLock::new( None::<oneshot::Sender<DeviceStateBytes>> ) );
     let shutdown_token = CancellationToken::new();
-    let state = Arc::new( RwLock::new( [0u8; ETHERDREAM_RESPONSE_STATE_SIZE] ) );
+    let state = Arc::new( RwLock::new( DeviceStateBytes::default() ) );
 
     // Responsible for communicating responses received from the DAC to the
     // asynchronous user-provided callback notifier, `do_callback`
@@ -218,8 +218,7 @@ impl Client {
 }
 
 async fn do_read( current_state: DeviceStateRef, mut dac_rx: tcp::OwnedReadHalf, callback_tx: CallbackSender, ping_notifier: Arc<RwLock<Option<oneshot::Sender<DeviceStateBytes>>>> ) -> io::Result<()> {
-  let mut buf = [0u8; ETHERDREAM_RESPONSE_SIZE];
-  let mut local_state = [0u8;20];
+  let mut buf = BytesMut::with_capacity( DAC_RESPONSE_SIZE );
 
   loop {
     let _ = dac_rx.read_exact( &mut buf ).await?;
@@ -240,8 +239,7 @@ async fn do_read( current_state: DeviceStateRef, mut dac_rx: tcp::OwnedReadHalf,
             }
 
             if let Some( notifier ) = ping_notifier.write().take() {
-              local_state.clone_from_slice( &buf[2..] );
-              let _ = notifier.send( local_state );
+              let _ = notifier.send( buf[2..].try_into().unwrap() );
             }
           },
           _ => {
@@ -261,7 +259,7 @@ async fn do_write( mut command_rx: mpsc::Receiver<Command>, mut dac_tx: tcp::Own
     while let Some( command ) = command_rx.recv().await {
       match command {
         Command::Ping => {
-          let _ = dac_tx.write_u8( COMMAND_PING ).await?;
+          let _ = dac_tx.write_u8( DAC_COMMAND_PING ).await?;
         },
         _ => {
           // todo: error?
