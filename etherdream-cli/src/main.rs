@@ -56,7 +56,7 @@ async fn main() {
 
     async move {
       return etherdream::discovery::Server::new()
-        .serve( move | address, device | { state.write().devices.push( ( address, device ) ); })
+        .listen( move | address, device | { state.write().devices.push( ( address, device ) ); })
         .await;
     }
   });

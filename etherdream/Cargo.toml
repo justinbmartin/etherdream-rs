@@ -5,7 +5,6 @@ name = "etherdream"
 version = "0.1.0"
 
 [dependencies]
-bytes = { version = "1" }
 parking_lot = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { version = "0.7.15", features = ["net"] }

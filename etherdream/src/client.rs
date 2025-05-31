@@ -1,7 +1,6 @@
 use std::net::{ IpAddr, SocketAddr };
 use std::sync::Arc;
 
-use bytes::{ BufMut, BytesMut };
 use parking_lot::RwLock;
 use tokio::io::{ self, AsyncReadExt, AsyncWriteExt };
 use tokio::net::{ self, tcp };
@@ -218,7 +217,7 @@ impl Client {
 }
 
 async fn do_read( current_state: DeviceStateRef, mut dac_rx: tcp::OwnedReadHalf, callback_tx: CallbackSender, ping_notifier: Arc<RwLock<Option<oneshot::Sender<DeviceStateBytes>>>> ) -> io::Result<()> {
-  let mut buf = BytesMut::with_capacity( DAC_RESPONSE_SIZE );
+  let mut buf = [0u8; DAC_RESPONSE_SIZE];
 
   loop {
     let _ = dac_rx.read_exact( &mut buf ).await?;

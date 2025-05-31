@@ -1,3 +1,5 @@
+
+use std::collections::HashMap;
 use std::net::{ IpAddr, Ipv4Addr, SocketAddr };
 
 use tokio::net::UdpSocket;
@@ -9,10 +11,8 @@ pub const BROADCAST_PORT: u16 = 7654;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Discovery Server
 
+#[derive( Clone, Copy )]
 pub struct Server {
-  /// A list of disvocered devices.
-  devices: Vec<SocketAddr>,
-
   /// The local host that the server will listen on. Defaults to `0.0.0.0`.
   host: IpAddr,
 
@@ -24,8 +24,7 @@ pub struct Server {
 impl Server {
   /// Creates a new discovery server. Must call `serve().await` to start.
   pub fn new() -> Self {
-    return Self{ 
-      devices: Vec::with_capacity( 32 ),
+    return Self{
       host: IpAddr::V4( Ipv4Addr::UNSPECIFIED ),
       limit: 0
     };
@@ -43,29 +42,30 @@ impl Server {
     return self;
   }
 
-  pub async fn serve<T>( &mut self, callback_fn: T ) -> std::io::Result<()>
+  pub async fn listen<T>( self, callback_fn: T ) -> std::io::Result<HashMap<SocketAddr,Device>>
     where 
       T: Fn( SocketAddr, Device ) + Send + 'static
   {
-      let mut buffer = [0u8; device::DEVICE_BYTES_SIZE];
-
-      let address = SocketAddr::new( self.host, BROADCAST_PORT );
-      let socket = UdpSocket::bind( address ).await?;
+    let mut buffer = [0u8; device::DEVICE_BYTES_SIZE];
+    let mut devices: HashMap<SocketAddr,Device> = HashMap::new();
     
-      while let Ok(( _length, address )) = socket.recv_from( &mut buffer ).await {
-        if ! self.devices.contains( &address ) {
-          self.devices.push( address );
+    let address = SocketAddr::new( self.host, BROADCAST_PORT );
+    let socket = UdpSocket::bind( address ).await?;
+    
+    while let Ok(( _length, address )) = socket.recv_from( &mut buffer ).await {
+      if ! devices.contains_key( &address ) {
+        let device = Device::from_bytes( buffer );
+        devices.insert( address, device );
 
-          let device = Device::from_bytes( buffer );
-          callback_fn( address, device );
+        callback_fn( address, device );
 
-          // Break if the user-provided limit has been exceeded
-          if self.limit > 0 && self.devices.len() >= self.limit  {
-            break;
-          }
+        // Break if limit has been met
+        if self.limit > 0 && devices.len() >= self.limit  {
+          break;
         }
       }
+    }
 
-      return Ok(());
+    return Ok( devices );
   }
 }

@@ -4,9 +4,7 @@ pub const DEVICE_BYTES_SIZE: usize = 36;
 pub const DEVICE_STATE_BYTES_SIZE: usize = 20;
 pub const DEFAULT_PORT: u16 = 7765;
 
-
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Device
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Enum & Types
 
 #[repr( u8 )]
 #[derive( Debug, PartialEq )]
@@ -55,6 +53,12 @@ pub struct MacAddress {
 impl MacAddress {
   pub fn new( address: [u8; 6] ) -> MacAddress {
     return MacAddress{ address: address };
+  }
+}
+
+impl From<MacAddress> for [u8; 6] {
+  fn from( mac_address: MacAddress ) -> Self {
+    return mac_address.address;
   }
 }
 
@@ -156,7 +160,11 @@ impl Device {
     unsafe{ return std::mem::transmute( bytes ); }
   }
 
-  pub fn as_bytes( self ) -> [u8; 36] {
+  pub fn to_bytes( self ) -> [u8; DEVICE_BYTES_SIZE] {
+    // SAFETY:
+    // * `Device` has the same size as `[u8; DEVICE_BYTES_SIZE]`.
+    // * `[u8; DEVICE_BYTES_SIZE]` has no alignment requirement.
+    // * Since `Device` is designed as packed, this type has no padding.
     unsafe{ return std::mem::transmute( self ); }
   }
 
@@ -239,70 +247,5 @@ impl fmt::Display for Device {
     writeln!( f, "  Points lifetime = {:?}", self.state.points_lifetime )?;
     writeln!( f, "  Points per second = {:?}", self.state.points_per_second )?;
     return writeln!( f, "  Source = {:?}", self.source() );
-  }
-}
-
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - Device Builder (Testing)
-
-#[derive( Clone, Copy )]
-pub struct DeviceBuilder {
-  inner: Device
-}
-
-impl DeviceBuilder {
-  pub fn new() -> Self { 
-    return Self{
-      inner: Device::default()
-    };
-  }
-
-  pub fn to_device( &self ) -> Device {
-    return self.inner;
-  }
-
-  pub fn buffer_capacity( &mut self, capacity: u16 ) -> &mut Self {
-    self.inner.buffer_capacity = capacity;
-    return self;
-  }
-
-  pub fn light_engine_state( &mut self, state: LightEngineState ) -> &mut Self {
-    self.inner.state.light_engine_state = state as u8;
-    return self;
-  }
-
-  pub fn mac_address( &mut self, address: [u8;6] ) -> &mut Self {
-    self.inner.mac_address.address = address;
-    return self;
-  }
-
-  pub fn max_points_per_second( &mut self, points_per_second: u32 ) -> &mut Self {
-    self.inner.max_points_per_second = points_per_second;
-    return self;
-  }
-
-  pub fn playback_state( &mut self, state: PlaybackState ) -> &mut Self {
-    self.inner.state.playback_state = state as u8;
-    return self;
-  }
-
-  pub fn points_lifetime( &mut self, count: u32 ) -> &mut Self {
-    self.inner.state.points_lifetime = count;
-    return self;
-  }
-
-  pub fn points_per_second( &mut self, points_per_second: u32 ) -> &mut Self {
-    self.inner.state.points_per_second = points_per_second;
-    return self;
-  }
-
-  pub fn source( &mut self, source: Source ) -> &mut Self {
-    self.inner.state.source = source as u8;
-    return self;
-  }
-
-  pub fn version( &mut self, hardware: u16, software: u16 ) -> &mut Self {
-    self.inner.version = Version::new( hardware, software );
-    return self;
   }
 }
