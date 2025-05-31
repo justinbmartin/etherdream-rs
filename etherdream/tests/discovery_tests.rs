@@ -8,6 +8,7 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 use tokio::net::UdpSocket;
 use tokio::task::JoinHandle;
+use tokio::time;
 
 use etherdream::{ device::*, discovery };
 use support::DeviceBuilder;
@@ -25,19 +26,25 @@ static TEST_MUTEX: std::sync::Mutex<u8> = std::sync::Mutex::new( 0 );
 async fn setup_discovery( limit: usize ) -> ( Arc<RwLock<Vec<( SocketAddr, Device )>>>, JoinHandle<io::Result<HashMap<SocketAddr,Device>>> ) {
   let callback_devices = Arc::new( RwLock::new( Vec::new() ) );
 
-  let discovery_handle = 
-    tokio::task::spawn({ 
-      let callback_devices = callback_devices.clone();
+  let handle = tokio::spawn({ 
+    let callback_devices = callback_devices.clone();
 
-      async move {
-        return discovery::Server::new()
+    async move {
+      tokio::select!{
+        _ = {
+          time::sleep( time::Duration::from_secs( 5 ) )
+        } => Err( io::Error::new( io::ErrorKind::Other, "Discovery server timed out." ) ),
+
+        device_map = {
+          discovery::Server::new()
           .limit( limit )
           .listen( move | address, device | { callback_devices.write().push( ( address, device ) ); })
-          .await;
+        } => device_map
       }
-    });
+    }
+  });
 
-  return ( callback_devices, discovery_handle );
+  return ( callback_devices, handle );
 }
 
 // Sends `count` broadcast message's for `device`
