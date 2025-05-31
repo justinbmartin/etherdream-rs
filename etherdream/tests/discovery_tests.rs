@@ -8,7 +8,7 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 use tokio::net::UdpSocket;
 use tokio::task::JoinHandle;
-use tokio::time;
+use tokio::time::Duration;
 
 use etherdream::{ device::*, discovery };
 use support::DeviceBuilder;
@@ -30,17 +30,11 @@ async fn setup_discovery( limit: usize ) -> ( Arc<RwLock<Vec<( SocketAddr, Devic
     let callback_devices = callback_devices.clone();
 
     async move {
-      tokio::select!{
-        _ = {
-          time::sleep( time::Duration::from_secs( 5 ) )
-        } => Err( io::Error::new( io::ErrorKind::Other, "Discovery server timed out." ) ),
-
-        device_map = {
-          discovery::Server::new()
-          .limit( limit )
-          .listen( move | address, device | { callback_devices.write().push( ( address, device ) ); })
-        } => device_map
-      }
+      return discovery::Server::new()
+      .duration( Duration::from_secs( 10 ) )
+      .limit( limit )
+      .listen( move | address, device | { callback_devices.write().push( ( address, device ) ); })
+      .await;
     }
   });
 
