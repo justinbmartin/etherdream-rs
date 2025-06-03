@@ -1,6 +1,5 @@
 mod support;
 
-use std::collections::HashMap;
 use std::io;
 use std::net::{ IpAddr, Ipv4Addr, SocketAddr };
 use std::sync::Arc;
@@ -23,18 +22,19 @@ static TEST_MUTEX: std::sync::Mutex<u8> = std::sync::Mutex::new( 0 );
 // Starts a discovery server with `limit`. Returns a tuple containing (1) the
 // shared vector that discovered device(s) will be persisted into via callback, 
 // and (2) the join handle for the server.
-async fn setup_discovery( limit: usize ) -> ( Arc<RwLock<Vec<( SocketAddr, Device )>>>, JoinHandle<io::Result<HashMap<SocketAddr,Device>>> ) {
+async fn setup_discovery( limit: usize ) -> ( Arc<RwLock<Vec<( SocketAddr, Device )>>>, JoinHandle<io::Result<discovery::Connection>> ) {
   let callback_devices = Arc::new( RwLock::new( Vec::new() ) );
 
   let handle = tokio::spawn({ 
     let callback_devices = callback_devices.clone();
 
     async move {
-      return discovery::Server::new()
-      .duration( Duration::from_secs( 10 ) )
-      .limit( limit )
-      .listen( move | address, device | { callback_devices.write().push( ( address, device ) ); })
-      .await;
+      return 
+        discovery::Server::new( move | address, device | { callback_devices.write().push( ( address, device ) ); })
+        .duration( Duration::from_secs( 10 ) )
+        .limit( limit )
+        .serve()
+        .await;
     }
   });
 
@@ -62,7 +62,6 @@ async fn send_etherdream_broadcasts( device: Device, count: usize ) -> io::Resul
 
 #[tokio::test]
 async fn receives_an_etherdream_broadcast() -> io::Result<()> {
-  let _lock = TEST_MUTEX.lock();
   let ( callback_devices, server ) = setup_discovery( 1 ).await;
 
   // Send a test device broadcast
@@ -70,11 +69,11 @@ async fn receives_an_etherdream_broadcast() -> io::Result<()> {
   send_etherdream_broadcasts( test_device, 1 ).await?;
 
   // Validate the device(s) returned from the discovery listener
-  let discovered_devices = server.await??;
-  assert_eq!( discovered_devices.len(), 1 );
+  let _discovered_devices = server.await??;
+  //assert_eq!( discovered_devices.len(), 1 );
 
-  let discovered_device = discovered_devices.values().next().unwrap();
-  assert_eq!( discovered_device.mac_address(), test_device.mac_address() );
+  //let discovered_device = discovered_devices.values().next().unwrap();
+  //assert_eq!( discovered_device.mac_address(), test_device.mac_address() );
 
   // Validate the device(s) that we recorded via the callback
   let callback_devices = callback_devices.read();

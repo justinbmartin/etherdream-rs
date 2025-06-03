@@ -55,9 +55,7 @@ async fn main() {
     let state = state.clone();
 
     async move {
-      return etherdream::discovery::Server::new()
-        .listen( move | address, device | { state.write().devices.push( ( address, device ) ); })
-        .await;
+      return etherdream::discovery::server( move | address, device | { state.write().devices.push( ( address, device ) ); }).await;
     }
   });
 
