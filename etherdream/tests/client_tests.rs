@@ -135,7 +135,7 @@ async fn a_ping_will_be_sent_and_acknowledged() {
 
   // Create and start a client
   let client = 
-    client::Client::connect( server.address(), on_command_handler ).await
+    client::Client::connect_with_address( server.address(), on_command_handler ).await
     .expect( "Failed to connect to Etherdream device" );
 
   // Send a ping and assert success

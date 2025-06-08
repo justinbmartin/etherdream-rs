@@ -16,12 +16,12 @@ use support::DeviceBuilder;
 // Starts a discovery server with `limit`. Returns a tuple containing (1) the
 // shared vector that discovered device(s) will be persisted into via callback, 
 // and (2) the connection for the server.
-async fn setup_discovery( limit: usize ) -> ( Arc<RwLock<Vec<( SocketAddr, Device )>>>, discovery::Connection ) {
+async fn setup_discovery( limit: usize ) -> ( Arc<RwLock<Vec<( IpAddr, Device )>>>, discovery::Connection ) {
   let callback_devices = Arc::new( RwLock::new( Vec::new() ) );
   let callback_devices_1 = callback_devices.clone();
 
   let server = 
-    discovery::Server::new( move | address, device | { callback_devices_1.write().push( ( address, device ) ); })
+    discovery::Server::new( move | ip, device | { callback_devices_1.write().push( ( ip, device ) ); })
     .address( SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), 0 ) )
     .duration( Duration::from_secs( 5 ) )
     .limit( limit )
@@ -71,9 +71,9 @@ async fn receives_an_etherdream_broadcast() -> io::Result<()> {
   let callback_devices = callback_devices.read();
 
   assert_eq!( callback_devices.len(), 1 );
-  let &( address, callback_device ) = callback_devices.get( 0 ).unwrap();
+  let &( ip, callback_device ) = callback_devices.get( 0 ).unwrap();
 
-  assert_eq!( address.ip(), IpAddr::V4( Ipv4Addr::LOCALHOST ) );
+  assert_eq!( ip, IpAddr::V4( Ipv4Addr::LOCALHOST ) );
 
   assert_eq!( callback_device.buffer_capacity, 1024 );
   assert_eq!( callback_device.mac_address, MacAddress::new([ 0, 1 , 2, 3, 4, 5 ]) );
