@@ -1,15 +1,13 @@
 [package]
-authors.workspace = true
-description = "A library to discover, connect and write laser data to Etherdream devices."
-edition.workspace = true
-license.workspace = true
+edition = "2024"
+license = "MIT"
 name = "etherdream"
-version.workspace = true
+version = "0.1.0"
 
 [dependencies]
 parking_lot = { workspace = true }
 tokio = { workspace = true }
-zerocopy = { version = "0.8.25", features = ["derive"] }
+tokio-util = { version = "0.7.15", features = ["net"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full"] }
