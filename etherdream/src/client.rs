@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::net::{ IpAddr, SocketAddr };
 use std::sync::Arc;
 
 use parking_lot::RwLock;
@@ -9,7 +9,7 @@ use tokio::task;
 use tokio::time;
 use tokio_util::sync::CancellationToken;
 
-use crate::device::{self, DEVICE_STATE_BYTES_SIZE};
+use crate::device::{self, DEFAULT_PORT, DEVICE_STATE_BYTES_SIZE};
 
 const DAC_COMMAND_PING: u8              = b'?';
 const DAC_CONTROL_ACK: u8               = b'a';
@@ -21,9 +21,6 @@ const DAC_RESPONSE_SIZE: usize          = DAC_RESPONSE_CONTROL_SIZE + device::DE
 
 type PointsBuffered = u16;
 
-type CallbackPayload    = ( ControlSignal, Command, PointsBuffered );
-type CallbackReceiver   = mpsc::Receiver<CallbackPayload>;
-type CallbackSender     = mpsc::Sender<CallbackPayload>;
 type DeviceStateBytes   = [u8;device::DEVICE_STATE_BYTES_SIZE];
 type DeviceStateRef     = Arc<RwLock<DeviceStateBytes>>;
 
@@ -88,7 +85,7 @@ pub struct Client {
   command_tx: mpsc::Sender<Command>,
   
   // The clients async task handles
-  tasks: Option<[task::JoinHandle<io::Result<()>>; 3]>,
+  tasks: Option<[task::JoinHandle<io::Result<()>>; 2]>,
 
   // The last recorded state of the Etherdream DAC
   _state: DeviceStateRef,
@@ -98,16 +95,18 @@ pub struct Client {
 }
  
 impl Client {
-  pub async fn connect<T>( address: SocketAddr, on_command_handler: T ) -> io::Result<Client>
+  pub async fn connect<T>( ip: IpAddr, on_command_handler: T ) -> io::Result<Client>
+    where T: Fn( ControlSignal, Command, PointsBuffered ) + Send + 'static
+  {  
+    return Self::connect_with_address( SocketAddr::new( ip, DEFAULT_PORT ), on_command_handler ).await;
+  }
+
+  pub async fn connect_with_address<T>( address: SocketAddr, on_command_handler: T ) -> io::Result<Client>
     where T: Fn( ControlSignal, Command, PointsBuffered ) + Send + 'static
   {
     let ping_notifier = Arc::new( RwLock::new( None::<oneshot::Sender<device::State>> ) );
     let shutdown_token = CancellationToken::new();
     let state = Arc::new( RwLock::new( DeviceStateBytes::default() ) );
-
-    // Responsible for communicating responses received from the DAC to the
-    // asynchronous user-provided callback notifier, `do_callback`
-    let ( callback_tx, callback_rx ) = mpsc::channel::<CallbackPayload>( 64 );
 
     // Responsible to communicating commands from the client run-time to the
     // asynchronous DAC writer, `do_write`
@@ -116,18 +115,6 @@ impl Client {
     // Connect to the Etherdream DAC at `address`
     let dac_stream = net::TcpSocket::new_v4()?.connect( address ).await?;
     let ( dac_rx, dac_tx ) = dac_stream.into_split();
-
-    // Start the callback/notification handler
-    let callback_handle = {
-      let shutdown_token = shutdown_token.child_token();
-
-      tokio::spawn( async move {
-        tokio::select!{
-          _ = shutdown_token.cancelled() => { Ok(()) }
-          result = do_callback( callback_rx, on_command_handler ) => { result }
-        }
-      })
-    };
 
     // Start the DAC read handler
     let dac_rx_handle = {
@@ -140,7 +127,7 @@ impl Client {
         async move {
           tokio::select!{
             _ = shutdown_token.cancelled() => { Ok(()) }
-            result = do_read( state, dac_rx, callback_tx, ping_notifier ) => { result }
+            result = do_read( state, dac_rx, on_command_handler, ping_notifier ) => { result }
           }
         }
       })
@@ -164,7 +151,7 @@ impl Client {
       ping_notifier: ping_notifier,
       shutdown_token: shutdown_token,
       _state: state,
-      tasks: Some([ dac_rx_handle, dac_tx_handle, callback_handle ])
+      tasks: Some([ dac_rx_handle, dac_tx_handle ])
     });
   }
 
@@ -213,7 +200,9 @@ impl Client {
 
 // - - - - - - - - - - - - - - - - - - - - - - - -  Private async task handlers
 
-async fn do_read( current_state: DeviceStateRef, mut dac_rx: OwnedReadHalf, callback_tx: CallbackSender, ping_notifier: Arc<RwLock<Option<oneshot::Sender<device::State>>>> ) -> io::Result<()> {
+async fn do_read<T>( current_state: DeviceStateRef, mut dac_rx: OwnedReadHalf, on_command_handler: T, ping_notifier: Arc<RwLock<Option<oneshot::Sender<device::State>>>> ) -> io::Result<()> 
+  where T: Fn( ControlSignal, Command, PointsBuffered ) + Send + 'static
+{
   let mut buf = [0u8; DAC_RESPONSE_SIZE];
 
   loop {
@@ -230,9 +219,8 @@ async fn do_read( current_state: DeviceStateRef, mut dac_rx: OwnedReadHalf, call
       Some( ControlSignal::Ack ) => {
         match command {
           Some( Command::Ping ) => {
-            if let Err( _ ) = callback_tx.try_send( ( ControlSignal::Ack, Command::Ping, 0 ) ) {
-              // todo: log warning, or call an on_error-like callback?
-            }
+            //
+            on_command_handler( ControlSignal::Ack, Command::Ping, 0 );
 
             if let Some( notifier ) = ping_notifier.write().take() {
               // TODO: this can be more efficient...
@@ -262,16 +250,6 @@ async fn do_write( mut command_rx: mpsc::Receiver<Command>, mut dac_tx: OwnedWri
           let _ = dac_tx.write_u8( DAC_COMMAND_PING ).await?;
         }
       }
-    }
-  }
-}
-
-async fn do_callback<T>( mut callback_rx: CallbackReceiver, on_command_handler: T ) -> io::Result<()> 
-  where T: Fn( ControlSignal, Command, PointsBuffered ) + Send + 'static
-{
-  loop {
-    if let Some( ( control_signal, command, points_buffered ) ) = callback_rx.recv().await {
-      on_command_handler( control_signal, command, points_buffered );
     }
   }
 }

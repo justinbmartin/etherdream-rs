@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::io::{ self, Write };
-use std::net::SocketAddr;
+use std::net::IpAddr;
 use std::sync::Arc;
 
 use clap;
@@ -20,7 +20,7 @@ struct State {
   clients: HashMap<usize,etherdream::Client>,
 
   // A list of all discovered Etherdream devices (using a vec to allow accessing by index)
-  devices: Vec<( SocketAddr, etherdream::Device )>
+  devices: Vec<( IpAddr, etherdream::Device )>
 }
 
 #[tokio::main]
@@ -55,7 +55,7 @@ async fn main() {
     let state = state.clone();
 
     async move {
-      return discovery::Server::new( move | address, device | { state.write().devices.push( ( address, device ) ); })
+      return discovery::Server::new( move | ip, device | { state.write().devices.push( ( ip, device ) ); })
         .serve()
         .await;
     }
@@ -99,8 +99,8 @@ fn do_list_devices( state: &StateRef ) {
   if state.devices.is_empty() {
     println!( "(no devices)" );
   } else {
-    for ( index, ( address, device ) ) in state.devices.iter().enumerate() {
-      println!( "  [{}] {} (MAC: {})", index, address, device.mac_address );
+    for ( index, ( ip, device ) ) in state.devices.iter().enumerate() {
+      println!( "  [{}] {} (MAC: {})", index, ip, device.mac_address );
     }
   }
 }
@@ -108,8 +108,8 @@ fn do_list_devices( state: &StateRef ) {
 async fn do_connect( state: &StateRef, device_index: usize ) {
   // Define client command callback
   let callback_fn = {
-    move | _control, command, _points_remaining | { 
-      println!( "COMMAND RECEIVED: {:?}", command );
+    move | _control, _command, _points_remaining | { 
+      //println!( "COMMAND RECEIVED: {:?}", command );
     }
   };
 
@@ -123,8 +123,8 @@ async fn do_connect( state: &StateRef, device_index: usize ) {
   // Create a new client for the device at `device_index`
   else {
     match state.devices.get( device_index ) {
-      Some( &( address, _ ) ) => {
-        match etherdream::Client::connect( address, callback_fn ).await {
+      Some( &( ip, _ ) ) => {
+        match etherdream::Client::connect( ip, callback_fn ).await {
           Ok( client ) => {
             state.clients.insert( device_index, client );
             state.current_client = Some( device_index );
@@ -155,8 +155,8 @@ async fn do_disconnect( state: &StateRef ) {
 
 fn do_print_device_info( state: &StateRef, device_index: usize ) {
   match state.read().devices.get( device_index ) {
-    Some(( address, device )) => {
-      println!( "Address = {address}\n" );
+    Some(( ip, device )) => {
+      println!( "IP = {ip}\n" );
       println!( "{device}" );
     },
     None => { 
@@ -172,7 +172,10 @@ async fn do_ping_current_device( state: &StateRef ) {
     let client = state.clients.get( &client_index ).unwrap();
     
     match client.ping().await {
-      Ok( _state ) => println!( "Ping ACK'd..." ),
+      Ok( state ) => {
+        println!( "Acknowledged: yes" );
+        println!( "\n{state}" );
+      },
       _ => println!( "Ping error..." )
     }
   } else {

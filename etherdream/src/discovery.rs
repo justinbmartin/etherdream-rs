@@ -35,7 +35,7 @@ impl Connection {
 
 #[derive( Clone, Copy )]
 pub struct Server<T> 
-  where T: Fn( SocketAddr, Device ) + Send + 'static
+  where T: Fn( IpAddr, Device ) + Send + 'static
 {
   /// The local address that the server will listen on. Defaults to `0.0.0.0::7654`.
   address: SocketAddr,
@@ -52,11 +52,11 @@ pub struct Server<T>
 }
 
 impl<T> Server<T> 
-  where T: Fn( SocketAddr, Device ) + Send + 'static
+  where T: Fn( IpAddr, Device ) + Send + 'static
 {
   /// Creates a new discovery server. Must call `Server::serve().await` to start.
   pub fn new( callback_fn: T ) -> Self 
-    where T: Fn( SocketAddr, Device ) + Send + 'static
+    where T: Fn( IpAddr, Device ) + Send + 'static
   {
     return Self{
       address: SocketAddr::new( IpAddr::V4( Ipv4Addr::UNSPECIFIED ), BROADCAST_PORT ),
@@ -106,7 +106,7 @@ impl<T> Server<T>
 }
 
 async fn do_listen<T>( socket: UdpSocket, callback_fn: T, limit: usize ) -> io::Result<HashMap<SocketAddr,Device>> 
-  where T: Fn( SocketAddr, Device ) + Send + 'static
+  where T: Fn( IpAddr, Device ) + Send + 'static
 {
   let mut buffer = [0u8; device::DEVICE_BYTES_SIZE];
   let mut devices: HashMap<SocketAddr,Device> = HashMap::new();
@@ -115,10 +115,11 @@ async fn do_listen<T>( socket: UdpSocket, callback_fn: T, limit: usize ) -> io::
     let ( _length, address ) = socket.recv_from( &mut buffer ).await?;
     
     if ! devices.contains_key( &address ) {
+      
       let device = Device::from_bytes( buffer );
       devices.insert( address, device );
 
-      callback_fn( address, device );
+      callback_fn( address.ip(), device );
 
       // Break if a device limit is set and has been met
       if limit > 0 && devices.len() >= limit  {

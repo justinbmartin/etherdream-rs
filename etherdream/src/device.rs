@@ -129,6 +129,18 @@ impl State {
   }
 }
 
+impl fmt::Display for State {
+  fn fmt( &self, f: &mut fmt::Formatter ) -> fmt::Result {
+    writeln!( f, "State:" )?;
+    writeln!( f, "  Light engine = {:?}", self.light_engine_state )?;
+    writeln!( f, "  Playback = {:?}", self.playback_state )?;
+    writeln!( f, "  Source = {:?}", self.source )?;
+    writeln!( f, "  Points buffered = {:?}", self.points_buffered )?;
+    writeln!( f, "  Points per second = {:?}", self.points_per_second )?;
+    return writeln!( f, "  Points lifetime = {:?}", self.points_lifetime );
+  }
+}
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Device
 
 /// Encodes a device response from an Etherdream DAC discovery broadcast. 
@@ -172,17 +184,11 @@ impl Device {
 
 impl fmt::Display for Device {
   fn fmt( &self, f: &mut fmt::Formatter ) -> fmt::Result {
-    writeln!( f, "Core properties:" )?;
+    writeln!( f, "Device:" )?;
     writeln!( f, "  Buffer capacity = {}", self.buffer_capacity )?;
     writeln!( f, "  Mac address = {}", self.mac_address )?;
     writeln!( f, "  Max points per second = {}", self.max_points_per_second )?;
     writeln!( f, "  Version = hardware: {}; software: {}", self.version.hardware, self.version.software )?;
-
-    writeln!( f, "\nCurrent state:" )?;
-    writeln!( f, "  Light engine = {:?}", self.state.light_engine_state )?;
-    writeln!( f, "  Playback = {:?}", self.state.playback_state )?;
-    writeln!( f, "  Points lifetime = {:?}", self.state.points_lifetime )?;
-    writeln!( f, "  Points per second = {:?}", self.state.points_per_second )?;
-    return writeln!( f, "  Source = {:?}", self.state.source );
+    return writeln!( f, "\n{}", self.state );
   }
 }
