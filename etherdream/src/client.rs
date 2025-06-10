@@ -11,14 +11,18 @@ use tokio_util::sync::CancellationToken;
 
 use crate::device::{self, DEFAULT_PORT, DEVICE_STATE_BYTES_SIZE};
 
-const DAC_COMMAND_PING: u8              = b'?';
-const DAC_CONTROL_ACK: u8               = b'a';
-const DAC_CONTROL_NAK: u8               = b'F';
-const DAC_CONTROL_INVALID: u8           = b'I';
-const DAC_CONTROL_STOP: u8              = b'!';
-const DAC_RESPONSE_CONTROL_SIZE: usize  = 2;
-const DAC_RESPONSE_SIZE: usize          = DAC_RESPONSE_CONTROL_SIZE + device::DEVICE_STATE_BYTES_SIZE;
+const DAC_COMMAND_DATA: u8      = b'd';
+const DAC_COMMAND_PING: u8      = b'?';
+const DAC_COMMAND_PREPARE: u8   = b'p';
+const DAC_CONTROL_ACK: u8       = b'a';
+const DAC_CONTROL_NAK: u8       = b'F';
+const DAC_CONTROL_INVALID: u8   = b'I';
+const DAC_CONTROL_STOP: u8      = b'!';
 
+// Response includes a u8 control signal and u8 command, thus 2
+const DAC_RESPONSE_SIZE: usize = 2 + device::DEVICE_STATE_BYTES_SIZE;
+
+// TODO: should be unit-value?
 type PointsBuffered = u16;
 
 type DeviceStateBytes   = [u8;device::DEVICE_STATE_BYTES_SIZE];
@@ -60,14 +64,16 @@ impl ControlSignal {
 #[repr( u8 )]
 #[derive( Debug )]
 pub enum Command {
-  Ping    = DAC_COMMAND_PING
+  Ping    = DAC_COMMAND_PING,
+  Prepare = DAC_COMMAND_PREPARE
 }
 
 impl Command {
   pub fn from_byte( command: u8 ) -> Option<Self> {
     return match command {
-      DAC_COMMAND_PING  => Some( Command::Ping ),
-      _                 => None
+      DAC_COMMAND_PING    => Some( Command::Ping ),
+      DAC_COMMAND_PREPARE => Some( Command::Prepare ),
+      _                   => None
     };
   }
 }
@@ -91,7 +97,11 @@ pub struct Client {
   _state: DeviceStateRef,
 
   // Channel used to acknowledge user-initiated ping requests
-  ping_notifier: Arc<RwLock<Option<oneshot::Sender<device::State>>>>
+  ping_notifier: Arc<RwLock<Option<oneshot::Sender<device::State>>>>,
+
+  //
+  point_buffer: [(i16,i16,u16,u16,u16);4000],
+  point_index: usize
 }
  
 impl Client {
@@ -149,6 +159,8 @@ impl Client {
       address: address,
       command_tx: command_tx,
       ping_notifier: ping_notifier,
+      point_buffer: [(0,0,0,0,0);4000],
+      point_index: 0,
       shutdown_token: shutdown_token,
       _state: state,
       tasks: Some([ dac_rx_handle, dac_tx_handle ])
@@ -195,6 +207,17 @@ impl Client {
       Ok( result ) => Ok( result ),
       _ => Err( String::from( "CLIENT: Ping timed out..." ) )
     }
+  }
+
+  //
+  pub fn reset( &self ) {
+    let _ = self.command_tx.try_send( Command::Prepare );
+  }
+
+  // TODO: use floats and unit-values
+  pub fn add_point( &mut self, x: i16, y: i16, r: u16, g: u16, b: u16 ) {
+    self.point_buffer[self.point_index] = ( x, y, r, g, b );
+    self.point_index += 1;
   }
 }
 
@@ -248,8 +271,13 @@ async fn do_write( mut command_rx: mpsc::Receiver<Command>, mut dac_tx: OwnedWri
       match command {
         Command::Ping => {
           let _ = dac_tx.write_u8( DAC_COMMAND_PING ).await?;
+        },
+        Command::Prepare => {
+          let _ = dac_tx.write_u8( DAC_COMMAND_PREPARE ).await?;
         }
       }
     }
+
+
   }
 }
