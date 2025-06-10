@@ -6,10 +6,7 @@ use tokio::net;
 use tokio::task;
 use tokio_util::sync::CancellationToken;
 
-use etherdream::client;
-
-// Copying from client::DAC_RESPONSE_SIZE
-const DAC_RESPONSE_SIZE: usize = 20;
+use etherdream;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Etherdream Response
 
@@ -36,7 +33,7 @@ struct EtherdreamResponse {
 const ETHERDREAM_RESPONSE_SIZE: usize = size_of::<EtherdreamResponse>();
 
 impl EtherdreamResponse {
-  fn new( signal: client::ControlSignal, command: client::Command ) -> Self {
+  fn new( signal: u8, command: u8 ) -> Self {
     return Self{
       signal: signal as u8, 
       command: command as u8,
@@ -77,7 +74,7 @@ impl EtherdreamServer {
       let shutdown_token = shutdown_token.child_token();
 
       async move {
-
+        
         // This `select!` will run the server UNTIL a cancellation is executed.
         tokio::select!{
           _ = shutdown_token.cancelled() => { 
@@ -85,7 +82,7 @@ impl EtherdreamServer {
           }
 
           result = async move {
-            let mut buf = [0u8; DAC_RESPONSE_SIZE];
+            let mut buf = [0u8; 500];
       
             // An Etherdream client has connected.
             let ( mut stream, _remote ) = listener.accept().await?;
@@ -93,16 +90,11 @@ impl EtherdreamServer {
             // Now we listen for any data the client will send us.
             loop {
               let _ = stream.read( &mut buf ).await?;
-      
+              
               // Extract the first byte and determine what action was requested. 
               // For each action, return the expected response.
-              match client::Command::from_byte( buf[0] ) {
-                Some( client::Command::Ping ) => {
-                  let response = EtherdreamResponse::new( client::ControlSignal::Ack, client::Command::Ping ).to_bytes();
-                  let _ = stream.write( &response ).await?;
-                },
-                _ => { /* unknown command */ }
-              }
+              let response = EtherdreamResponse::new( b'a', buf[0] ).to_bytes();
+              let _ = stream.write( &response ).await?;
             }
           } => { result }
       }
@@ -131,13 +123,12 @@ impl EtherdreamServer {
 async fn a_ping_will_be_sent_and_acknowledged() {
   let server = EtherdreamServer::start().await.unwrap();
 
-  let on_command_handler = move | _control_signal, _command, _points_buffered | { };
-
   // Create and start a client
-  let client = 
-    client::Client::connect_with_address( server.address(), on_command_handler ).await
+  let mut client: etherdream::Client = 
+    etherdream::Client::new( server.address() ).await
     .expect( "Failed to connect to Etherdream device" );
 
+  dbg!( client.remote() );
   // Send a ping and assert success
   if let Ok( _state ) = client.ping().await {
     assert!( true );

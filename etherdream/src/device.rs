@@ -4,7 +4,7 @@ pub const DEVICE_BYTES_SIZE: usize = 36;
 pub const DEVICE_STATE_BYTES_SIZE: usize = 20;
 pub const DEFAULT_PORT: u16 = 7765;
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - Supporting Enums & Types
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Light Engine State
 
 #[repr( u8 )]
 #[derive( Clone, Copy, Debug, PartialEq )]
@@ -15,6 +15,14 @@ pub enum LightEngineState {
   Estop = 3
 }
 
+impl Default for LightEngineState {
+  fn default() -> Self {
+    Self::Ready
+  }
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Playback State
+
 #[repr( u8 )]
 #[derive( Clone, Copy, Debug, PartialEq )]
 pub enum PlaybackState {
@@ -22,6 +30,14 @@ pub enum PlaybackState {
   Prepared = 1,
   Playing = 2
 }
+
+impl Default for PlaybackState {
+  fn default() -> Self {
+    Self::Idle
+  }
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Source
 
 #[repr( u8 )]
 #[derive( Clone, Copy, Debug, PartialEq )]
@@ -31,18 +47,28 @@ pub enum Source {
   Internal = 2
 }
 
+impl Default for Source {
+  fn default() -> Self {
+    Self::Network
+  }
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Version
+
 #[repr( C )]
 #[derive( Clone, Copy, Debug, PartialEq )]
 pub struct Version {
-  hardware: u16,
-  software: u16
+  pub hardware: u16,
+  pub software: u16
 }
 
 impl Version {
   pub fn new( hardware_version: u16, software_version: u16 ) -> Self {
-    return Self{ hardware: hardware_version, software: software_version };
+    Self{ hardware: hardware_version, software: software_version }
   }
 }
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  MAC Address
 
 #[repr( C )]
 #[derive( Clone, Copy, Debug, PartialEq )]
@@ -51,43 +77,43 @@ pub struct MacAddress {
 }
 
 impl MacAddress {
-  pub fn new( address: [u8; 6] ) -> MacAddress {
-    return MacAddress{ address: address };
+  pub fn new( address: [u8; 6] ) -> Self {
+    Self{ address }
   }
 }
 
 impl From<MacAddress> for [u8; 6] {
   fn from( mac_address: MacAddress ) -> Self {
-    return mac_address.address;
+    mac_address.address
   }
 }
 
 impl fmt::Display for MacAddress {
   fn fmt( &self, f: &mut fmt::Formatter ) -> fmt::Result {
-    return write!( f, "{:02X?}", self.address );
+    write!( f, "{:02X?}", self.address )
   }
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  State
+// ====================================================================== State
 
-/// Encodes the Etherdream DAC state, received from any DAC ack/nak.
+/// Encodes the Etherdream DAC state, received as a part of all DAC responses.
 /// Reference: https://ether-dream.com/protocol.html
 #[repr( C )]
-#[derive( Clone, Copy, Debug )]
+#[derive( Clone, Copy, Debug, Default )]
 pub struct State {
-  // [Unknown] (byte position: native = 0 | from Device = 16)
+  // [Unknown]
   pub protocol: u8,
 
-  // The current light engine state for the DAC (bytes = 1|17)
+  // The current light engine state of the DAC
   pub light_engine_state: LightEngineState,
 
-  /// The current playback state for the DAC (bytes = 2|18)
+  // The current playback state of the DAC
   pub playback_state: PlaybackState,
 
-  // The current playback source for the DAC (bytes = 3|19)
+  // The current playback source of the DAC
   pub source: Source,
 
-  // The current light engine flags. DAC is ready if all flags are zero. (bytes = 4-5|20-21)
+  // The current light engine flags. DAC is ready if all flags are zero.
   // Bits:
   //  [0]: Emergency stop occurred due to E-Stop packet or invalid command.
   //  [1]: Emergency stop occurred due to E-Stop input to projector.
@@ -97,25 +123,25 @@ pub struct State {
   //  [5]: Emergency stop occurred due to loss of Ethernet link.
   pub light_engine_flags: u16,
 
-  // The current playback flags. Bits will be non-zero during normal operation. (bytes = 6-7|22-23)
+  // The current playback flags. Bits will be non-zero during normal operation.
   // Bits:
   //  [0]: Shutter state: 0 = closed, 1 = open.
   //  [1]: Underflow. 1 if the last stream ended with underflow, rather than a 
   //			 Stop command. Reset to zero by the Prepare command.
   //  [2]: E-Stop. 1 if the last stream ended because the E-Stop state was 
   //       entered. Reset to zero by the Prepare command.
-  pub playback_flags: PlaybackState,
+  pub playback_flags: u8,
 
-  // [Unknown] (bytes = 8-9|24-25)
+  // [Unknown]
   pub source_flags: u16,
 
-  // The current number of points that are buffered in the DAC. (bytes = 10-11|26-27)
+  // The current number of points that are buffered in the DAC.
   pub points_buffered: u16,
 
-  // The current number of points that the DAC is processing per second. (bytes = 12-15|28-31)
+  // The current number of points that the DAC is processing per second.
   pub points_per_second: u32,
 
-  // The total number of points that the DAC has processed. (bytes = 16-19|32-35)
+  // The total number of points that the DAC has processed.
   pub points_lifetime: u32
 }
 
@@ -124,43 +150,30 @@ impl State {
     // SAFETY:
     // * `State` has the same size as `[u8; DEVICE_STATE_BYTES_SIZE]`.
     // * `[u8; DEVICE_STATE_BYTES_SIZE]` has no alignment requirement.
-    // * Since `State` is desgined as packed, this type has no padding.
-    unsafe{ return std::mem::transmute( bytes ); }
+    unsafe{ std::mem::transmute( bytes ) }
   }
 }
 
-impl fmt::Display for State {
-  fn fmt( &self, f: &mut fmt::Formatter ) -> fmt::Result {
-    writeln!( f, "State:" )?;
-    writeln!( f, "  Light engine = {:?}", self.light_engine_state )?;
-    writeln!( f, "  Playback = {:?}", self.playback_state )?;
-    writeln!( f, "  Source = {:?}", self.source )?;
-    writeln!( f, "  Points buffered = {:?}", self.points_buffered )?;
-    writeln!( f, "  Points per second = {:?}", self.points_per_second )?;
-    return writeln!( f, "  Points lifetime = {:?}", self.points_lifetime );
-  }
-}
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Device
+// ===================================================================== Device
 
 /// Encodes a device response from an Etherdream DAC discovery broadcast. 
 /// Reference: https://ether-dream.com/protocol.html
 #[repr( C )]
 #[derive( Clone, Copy, Debug )]
 pub struct Device {
-  // MAC address of the DAC (bytes = 0-5)
+  /// MAC address of the DAC
   pub mac_address: MacAddress,
 
-  // Hardware and software version of the DAC (bytes = 6-9)
+  /// Hardware and software version of the DAC
   pub version: Version,
 
-  // Maximum capacity of the DAC data buffer (bytes = 10-11)
+  /// Maximum capacity of the DAC point data buffer
   pub buffer_capacity: u16,
 
-  // Maximum number of points the DAC can process per second (bytes = 12-15)
+  /// Maximum number of points the DAC can process per second
   pub max_points_per_second: u32,
 
-  // The current device state (bytes = 16-36)
+  /// The current device state
   pub state: State
 }
 
@@ -169,26 +182,13 @@ impl Device {
     // SAFETY:
     // * `Device` has the same size as `[u8; DEVICE_BYTES_SIZE]`.
     // * `[u8; DEVICE_BYTES_SIZE]` has no alignment requirement.
-    // * Since `Device` is designed as packed, this type has no padding.
-    unsafe{ return std::mem::transmute( bytes ); }
+    unsafe{ std::mem::transmute( bytes ) }
   }
 
   pub fn to_bytes( self ) -> [u8; DEVICE_BYTES_SIZE] {
     // SAFETY:
     // * `Device` has the same size as `[u8; DEVICE_BYTES_SIZE]`.
     // * `[u8; DEVICE_BYTES_SIZE]` has no alignment requirement.
-    // * Since `Device` is designed as packed, this type has no padding.
-    unsafe{ return std::mem::transmute( self ); }
-  }
-}
-
-impl fmt::Display for Device {
-  fn fmt( &self, f: &mut fmt::Formatter ) -> fmt::Result {
-    writeln!( f, "Device:" )?;
-    writeln!( f, "  Buffer capacity = {}", self.buffer_capacity )?;
-    writeln!( f, "  Mac address = {}", self.mac_address )?;
-    writeln!( f, "  Max points per second = {}", self.max_points_per_second )?;
-    writeln!( f, "  Version = hardware: {}; software: {}", self.version.hardware, self.version.software )?;
-    return writeln!( f, "\n{}", self.state );
+    unsafe{ std::mem::transmute( self ) }
   }
 }
