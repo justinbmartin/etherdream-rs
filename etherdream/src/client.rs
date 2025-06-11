@@ -11,6 +11,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::device::{self, DEFAULT_PORT, DEVICE_STATE_BYTES_SIZE};
 
+const DAC_COMMAND_BEGIN: u8     = b'b';
+const DAC_COMMAND_CLEAR: u8     = b'c';
 const DAC_COMMAND_DATA: u8      = b'd';
 const DAC_COMMAND_PING: u8      = b'?';
 const DAC_COMMAND_PREPARE: u8   = b'p';
@@ -65,7 +67,10 @@ impl ControlSignal {
 #[derive( Debug )]
 pub enum Command {
   Ping    = DAC_COMMAND_PING,
-  Prepare = DAC_COMMAND_PREPARE
+  Prepare = DAC_COMMAND_PREPARE,
+  Data{ x: i16, y: i16, r: u16, g: u16, b: u16 } = DAC_COMMAND_DATA,
+  Begin{ rate: u32 } = DAC_COMMAND_BEGIN,
+  Clear   = DAC_COMMAND_CLEAR
 }
 
 impl Command {
@@ -98,10 +103,6 @@ pub struct Client {
 
   // Channel used to acknowledge user-initiated ping requests
   ping_notifier: Arc<RwLock<Option<oneshot::Sender<device::State>>>>,
-
-  //
-  point_buffer: [(i16,i16,u16,u16,u16);4000],
-  point_index: usize
 }
  
 impl Client {
@@ -159,8 +160,6 @@ impl Client {
       address: address,
       command_tx: command_tx,
       ping_notifier: ping_notifier,
-      point_buffer: [(0,0,0,0,0);4000],
-      point_index: 0,
       shutdown_token: shutdown_token,
       _state: state,
       tasks: Some([ dac_rx_handle, dac_tx_handle ])
@@ -215,9 +214,16 @@ impl Client {
   }
 
   // TODO: use floats and unit-values
-  pub fn add_point( &mut self, x: i16, y: i16, r: u16, g: u16, b: u16 ) {
-    self.point_buffer[self.point_index] = ( x, y, r, g, b );
-    self.point_index += 1;
+  pub fn add_point( &self, x: i16, y: i16, r: u16, g: u16, b: u16 ) {
+    let _ = self.command_tx.try_send( Command::Data{ x: x, y: y, r: r, g: g, b: b } );
+  }
+
+  pub fn begin( &self, rate: u32 ) {
+    let _ = self.command_tx.try_send( Command::Begin{ rate } );
+  }
+
+  pub fn clear( &self ) {
+    let _ = self.command_tx.try_send( Command::Clear );
   }
 }
 
@@ -274,6 +280,35 @@ async fn do_write( mut command_rx: mpsc::Receiver<Command>, mut dac_tx: OwnedWri
         },
         Command::Prepare => {
           let _ = dac_tx.write_u8( DAC_COMMAND_PREPARE ).await?;
+        },
+        Command::Data{ x, y, r, g, b } => {
+          let mut data = [0u8;21];
+
+          data[0] = DAC_COMMAND_DATA;
+          data[1..3].copy_from_slice( &u16::to_le_bytes( 1 ) );
+          //data[3..5] = control (0)
+          data[5..7].copy_from_slice( &i16::to_le_bytes( x ) );
+          data[7..9].copy_from_slice( &i16::to_le_bytes( y ) );
+          data[9..11].copy_from_slice( &u16::to_le_bytes( r ) );
+          data[11..13].copy_from_slice( &u16::to_le_bytes( g ) );
+          data[13..15].copy_from_slice( &u16::to_le_bytes( b ) );
+          data[15..17].copy_from_slice( &u16::to_le_bytes( u16::MAX ) );
+          //data[17..19] = u1 (0)
+          //data[19..21] = u2 (0)
+          
+          let _ = dac_tx.write( &data ).await?;
+        },
+        Command::Begin{ rate } => {
+          let mut data = [0u8;7];
+          
+          data[0] = DAC_COMMAND_BEGIN;
+          //data[1..3] = low water mark (0)
+          data[3..7].copy_from_slice( &u32::to_le_bytes( rate ) );
+
+          let _ = dac_tx.write( &data ).await?;
+        },
+        Command::Clear => {
+          let _ = dac_tx.write_u8( DAC_COMMAND_CLEAR ).await?;
         }
       }
     }

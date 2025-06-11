@@ -46,6 +46,10 @@ async fn main() {
         .about( "Disconnects from the currently active Etherdream device." ),
       clap::Command::new( "ping" )
         .about( "Pings the currently active Etherdream device and prints the active device state." ),
+      clap::Command::new( "play" )
+        .about( "..." ),
+      clap::Command::new( "clear" )
+        .about( "..." ),
       clap::Command::new( "exit" )
     ]);
 
@@ -82,6 +86,8 @@ async fn main() {
             Some(( "info", args )) => do_print_device_info( &state, *args.get_one::<usize>( "index" ).unwrap() ),
             Some(( "list", _ )) => do_list_devices( &state ),
             Some(( "ping", _ )) => do_ping_current_device( &state ).await,
+            Some(( "play", _ )) => do_play_current_device( &state ).await,
+            Some(( "clear", _ )) => do_clear_current_device( &state ).await,
             _ => {}
           },
         Err( err ) => 
@@ -178,6 +184,36 @@ async fn do_ping_current_device( state: &StateRef ) {
       },
       _ => println!( "Ping error..." )
     }
+  } else {
+    println!( "(no device connected)" );
+  }
+}
+
+async fn do_play_current_device( state: &StateRef ) {
+  let state = state.read();
+
+  if let Some( client_index ) = state.current_client {
+    let client = state.clients.get( &client_index ).unwrap();
+    
+    for _ in 0..3000 {
+      client.add_point( 0, 0, u16::MAX, u16::MAX, u16::MAX );
+    }
+
+    client.begin( 1500 );
+
+  } else {
+    println!( "(no device connected)" );
+  }
+}
+
+async fn do_clear_current_device( state: &StateRef ) {
+  let state = state.read();
+
+  if let Some( client_index ) = state.current_client {
+    let client = state.clients.get( &client_index ).unwrap();
+    
+    client.clear();
+    
   } else {
     println!( "(no device connected)" );
   }
