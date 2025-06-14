@@ -264,8 +264,17 @@ async fn do_read<T>( current_state: DeviceStateRef, mut dac_rx: OwnedReadHalf, o
           }
         }
       },
-      _ => {
-        todo!();
+      Some( ControlSignal::Nak ) => {
+        println!( "[NAK]" );
+      },
+      Some( ControlSignal::Invalid ) => {
+        println!( "[INVALID]" );
+      },
+      Some( ControlSignal::Stop ) => {
+        println!( "[E-STOP]" );
+      },
+      None => {
+        println!( "[an unknown control signal was received]" )
       }
     }
   }

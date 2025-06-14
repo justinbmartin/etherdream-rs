@@ -195,6 +195,8 @@ async fn do_play_current_device( state: &StateRef ) {
   if let Some( client_index ) = state.current_client {
     let client = state.clients.get( &client_index ).unwrap();
     
+    client.reset();
+
     for _ in 0..3000 {
       client.add_point( 0, 0, u16::MAX, u16::MAX, u16::MAX );
     }
