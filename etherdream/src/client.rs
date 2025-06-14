@@ -68,9 +68,18 @@ impl ControlSignal {
 pub enum Command {
   Ping    = DAC_COMMAND_PING,
   Prepare = DAC_COMMAND_PREPARE,
-  Data{ x: i16, y: i16, r: u16, g: u16, b: u16 } = DAC_COMMAND_DATA,
-  Begin{ rate: u32 } = DAC_COMMAND_BEGIN,
+  Data    = DAC_COMMAND_DATA,
+  Begin   = DAC_COMMAND_BEGIN,
   Clear   = DAC_COMMAND_CLEAR
+}
+
+#[derive( Debug )]
+enum CommandData {
+  Ping,
+  Prepare,
+  Data{ x: i16, y: i16, r: u16, g: u16, b: u16 },
+  Begin{ rate: u32 },
+  Clear
 }
 
 impl Command {
@@ -93,7 +102,7 @@ pub struct Client {
   shutdown_token: CancellationToken,
 
   // Channel used to send commands from the client to the async writer task
-  command_tx: mpsc::Sender<Command>,
+  command_tx: mpsc::Sender<CommandData>,
   
   // The clients async task handles
   tasks: Option<[task::JoinHandle<io::Result<()>>; 2]>,
@@ -121,7 +130,7 @@ impl Client {
 
     // Responsible to communicating commands from the client run-time to the
     // asynchronous DAC writer, `do_write`
-    let ( command_tx, command_rx ) = mpsc::channel::<Command>( 64 );
+    let ( command_tx, command_rx ) = mpsc::channel::<CommandData>( 64 );
 
     // Connect to the Etherdream DAC at `address`
     let dac_stream = net::TcpSocket::new_v4()?.connect( address ).await?;
@@ -193,7 +202,7 @@ impl Client {
 
     //
     let result = time::timeout( time::Duration::from_secs( 2 ), async move {
-      let _ = self.command_tx.try_send( Command::Ping );
+      let _ = self.command_tx.try_send( CommandData::Ping );
       
       if let Ok( state ) = ping_rx.await {
         return Ok( state );
@@ -210,20 +219,20 @@ impl Client {
 
   //
   pub fn reset( &self ) {
-    let _ = self.command_tx.try_send( Command::Prepare );
+    let _ = self.command_tx.try_send( CommandData::Prepare );
   }
 
   // TODO: use floats and unit-values
   pub fn add_point( &self, x: i16, y: i16, r: u16, g: u16, b: u16 ) {
-    let _ = self.command_tx.try_send( Command::Data{ x: x, y: y, r: r, g: g, b: b } );
+    let _ = self.command_tx.try_send( CommandData::Data{ x: x, y: y, r: r, g: g, b: b } );
   }
 
   pub fn begin( &self, rate: u32 ) {
-    let _ = self.command_tx.try_send( Command::Begin{ rate } );
+    let _ = self.command_tx.try_send( CommandData::Begin{ rate } );
   }
 
   pub fn clear( &self ) {
-    let _ = self.command_tx.try_send( Command::Clear );
+    let _ = self.command_tx.try_send( CommandData::Clear );
   }
 }
 
@@ -280,17 +289,17 @@ async fn do_read<T>( current_state: DeviceStateRef, mut dac_rx: OwnedReadHalf, o
   }
 }
 
-async fn do_write( mut command_rx: mpsc::Receiver<Command>, mut dac_tx: OwnedWriteHalf ) -> io::Result<()> {
+async fn do_write( mut command_rx: mpsc::Receiver<CommandData>, mut dac_tx: OwnedWriteHalf ) -> io::Result<()> {
   loop {
     while let Some( command ) = command_rx.recv().await {
       match command {
-        Command::Ping => {
+        CommandData::Ping => {
           let _ = dac_tx.write_u8( DAC_COMMAND_PING ).await?;
         },
-        Command::Prepare => {
+        CommandData::Prepare => {
           let _ = dac_tx.write_u8( DAC_COMMAND_PREPARE ).await?;
         },
-        Command::Data{ x, y, r, g, b } => {
+        CommandData::Data{ x, y, r, g, b } => {
           let mut data = [0u8;21];
 
           data[0] = DAC_COMMAND_DATA;
@@ -307,7 +316,7 @@ async fn do_write( mut command_rx: mpsc::Receiver<Command>, mut dac_tx: OwnedWri
           
           let _ = dac_tx.write( &data ).await?;
         },
-        Command::Begin{ rate } => {
+        CommandData::Begin{ rate } => {
           let mut data = [0u8;7];
           
           data[0] = DAC_COMMAND_BEGIN;
@@ -316,7 +325,7 @@ async fn do_write( mut command_rx: mpsc::Receiver<Command>, mut dac_tx: OwnedWri
 
           let _ = dac_tx.write( &data ).await?;
         },
-        Command::Clear => {
+        CommandData::Clear => {
           let _ = dac_tx.write_u8( DAC_COMMAND_CLEAR ).await?;
         }
       }
