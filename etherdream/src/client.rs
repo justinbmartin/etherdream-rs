@@ -1,15 +1,17 @@
 use std::net::{ IpAddr, SocketAddr };
 use std::sync::Arc;
 
-use parking_lot::RwLock;
 use tokio::io::{ self, AsyncReadExt, AsyncWriteExt };
 use tokio::net::{ self, tcp::{ OwnedReadHalf, OwnedWriteHalf } };
-use tokio::sync::{ mpsc, oneshot };
+use tokio::sync::{ mpsc, oneshot, RwLock };
 use tokio::task;
 use tokio::time;
 use tokio_util::sync::CancellationToken;
 
 use crate::device::{self, DEFAULT_PORT, DEVICE_STATE_BYTES_SIZE};
+//use crate::point::{Point, PointBuffer};
+
+const _DEFAULT_BUFFER_SIZE: usize = 3_000;
 
 const DAC_COMMAND_BEGIN: u8     = b'b';
 const DAC_COMMAND_CLEAR: u8     = b'c';
@@ -111,7 +113,7 @@ pub struct Client {
   _state: DeviceStateRef,
 
   // Channel used to acknowledge user-initiated ping requests
-  ping_notifier: Arc<RwLock<Option<oneshot::Sender<device::State>>>>,
+  ping_notifier: Arc<RwLock<Option<oneshot::Sender<device::State>>>>
 }
  
 impl Client {
@@ -198,7 +200,7 @@ impl Client {
   pub async fn ping( &self ) -> Result<device::State,String> {
     //
     let( ping_tx, ping_rx ) = tokio::sync::oneshot::channel::<device::State>();
-    *self.ping_notifier.write() = Some( ping_tx );
+    *self.ping_notifier.write().await = Some( ping_tx );
 
     //
     let result = time::timeout( time::Duration::from_secs( 2 ), async move {
@@ -251,7 +253,7 @@ async fn do_read<T>( current_state: DeviceStateRef, mut dac_rx: OwnedReadHalf, o
     let command = Command::from_byte( buf[1] );
 
     // Copy the state from our buffer into the client
-    current_state.write().copy_from_slice( &buf[2..] );
+    current_state.write().await.copy_from_slice( &buf[2..] );
 
     match control_signal {
       Some( ControlSignal::Ack ) => {
@@ -260,7 +262,7 @@ async fn do_read<T>( current_state: DeviceStateRef, mut dac_rx: OwnedReadHalf, o
             //
             on_command_handler( ControlSignal::Ack, Command::Ping, 0 );
 
-            if let Some( notifier ) = ping_notifier.write().take() {
+            if let Some( notifier ) = ping_notifier.write().await.take() {
               // TODO: this can be more efficient...
               let mut state_bytes = [0; DEVICE_STATE_BYTES_SIZE];
               state_bytes.copy_from_slice( &buf[2..] );
@@ -330,7 +332,5 @@ async fn do_write( mut command_rx: mpsc::Receiver<CommandData>, mut dac_tx: Owne
         }
       }
     }
-
-
   }
 }

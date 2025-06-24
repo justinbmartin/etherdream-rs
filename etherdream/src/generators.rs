@@ -1,0 +1,3 @@
+struct LoopingGenerator {
+  points: Vec<>
+}
