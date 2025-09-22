@@ -1,4 +1,4 @@
-
+//! A service to discover Etherdream DAC's on a network.
 use std::collections::HashMap;
 use std::io;
 use std::net::{ IpAddr, Ipv4Addr, SocketAddr };
@@ -22,69 +22,73 @@ pub struct Connection {
 }
 
 impl Connection {
+  /// Returns the socket address that the discovery server is listening on.
   pub fn address( &self ) -> SocketAddr {
-    return self.address;
+    self.address
   }
 
+  // TODO
   pub async fn join( self ) -> io::Result<DeviceMap> {
-    return self.handle.await?;
+    self.handle.await?
   }
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - Discovery Server Builder
 
 #[derive( Clone, Copy )]
-pub struct Server<T> 
-  where T: Fn( IpAddr, Device ) + Send + 'static
+pub struct Server<T>
+  where
+    T: Fn( SocketAddr, Device ) + Send + 'static
 {
   /// The local address that the server will listen on. Defaults to `0.0.0.0::7654`.
   address: SocketAddr,
 
-  /// The callback that will be executed for each new device discovered.
+  /// The callback that will be executed once for each newly discovered device.
   callback_fn: T,
 
   /// If greater than zero, the maximum number of devices that this server
   /// will listen for before shutting down.
   limit: usize,
 
-  // The optional length of time this server will listen for before shuttong down.
+  /// The optional length of time this server will listen before shutting down.
   duration: Option<Duration>
 }
 
 impl<T> Server<T> 
-  where T: Fn( IpAddr, Device ) + Send + 'static
+  where
+    T: Fn( SocketAddr, Device ) + Send + 'static
 {
-  /// Creates a new discovery server. Must call `Server::serve().await` to start.
-  pub fn new( callback_fn: T ) -> Self 
-    where T: Fn( IpAddr, Device ) + Send + 'static
+  /// Builds a new discovery server. Must call `Server::serve().await` to start.
+  pub fn new( callback_fn: T ) -> Self
   {
-    return Self{
+    Self{
       address: SocketAddr::new( IpAddr::V4( Ipv4Addr::UNSPECIFIED ), BROADCAST_PORT ),
-      callback_fn: callback_fn,
+      callback_fn,
       duration: None,
       limit: 0
-    };
+    }
   }
 
-  // Will override the default address that the server listens on.
+  /// Will override the default address that the server listens on.
   pub fn address( mut self, address: SocketAddr ) -> Self {
     self.address = address;
-    return self;
+    self
   }
 
-  // Limits the number of devices that the server will discover. Useful for testing.
+  /// Limits the number of devices that the server will discover. Useful for testing.
   pub fn limit( mut self, limit: usize ) -> Self {
     self.limit = limit;
-    return self;
+    self
   }
 
-  // Limits the time that the server will run for. Useful for testing.
+  /// Limits the time that the server will run for. Useful for testing.
   pub fn duration( mut self, duration: Duration ) -> Self {
     self.duration = Some( duration );
-    return self;
+    self
   }
 
-  // Starts the server and returns a `<Connection>`
+  /// Starts the discovery server and returns a `<Connection>`. The server will shut down when the
+  /// `<Connection>` is dropped.
   pub async fn serve( self ) -> io::Result<Connection> {
     let socket = UdpSocket::bind( self.address ).await?;
     let addr = socket.local_addr()?;
@@ -98,15 +102,13 @@ impl<T> Server<T>
         tokio::spawn( do_listen( socket, self.callback_fn, self.limit ) )
       };
 
-    return Ok( Connection{
-      address: addr,
-      handle: handle
-    });
+    Ok( Connection{ address: addr, handle })
   }
 }
 
-async fn do_listen<T>( socket: UdpSocket, callback_fn: T, limit: usize ) -> io::Result<HashMap<SocketAddr,Device>> 
-  where T: Fn( IpAddr, Device ) + Send + 'static
+async fn do_listen<T>( socket: UdpSocket, callback_fn: T, limit: usize ) -> io::Result<HashMap<SocketAddr,Device>>
+  where
+    T: Fn( SocketAddr, Device ) + Send + 'static
 {
   let mut buffer = [0u8; device::DEVICE_BYTES_SIZE];
   let mut devices: HashMap<SocketAddr,Device> = HashMap::new();
@@ -119,7 +121,7 @@ async fn do_listen<T>( socket: UdpSocket, callback_fn: T, limit: usize ) -> io::
       let device = Device::from_bytes( buffer );
       devices.insert( address, device );
 
-      callback_fn( address.ip(), device );
+      callback_fn( SocketAddr::new( address.ip(), device::DEFAULT_PORT ), device );
 
       // Break if a device limit is set and has been met
       if limit > 0 && devices.len() >= limit  {
@@ -128,5 +130,5 @@ async fn do_listen<T>( socket: UdpSocket, callback_fn: T, limit: usize ) -> io::
     }
   }
 
-  return Ok( devices );
+  Ok( devices )
 }
