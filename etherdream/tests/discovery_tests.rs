@@ -1,139 +1,150 @@
 use std::io;
-use std::net::{ IpAddr, Ipv4Addr, SocketAddr };
-use std::sync::mpsc::{ channel, Receiver };
+use std::net::{ IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4 };
+use std::sync::{ Arc, RwLock };
 
 use tokio::net::UdpSocket;
-use tokio::time::Duration;
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
+use tokio::time;
 
-use etherdream::{ device::*, discovery };
-
-mod support;
-use support::DeviceBuilder;
+use etherdream::{ constants::*, device, discovery };
+use etherdream_test::*;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Test Helpers
 
-// Starts a discovery server with `limit`. Returns a tuple containing (1) the
-// shared vector that discovered device(s) will be persisted into via callback, 
-// and (2) the connection for the server.
-async fn setup_discovery( limit: usize ) -> ( Receiver<( SocketAddr, Device )>, discovery::Connection ) {
-  let ( tx, rx ) = channel();
-
-  let server = {
-    discovery::Server::new( move | ip, device | { let _ = tx.send( ( ip, device ) ); })
-      .address( SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), 0 ) )
-      .duration( Duration::from_secs( 5 ) )
-      .limit( limit )
-      .serve()
-  };
-
-  if let Ok( conn ) = server.await {
-    return ( rx, conn );
-  } else {
-    panic!( "Failed to create discovery server." )
-  }
+struct TestDiscoveryServer {
+  server: Arc<RwLock<Option<discovery::Server>>>,
+  _timeout_handle: JoinHandle<()>
 }
 
-// Sends `count` broadcast message's for `device`
-async fn send_etherdream_broadcasts( address: SocketAddr, device: Device, count: usize ) -> io::Result<()> {
-  let local_address = SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), 0 );
+impl TestDiscoveryServer {
+  // Starts a test discovery server. The test discovery is programmed to
+  // terminate after a limited number of secs. This function will return a
+  // tuple containing:
+  // (1) the test discovery server, and
+  // (2) an mpsc receiver that the caller can use to receive discovered devices
+  async fn start() -> ( Self, mpsc::Receiver<device::Device> ) {
+    let ( discovered_device_tx, discovered_device_rx ) = mpsc::channel::<device::Device>( 16 );
 
-  let local_socket = UdpSocket::bind( local_address ).await?;
-  local_socket.set_broadcast( true )?;
+    // Create a discovery server on any available port. Will notify the creator
+    // of any discovered devices via `discovered_device_rx`.
+    let server_fut = {
+      discovery::Server::serve_with_address(
+        SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), 0 ), discovered_device_tx
+      )
+    };
 
-  for _ in 0..count {
-    if let Err( err ) = local_socket.send_to( &device.to_bytes(), address ).await {
-      panic!( "Failed to broadcast device: {err}" );
+    if let  Ok( server ) = server_fut.await {
+      let server_ref = Arc::new( RwLock::new( Some( server ) ) );
+
+      // Establish a timeout task that will shut the discovery down after a
+      // small duration of time.
+      let timeout_handle = tokio::spawn({
+        let server_ref = server_ref.clone();
+
+        async move {
+          time::sleep( time::Duration::from_secs( 5 ) ).await;
+
+          let server = server_ref.write().unwrap().take();
+          if let Some( server ) = server {
+            let _ = server.shutdown().await;
+          }
+        }
+      });
+
+      ( Self{ _timeout_handle: timeout_handle, server: server_ref }, discovered_device_rx )
+    } else {
+      panic!( "Failed to create the test discovery server." )
     }
   }
 
-  return Ok(());
+  fn address( &self ) -> SocketAddr {
+    match self.server.read().unwrap().as_ref() {
+      Some( server ) => server.address(),
+      None => panic!( "The discovery server has already been shutdown." )
+    }
+  }
+}
+
+// Broadcasts `count` number of test device messages to a discovery `server`.
+async fn broadcast_device( server: &TestDiscoveryServer, test_device: &TestDevice, count: usize ) -> io::Result<()> {
+  let local_socket = UdpSocket::bind( SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), 0 ) ).await?;
+  local_socket.set_broadcast( true )?;
+
+  let mut buf = [0u8; ETHERDREAM_BROADCAST_BYTES];
+  copy_into_etherdream_broadcast_bytes( &mut buf, &test_device.intrinsics, &test_device.state );
+
+  for i in 0..count {
+    if let Err( err ) = local_socket.send_to( &buf, server.address() ).await {
+      panic!( "Failed to broadcast device message {i} of {count}: {err}" );
+    }
+  }
+
+  Ok(())
+}
+
+// Awaits for a single device or panics. A panic can happen if a test timeout
+// is reached or the server was shutdown from some other means.
+async fn receive_device_or_panic( rx: &mut mpsc::Receiver<device::Device> ) -> device::Device {
+  if let Some( discovered_device ) = rx.recv().await {
+    discovered_device
+  } else {
+    panic!( "Failed to receive device..." )
+  }
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Unit Tests
 
 #[tokio::test]
-async fn receives_an_etherdream_broadcast() -> io::Result<()> {
-  let ( rx, conn ) = setup_discovery( 1 ).await;
+async fn discovery_server_will_receive_a_single_etherdream_broadcast() -> Result<(),io::Error> {
+  let ( server, mut device_rx ) = TestDiscoveryServer::start().await;
 
-  // Send a test device broadcast
-  let test_device = DeviceBuilder::default().to_device();
-  send_etherdream_broadcasts( conn.address(), test_device, 1 ).await?;
+  // Create a test device
+  let mut test_device = TestDevice::new();
+  test_device.state.points_lifetime = 1234;
+  test_device.state.points_per_second = 1024;
 
-  // Let the discovery server run to completion and verify the discovered devices
-  let discovered_devices = conn.join().await?;
-  assert_eq!( discovered_devices.len(), 1 );
+  // Broadcast the test device to the discovery server
+  broadcast_device( &server, &test_device, 1 ).await?;
 
-  let discovered_device = discovered_devices.values().next().unwrap();
-  assert_eq!( discovered_device.mac_address, test_device.mac_address );
+  // Verify that the discovery server receives that device and executes the callback
+  let discovered_device = receive_device_or_panic( &mut device_rx ).await;
 
-  // Validate the device(s) we recorded via the run-time callback
-  let ( socket, found_device ) = rx.recv_timeout( Duration::from_secs( 1 ) ).unwrap();
+  // Verify discovered device attributes
+  assert_eq!( discovered_device.address(), SocketAddrV4::new( Ipv4Addr::LOCALHOST, 7765 ).into() );
+  assert_eq!( discovered_device.buffer_capacity(), test_device.intrinsics.buffer_capacity );
+  assert_eq!( discovered_device.mac_address(), test_device.intrinsics.mac_address );
+  assert_eq!( discovered_device.max_points_per_second(), test_device.intrinsics.max_points_per_second );
+  assert_eq!( discovered_device.version(), test_device.intrinsics.version );
 
-  assert_eq!( socket.ip(), IpAddr::V4( Ipv4Addr::LOCALHOST ) );
-  assert_eq!( socket.port(), 7765 );
+  assert_eq!( discovered_device.state().light_engine_state, device::LightEngineState::Ready );
+  assert_eq!( discovered_device.state().playback_state, device::PlaybackState::Prepared );
+  assert_eq!( discovered_device.state().points_lifetime, 1234 );
+  assert_eq!( discovered_device.state().points_per_second, 1024 );
+  assert_eq!( discovered_device.state().source, device::Source::Network );
 
-  assert_eq!( found_device.buffer_capacity, 1024 );
-  assert_eq!( found_device.mac_address, MacAddress::new([ 0, 1 , 2, 3, 4, 5 ]) );
-  assert_eq!( found_device.max_points_per_second, 128 );
-  assert_eq!( found_device.version, Version::new( 0, 1 ) );
-
-  assert_eq!( found_device.state.light_engine_state, LightEngineState::Ready );
-  assert_eq!( found_device.state.playback_state, PlaybackState::Idle );
-  assert_eq!( found_device.state.points_lifetime, 16384 );
-  assert_eq!( found_device.state.points_per_second, 128 );
-  assert_eq!( found_device.state.source, Source::Ilda );
-  
-  return Ok(());
+  Ok(())
 }
 
 #[tokio::test]
-async fn will_receive_a_limited_number_of_devices() -> io::Result<()> {
-  let ( rx, conn ) = setup_discovery( 1 ).await;
+async fn discovery_server_will_only_execute_callback_once_for_each_unique_device() -> Result<(),io::Error> {
+  let ( server, mut device_rx ) = TestDiscoveryServer::start().await;
 
-  let device_builder = DeviceBuilder::default();
-  let device_10 = device_builder.mac_address([10; 6]).to_device();
-  let device_20 = device_builder.mac_address([20; 6]).to_device();
+  // Broadcasting this device ten (10) times
+  let mut test_device_1 = TestDevice::new();
+  test_device_1.intrinsics.mac_address = [10; 6].into();
+  broadcast_device( &server, &test_device_1, 10 ).await?;
 
-  send_etherdream_broadcasts( conn.address(), device_10, 1 ).await?;
-  send_etherdream_broadcasts( conn.address(), device_20, 1 ).await?;
-  
-  //
-  let _ = conn.join().await?;
+  // Broadcasting this device once (1)
+  let mut test_device_2 = TestDevice::new();
+  test_device_2.intrinsics.mac_address = [20; 6].into();
+  broadcast_device( &server, &test_device_2, 1 ).await?;
 
-  // There should only be a single device for MAC=`10::10::10::10::10::10`
-  let ( _ip, found_device ) = rx.recv_timeout( Duration::from_secs( 1 ) ).unwrap();
+  let discovered_device = device_rx.recv().await.unwrap();
+  assert_eq!( discovered_device.mac_address(), test_device_1.intrinsics.mac_address );
 
-  assert_eq!( found_device.mac_address, device_10.mac_address );
+  let discovered_device = device_rx.recv().await.unwrap();
+  assert_eq!( discovered_device.mac_address(), test_device_2.intrinsics.mac_address );
 
-  assert!( rx.recv_timeout( Duration::from_secs( 1 ) ).is_err() );
-  return Ok(());
-}
-
-#[tokio::test]
-async fn will_execute_the_user_provided_callback_once_for_each_unique_device() -> io::Result<()> {
-  let ( rx, conn ) = setup_discovery( 2 ).await;
-
-  let device_builder = DeviceBuilder::default();
-  let device_10 = device_builder.mac_address([10; 6]).to_device();
-  let device_20 = device_builder.mac_address([20; 6]).to_device();
-
-  // Sending `device_10` ten times and `device_20` once
-  send_etherdream_broadcasts( conn.address(), device_10, 10 ).await?;
-  send_etherdream_broadcasts( conn.address(), device_20, 1 ).await?;
-  
-  // ...
-  let _ = conn.join().await?;
-
-  // There should be two devices
-  {
-    let ( _, found_device_1 ) = rx.recv_timeout( Duration::from_secs( 1 ) ).unwrap();
-    assert_eq!( found_device_1.mac_address, device_10.mac_address );
-  }
-
-  {
-    let ( _, found_device_2 ) = rx.recv_timeout( Duration::from_secs( 1 ) ).unwrap();
-    assert_eq!( found_device_2.mac_address, device_20.mac_address );
-  }
-
-  return Ok(());
+  Ok(())
 }
