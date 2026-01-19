@@ -4,131 +4,91 @@ use std::io;
 use std::net::{ IpAddr, Ipv4Addr, SocketAddr };
 
 use tokio::net::UdpSocket;
+use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
-use tokio::time::Duration;
+use tokio_util::sync::CancellationToken;
 
-use crate::{ device, Device };
+use crate::constants::*;
+use crate::device;
 
-pub const BROADCAST_PORT: u16 = 7654;
+type DeviceMap = HashMap<SocketAddr,device::Device>;
 
-type DeviceMap = HashMap<SocketAddr,Device>;
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Discovery Server
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Connection
-
-#[derive( Debug )]
-pub struct Connection {
+pub struct Server {
+  /// The local socket address that the server is listening on.
   address: SocketAddr,
-  handle: JoinHandle<io::Result<DeviceMap>>
+
+  /// The tokio join handle that owns the asynchronous listening task.
+  handle: JoinHandle<Result<(),io::Error>>,
+
+  /// The cancellation token used to shut down the discovery server.
+  shutdown_token: CancellationToken
 }
 
-impl Connection {
-  /// Returns the socket address that the discovery server is listening on.
+impl Server {
+  /// Starts the discovery server and listens on the Etherdream protocol
+  /// defined broadcast port (`7654`).
+  pub async fn serve( device_tx: Sender<device::Device> ) -> Result<Self,io::Error> {
+    Self::serve_with_address(
+      SocketAddr::new( IpAddr::V4( Ipv4Addr::UNSPECIFIED ), ETHERDREAM_BROADCAST_PORT ),
+      device_tx
+    ).await
+  }
+
+  /// Starts the discovery server and listens on a user-provided socket address.
+  pub async fn serve_with_address( address: SocketAddr, device_tx: Sender<device::Device> ) -> Result<Self,io::Error> {
+    let shutdown_token = CancellationToken::new();
+
+    let socket = UdpSocket::bind( address ).await?;
+    let local_address = socket.local_addr()?;
+
+    let handle = tokio::spawn({
+      let shutdown_token = shutdown_token.child_token();
+
+      async move {
+        tokio::select!{
+          _ = shutdown_token.cancelled() => { Ok(()) },
+          result = do_listen( socket, device_tx ) => result
+        }
+      }
+    });
+
+    Ok( Self{
+      address: local_address,
+      handle,
+      shutdown_token
+    })
+  }
+
+  /// Returns the local socket address that the discovery server is listening on.
   pub fn address( &self ) -> SocketAddr {
     self.address
   }
 
-  // TODO
-  pub async fn join( self ) -> io::Result<DeviceMap> {
-    self.handle.await?
+  /// Shuts down the discovery server and consumes `self`.
+  pub async fn shutdown( self ) {
+    self.shutdown_token.cancel();
+    let _ = self.handle.await;
   }
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - Discovery Server Builder
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Listen Handler
 
-#[derive( Clone, Copy )]
-pub struct Server<T>
-  where
-    T: Fn( SocketAddr, Device ) + Send + 'static
+async fn do_listen( socket: UdpSocket, device_tx: Sender<device::Device> ) -> Result<(),io::Error>
 {
-  /// The local address that the server will listen on. Defaults to `0.0.0.0::7654`.
-  address: SocketAddr,
-
-  /// The callback that will be executed once for each newly discovered device.
-  callback_fn: T,
-
-  /// If greater than zero, the maximum number of devices that this server
-  /// will listen for before shutting down.
-  limit: usize,
-
-  /// The optional length of time this server will listen before shutting down.
-  duration: Option<Duration>
-}
-
-impl<T> Server<T> 
-  where
-    T: Fn( SocketAddr, Device ) + Send + 'static
-{
-  /// Builds a new discovery server. Must call `Server::serve().await` to start.
-  pub fn new( callback_fn: T ) -> Self
-  {
-    Self{
-      address: SocketAddr::new( IpAddr::V4( Ipv4Addr::UNSPECIFIED ), BROADCAST_PORT ),
-      callback_fn,
-      duration: None,
-      limit: 0
-    }
-  }
-
-  /// Will override the default address that the server listens on.
-  pub fn address( mut self, address: SocketAddr ) -> Self {
-    self.address = address;
-    self
-  }
-
-  /// Limits the number of devices that the server will discover. Useful for testing.
-  pub fn limit( mut self, limit: usize ) -> Self {
-    self.limit = limit;
-    self
-  }
-
-  /// Limits the time that the server will run for. Useful for testing.
-  pub fn duration( mut self, duration: Duration ) -> Self {
-    self.duration = Some( duration );
-    self
-  }
-
-  /// Starts the discovery server and returns a `<Connection>`. The server will shut down when the
-  /// `<Connection>` is dropped.
-  pub async fn serve( self ) -> io::Result<Connection> {
-    let socket = UdpSocket::bind( self.address ).await?;
-    let addr = socket.local_addr()?;
-
-    let handle =
-      if let Some( duration ) = self.duration {
-        tokio::spawn( async move {
-          tokio::time::timeout( duration, do_listen( socket, self.callback_fn, self.limit ) ).await?
-        })
-      } else {
-        tokio::spawn( do_listen( socket, self.callback_fn, self.limit ) )
-      };
-
-    Ok( Connection{ address: addr, handle })
-  }
-}
-
-async fn do_listen<T>( socket: UdpSocket, callback_fn: T, limit: usize ) -> io::Result<HashMap<SocketAddr,Device>>
-  where
-    T: Fn( SocketAddr, Device ) + Send + 'static
-{
-  let mut buffer = [0u8; device::DEVICE_BYTES_SIZE];
-  let mut devices: HashMap<SocketAddr,Device> = HashMap::new();
+  let mut buf = [0u8; ETHERDREAM_BROADCAST_BYTES];
+  let mut registry = DeviceMap::new();
     
   loop {
-    let ( _length, address ) = socket.recv_from( &mut buffer ).await?;
-    
-    if ! devices.contains_key( &address ) {
-      
-      let device = Device::from_bytes( buffer );
-      devices.insert( address, device );
+    let ( _length, address ) = socket.recv_from( &mut buf ).await?;
 
-      callback_fn( SocketAddr::new( address.ip(), device::DEFAULT_PORT ), device );
+    let device = device::Device::from_bytes( SocketAddr::new( address.ip(), ETHERDREAM_CLIENT_PORT ), &buf );
 
-      // Break if a device limit is set and has been met
-      if limit > 0 && devices.len() >= limit  {
-        break;
-      }
+    // Insert the device into the registry. Only broadcast the device if it is
+    // the first time the server has seen it.
+    if let None = registry.insert( address, device ) {
+      let _ = device_tx.send( device ).await;
     }
   }
-
-  Ok( devices )
 }

@@ -1,0 +1,9 @@
+[package]
+edition = "2024"
+license = "MIT"
+name = "etherdream-test"
+version = "0.1.0"
+
+[dependencies]
+etherdream = { path = "../etherdream" }
+tokio = { workspace=true, features=["full"] }

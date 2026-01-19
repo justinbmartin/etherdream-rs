@@ -1,57 +1,69 @@
+//! CLI tool to discover, connect and test Etherdream DAC's.
 use std::collections::HashMap;
 use std::io::{ self, Write };
-use std::net::SocketAddr;
-use std::sync::{ Arc, RwLock };
+use std::sync::Arc;
 
 use clap;
-
 use etherdream;
+use tokio::sync::RwLock;
+
+#[derive( Clone, Copy, Default )]
+struct Point {
+  x: i16,
+  y: i16,
+  r: u16,
+  g: u16,
+  b: u16
+}
+
+impl etherdream::Point for Point {
+  fn for_etherdream( &self ) -> ( i16, i16, u16, u16, u16 ) {
+    ( self.x, self.y, self.r, self.g, self.b )
+  }
+}
 
 struct App {
-  // The current client that is active
+  // The REPL's active Etherdream client, by index in `clients`
   current_client: Option<usize>,
 
-  // A map of actively running Etherdream clients
-  clients: HashMap<usize,etherdream::Client>,
+  // A map of actively connected Etherdream clients, indexed by a constant id
+  clients: HashMap<usize,etherdream::Client<Point>>,
 
-  // A list of all discovered Etherdream devices (using a vec to allow accessing by index)
-  devices: Arc<RwLock<Vec<( SocketAddr, etherdream::Device )>>>
+  // A list of all discovered Etherdream devices
+  devices: Arc<RwLock<Vec<etherdream::Device>>>
 }
 
 impl App {
   async fn do_list_devices( &self ) {
-    let devices = self.devices.read().unwrap();
+    let devices = self.devices.read().await;
 
     if devices.is_empty() {
       println!( "(no devices)" );
     } else {
-      for ( index, ( ip, device ) ) in devices.iter().enumerate() {
-        println!( "  [{}] {} (MAC: {})", index, ip, device.mac_address );
+      for ( index, device ) in devices.iter().enumerate() {
+        println!( "  [{}] {} (MAC: {})", index, device.address().ip(), device.mac_address() );
       }
     }
   }
 
   async fn do_connect( &mut self, device_index: usize ) {
-
-    // If client already exists, set it as the current device
+    // If client already exists, set it as the current device. Else, create a
+    // new client.
     if self.clients.contains_key( &device_index ) {
       self.current_client = Some( device_index );
-    }
-
-    // Create a new client for the device at `device_index`
-    else {
-      let devices = self.devices.read().unwrap();
+    } else {
+      let devices = self.devices.read().await;
 
       match devices.get( device_index ) {
-        Some( &( socket, _device ) ) => {
-          match etherdream::Client::new( socket ).await {
+        Some( &device ) => {
+          match etherdream::ClientBuilder::new( device ).connect().await {
             Ok( client ) => {
               self.clients.insert( device_index, client );
               self.current_client = Some( device_index );
             }
 
             Err( msg ) => {
-              println!( "Failed to connect to Etherdream DAC: {}", msg );
+              println!( "Failed to connect to Etherdream DAC: {:?}", msg );
             }
           }
         },
@@ -72,11 +84,11 @@ impl App {
   }
 
   async fn do_print_device_info( &self, device_index: usize ) {
-    let devices = self.devices.read().unwrap();
+    let devices = self.devices.read().await;
 
     match devices.get( device_index ) {
-      Some(( ip, device )) => {
-        println!( "IP = {ip}\n" );
+      Some( device ) => {
+        println!( "IP = {}\n", device.address().ip() );
         print_device( &device );
       },
       None => {
@@ -101,19 +113,29 @@ impl App {
     }
   }
 
-  async fn do_play_current_device( &mut self ) {
+  async fn do_play_current_device( &mut self, count: usize ) {
     if let Some( client_index ) = self.current_client {
       let client = self.clients.get_mut( &client_index ).unwrap();
 
-      for _ in 0..3000 {
-        client.push_point( 0, 0, u16::MAX, u16::MAX, u16::MAX );
+      // 1. reset the client
+      // 2. client player
+
+      println!( "pushing points..." );
+      for _ in 0..count {
+        client.push_point( Point{
+          x: 0,
+          y: 0,
+          r: u16::MAX,
+          g: u16::MAX,
+          b: u16::MAX
+        });
       }
 
-      // Temporarily sleep for a moment...
-      //tokio::time::sleep( tokio::time::Duration::from_secs( 1 ) ).await;
+      client.flush_points().await;
 
-      // Start...
-      client.start( 1500 );
+      // Start processing point data
+      println!( "starting..." );
+      let _ = client.start( 1000 ).await;
 
     } else {
       println!( "(no device connected)" );
@@ -129,10 +151,13 @@ impl App {
     }
   }
 
-  fn do_print_status_current_device( &self ) {
+  async fn do_print_status_current_device( &self ) {
     if let Some( client_index ) = self.current_client {
       let client = self.clients.get( &client_index ).unwrap();
-      print_device_state( &client.state() );
+      let mut state = etherdream::device::State::default();
+      client.copy_state( &mut state ).await;
+
+      print_device_state( &state );
     } else {
       println!( "(no device connected)" );
     }
@@ -144,63 +169,74 @@ impl App {
 #[tokio::main]
 async fn main() {
   let mut input = String::new();
-  let mut app = App{ clients: HashMap::new(), current_client: None, devices: Arc::new( RwLock::new( Vec::new() ) ) };
 
+  let mut app = App{
+    clients: HashMap::new(),
+    current_client: None,
+    devices: Arc::new( RwLock::new( Vec::new() ) )
+  };
+
+  // Start the Etherdream discovery service. Each discovered device:
+  // - Will be received async via `rx`.
+  // - Will be persisted in `app.devices`.
+  tokio::spawn({
+    let devices = app.devices.clone();
+
+    async move {
+      let ( tx, mut rx ) = tokio::sync::mpsc::channel( 16 );
+      let _ = etherdream::Discovery::serve( tx ).await;
+
+      while let Some( device ) = rx.recv().await {
+        devices.write().await.push( device );
+      }
+    }
+  });
+
+  // Define the REPL interface
   let mut cli = clap::Command::new( "Etherdream" )
     .about( "Discover and manage Etherdream devices." )
+    .disable_help_subcommand( true )
     .multicall( true )
     .subcommand_required( true )
     .subcommands([
-      clap::Command::new( "list" )
-        .about( "List discovered Etherdream devices." )
-        .visible_alias( "ls" ),
-      clap::Command::new( "info" )
-        .about( "Prints details about a discovered device at `index`" )
-        .arg( clap::Arg::new( "index" ).required( true ).value_parser( clap::value_parser!( usize ) ) ),
       clap::Command::new( "connect" )
         .about( "Connects to a discovered Etherdream device at the provided `index`." )
         .arg( clap::Arg::new( "index" ).required( true ).value_parser( clap::value_parser!( usize ) ) )
         .visible_alias( "cd" ),
       clap::Command::new( "disconnect" )
         .about( "Disconnects from the currently active Etherdream device." ),
+      clap::Command::new( "exit" ),
+      clap::Command::new( "help" ),
+      clap::Command::new( "list" )
+        .about( "List discovered Etherdream devices." )
+        .visible_alias( "ls" ),
+      clap::Command::new( "info" )
+        .about( "Prints details about a discovered device at `index`" )
+        .arg( clap::Arg::new( "index" ).required( true ).value_parser( clap::value_parser!( usize ) ) ),
       clap::Command::new( "ping" )
         .about( "Pings the currently active Etherdream device and prints the active device state." ),
       clap::Command::new( "play" )
-        .about( "..." ),
+        .about( "Produces `count` number of points into the client's buffer." )
+        .arg( clap::Arg::new( "count" ).required( true ).value_parser( clap::value_parser!( usize ) ) ),
       clap::Command::new( "reset" )
         .about( "(tmp) empties the point buffer in the DAC" ),
       clap::Command::new( "status" )
-        .about( "(tmp) returns the last reported status from the DAC (non-ping)" ),
-      clap::Command::new( "exit" )
+        .about( "(tmp) returns the last reported status from the DAC (non-ping)" )
     ]);
 
-  // Start the Etherdream discovery service. All discovered devices will be stored in
-  // `state.devices`.
-  tokio::task::spawn({
-    let devices = app.devices.clone();
-
-    async move {
-      etherdream::Discovery::new(
-        move | socket, device | {
-          // Safety: Unwrap is safe, as this is the only write invocation in discovery thread.
-          devices.write().unwrap().push( ( socket, device ) );
-        })
-        .serve()
-        .await
-    }
-  });
-
-  // REPL
+  // Start the REPL
   loop {
-    // Print console prefix, one of "> " or "[<device index>] >"
-    let prefix = if let Some( index ) = app.current_client { format!( "[{}] ", index ) } else { String::from( "" ) };
-    print!( "{}> ", prefix );
-  
-    // Read and parse console input
+    // Print console prefix
+    if let Some( index ) = app.current_client {
+      print!( "[{}]> ", index )
+    } else {
+      print!( "> " )
+    }
+
     input.clear();
     let _ = io::stdout().flush();
     let _ = io::stdin().read_line( &mut input );
-  
+
     if let Some( args ) = shlex::split( input.trim() ) {
       match cli.try_get_matches_from_mut( args ) {
         Ok( matches ) =>
@@ -208,16 +244,16 @@ async fn main() {
             Some(( "connect", args )) => app.do_connect( *args.get_one::<usize>( "index" ).unwrap() ).await,
             Some(( "disconnect", _ )) => app.do_disconnect().await,
             Some(( "exit", _ )) => break,
+            Some(( "help", _ )) => cli.print_help().unwrap(),
             Some(( "info", args )) => app.do_print_device_info( *args.get_one::<usize>( "index" ).unwrap() ).await,
             Some(( "list", _ )) => app.do_list_devices().await,
             Some(( "ping", _ )) => app.do_ping_current_device().await,
-            Some(( "status", _ )) => app.do_print_status_current_device(),
-            Some(( "play", _ )) => app.do_play_current_device().await,
+            Some(( "play", args )) => app.do_play_current_device( *args.get_one::<usize>( "count" ).unwrap() ).await,
             Some(( "reset", _ )) => app.do_reset_current_device().await,
+            Some(( "status", _ )) => app.do_print_status_current_device().await,
             _ => {}
           },
-        Err( err ) => 
-          { println!( "{err}" ); }
+        Err( _ ) => {}
       }
     }
   }
@@ -227,13 +263,13 @@ async fn main() {
 
 fn print_device( device: &etherdream::Device ) {
   println!( "Device:" );
-  println!( "  Buffer capacity = {}", device.buffer_capacity );
-  println!( "  Mac address = {}", device.mac_address );
-  println!( "  Max points per second = {}", device.max_points_per_second );
-  println!( "  Version = hardware: {}; software: {}", device.version.hardware, device.version.software );
+  println!( "  Buffer capacity = {}", device.buffer_capacity() );
+  println!( "  Mac address = {}", device.mac_address() );
+  println!( "  Max points per second = {}", device.max_points_per_second() );
+  println!( "  Version = hardware: {}; software: {}", device.version().hardware, device.version().software );
   println!( "State:" );
 
-  print_device_state( &device.state );
+  print_device_state( &device.state() );
 }
 
 fn print_device_state( state: &etherdream::device::State ) {

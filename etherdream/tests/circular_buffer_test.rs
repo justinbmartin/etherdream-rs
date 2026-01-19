@@ -1,8 +1,8 @@
-use etherdream::circular_buffer::{ CircularBuffer, PushError };
+use etherdream::circular_buffer::CircularBuffer;
 
 #[test]
 fn buffer_push_and_pop_test() {
-  let ( mut writer, mut reader ) = CircularBuffer::<&str,2>::new();
+  let ( mut writer, mut reader ) = CircularBuffer::<&str>::new( 2 );
 
   // The buffer is empty
   assert_eq!( reader.capacity(), 2 );
@@ -44,7 +44,7 @@ fn buffer_push_and_pop_test() {
   assert_eq!( writer.remaining(), 0 );
   
   // Will return an insufficient capacity error if we attempt to push again
-  assert_eq!( writer.push( "c" ).err(), Some( PushError::InsufficientCapacity ) );
+  assert_eq!( writer.push( "c" ), Some( "c" ) );
 
   // The caller has consumed a single item
   assert_eq!( "a", reader.pop().unwrap() );
@@ -74,7 +74,7 @@ fn buffer_push_and_pop_test() {
 
 #[test]
 fn buffer_will_handle_rollover_test() {
-  let ( mut writer, mut reader ) = CircularBuffer::<&str,3>::new();
+  let ( mut writer, mut reader ) = CircularBuffer::<&str>::new( 3 );
 
   let _ = writer.push( "a" );
   let _ = writer.push( "b" );
@@ -90,24 +90,3 @@ fn buffer_will_handle_rollover_test() {
   assert_eq!( writer.is_full(), true );
   assert_eq!( writer.len(), 3 );
 }
-
-/*
-#[test]
-fn buffer_push_from_slice_test() {
-  let mut buffer = BoundedCircularBuffer::<&str,10>::new();
-
-  let _ = buffer.push_from_slice([ "a, "b", "c" ]);
-
-  assert_eq!( buffer.is_empty(), false );
-  assert_eq!( buffer.is_full(), false );
-  assert_eq!( buffer.len(), 5 );
-  assert_eq!( buffer.capacity(), 5 );
-
-  let _ = buffer.push_from_slice( &points );
-
-  assert_eq!( buffer.is_empty(), false );
-  assert_eq!( buffer.is_full(), true );
-  assert_eq!( buffer.len(), 10 );
-  assert_eq!( buffer.capacity(), 0 );
-}
-*/
