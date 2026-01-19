@@ -1,6 +1,12 @@
-[workspace]
-resolver = "2"
-members = ["etherdream", "etherdream-cli", "etherdream-test"]
+[package]
+edition = "2024"
+license = "MIT"
+name = "etherdream"
+version = "0.1.0"
 
-[workspace.dependencies]
-tokio = { version = "1", features = ["net"] }
+[dependencies]
+tokio = { version="1", features=["net"] }
+tokio-util = { version = "0.7.16", features = ["net"] }
+
+[dev-dependencies]
+tokio = { version="1", features = ["full"] }
