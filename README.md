@@ -1,13 +1,16 @@
 # Etherdream
 
-A library for ***discovering***, ***connecting*** and ***writing*** laser data to Etherdream devices. Built on [tokio](https://tokio.rs/).
+A library for ***discovering***, ***connecting*** and ***writing*** laser data 
+to Etherdream devices. Built on [tokio](https://tokio.rs/).
+
+The Etherdream protocol is defined here: https://ether-dream.com/protocol.html
 
 > [!WARNING]
 > This library is a strong work-in-progress as I learn Rust. Use at your own risk.
 
 ## Discovery Server
-This crate includes a discovery server for finding Etherdream DAC's on a 
-network. Using `serve` will listen for UDP messages on the Etherdream-defined 
+The discovery server allows for finding Etherdream DAC's on a network. Use 
+`Discovery::serve` to listen for UDP messages on the Etherdream-defined 
 broadcast port, `7654`.
 
 Example:
@@ -21,8 +24,7 @@ while let Some( device ) = rx.recv().await {
 ```
 
 ## Client
-This crate includes a `Client` that can connect to and control an Etherdream 
-DAC.
+The `Client` allows for connecting to and controlling an Etherdream DAC.
 
 A `device` received from the discovery server can be used to create a `Client` 
 like this:

@@ -2,7 +2,9 @@ use tokio::sync::watch;
 use tokio::time::{ sleep, Duration };
 
 use etherdream;
-use etherdream_test::*;
+
+pub mod common;
+use common::emulator;
 
 #[derive( Clone, Copy, Default )]
 struct Point {
@@ -29,12 +31,8 @@ impl etherdream::Point for Point {
 
 #[tokio::test]
 async fn will_return_device_properties() {
-  let emulator = EtherdreamEmulator::start( TestDevice::new() ).await.unwrap();
+  let ( emulator, client ) = make_emulator_and_client().await;
   let mut state = etherdream::device::State::default();
-
-  let client =
-    etherdream::ClientBuilder::<Point>::new( emulator.device() ).connect().await
-      .expect( "Failed to connect to Etherdream device" );
 
   assert_eq!( client.mac_address(), emulator.device().mac_address() );
   assert_eq!( client.max_points_per_second(), emulator.device().max_points_per_second() as usize );
@@ -47,33 +45,19 @@ async fn will_return_device_properties() {
 
 #[tokio::test]
 async fn a_ping_will_be_acked() {
-  let emulator = EtherdreamEmulator::start( TestDevice::new() ).await.unwrap();
-
-  let mut client =
-    etherdream::ClientBuilder::<Point>::new( emulator.device() ).connect().await
-      .expect( "Failed to connect to Etherdream device" );
-
+  let ( _, mut client ) = make_emulator_and_client().await;
   assert!( client.ping().await.is_ok() );
 }
 
 #[tokio::test]
 async fn a_reset_will_be_acked() {
-  let emulator = EtherdreamEmulator::start( TestDevice::new() ).await.unwrap();
-
-  let mut client =
-    etherdream::ClientBuilder::<Point>::new( emulator.device() ).connect().await
-      .expect( "Failed to connect to Etherdream device" );
-  
+  let ( _, mut client ) = make_emulator_and_client().await;
   assert!( client.reset().await.is_ok() );
 }
 
 #[tokio::test]
 async fn can_push_and_flush_points() {
-  let emulator = EtherdreamEmulator::start( TestDevice::new() ).await.unwrap();
-
-  let mut client =
-    etherdream::ClientBuilder::<Point>::new( emulator.device() ).connect().await
-      .expect( "Failed to connect to Etherdream device" );
+  let ( _, mut client ) = make_emulator_and_client().await;
 
   client.push_point( Point::new( 0, 0, 0, 0, 0 ) );
   client.push_point( Point::new( 0, 0, 0, 0, 0 ) );
@@ -87,12 +71,8 @@ async fn can_push_and_flush_points() {
 
 #[tokio::test]
 async fn can_push_and_flush_points_within_the_limits_of_the_devices_capacity() {
-  let test_device = TestDevice::with_capacity( 2 );
-  let emulator = EtherdreamEmulator::start( test_device ).await.unwrap();
-
-  let mut client =
-    etherdream::ClientBuilder::<Point>::new( emulator.device() ).connect().await
-      .expect( "Failed to connect to Etherdream device" );
+  let device = emulator::TestDevice::with_capacity( 2 );
+  let ( _, mut client ) = make_emulator_and_client_with_test_device( device ).await;
 
   // Push four points (two more than the device's capacity)
   client.push_point( Point::new( 0, 0, 0, 0, 0 ) );
@@ -110,11 +90,8 @@ async fn can_push_and_flush_points_within_the_limits_of_the_devices_capacity() {
 
 #[tokio::test]
 async fn can_start_the_client() {
-  let test_device = TestDevice::with_capacity( 2 );
-  let mut emulator = EtherdreamEmulator::start( test_device ).await.unwrap();
-  let mut client =
-    etherdream::ClientBuilder::<Point>::new( emulator.device() ).connect().await
-      .expect( "Failed to connect to Etherdream device" );
+  let device = emulator::TestDevice::with_capacity( 2 );
+  let ( mut emulator, mut client ) = make_emulator_and_client_with_test_device( device ).await;
 
   // Push four points (two more than the device's capacity)
   client.push_point( Point::new( 0, 0, 0, 0, 0 ) );
@@ -144,7 +121,7 @@ async fn can_start_the_client() {
 
 #[tokio::test]
 async fn will_execute_a_low_watermark_callback() {
-  let mut emulator = EtherdreamEmulator::start( TestDevice::new() ).await.unwrap();
+  let mut emulator = emulator::Server::start().await.unwrap();
   let ( watch_tx, mut watch_rx ) = watch::channel( 0 );
 
   let mut client =
@@ -188,10 +165,7 @@ async fn will_execute_a_low_watermark_callback() {
 
 #[tokio::test]
 async fn can_stop_the_client() {
-  let emulator = EtherdreamEmulator::start( TestDevice::new() ).await.unwrap();
-  let mut client =
-    etherdream::ClientBuilder::<Point>::new( emulator.device() ).connect().await
-      .expect( "Failed to connect to Etherdream device" );
+  let ( _, mut client ) = make_emulator_and_client().await;
 
   let state = client.start( 1000 ).await.unwrap();
   assert_eq!( state.playback_state, etherdream::device::PlaybackState::Playing );
@@ -202,12 +176,25 @@ async fn can_stop_the_client() {
 
 #[tokio::test]
 async fn can_disconnect_the_client() {
-  let emulator = EtherdreamEmulator::start( TestDevice::new() ).await.unwrap();
+  let ( _, client ) = make_emulator_and_client().await;
+  assert_eq!( client.disconnect().await, () );
+}
+
+// Creates an Etherdream emulator and client using the default test device.
+async fn make_emulator_and_client() -> ( emulator::Server, etherdream::Client<Point>  ) {
+  make_emulator_and_client_with_test_device( emulator::TestDevice::new() ).await
+}
+
+// Creates an Etherdream emulator and client using a provided `device`
+// configuration.
+async fn make_emulator_and_client_with_test_device( device: emulator::TestDevice ) -> ( emulator::Server, etherdream::Client<Point>  ) {
+  let emulator = emulator::Server::start_with_device( device ).await.unwrap();
+
   let client =
     etherdream::ClientBuilder::<Point>::new( emulator.device() ).connect().await
       .expect( "Failed to connect to Etherdream device" );
 
-  assert_eq!( client.disconnect().await, () );
+  ( emulator, client )
 }
 
 // Waits for `watch_rx` to return `expected_value`, or times out after 1sec.

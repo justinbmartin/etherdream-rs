@@ -8,7 +8,9 @@ use tokio::task::JoinHandle;
 use tokio::time;
 
 use etherdream::{ constants::*, device, discovery };
-use etherdream_test::*;
+
+pub mod common;
+use common::emulator;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Test Helpers
 
@@ -67,12 +69,12 @@ impl TestDiscoveryServer {
 }
 
 // Broadcasts `count` number of test device messages to a discovery `server`.
-async fn broadcast_device( server: &TestDiscoveryServer, test_device: &TestDevice, count: usize ) -> io::Result<()> {
+async fn broadcast_device( server: &TestDiscoveryServer, test_device: &emulator::TestDevice, count: usize ) -> io::Result<()> {
   let local_socket = UdpSocket::bind( SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), 0 ) ).await?;
   local_socket.set_broadcast( true )?;
 
   let mut buf = [0u8; ETHERDREAM_BROADCAST_BYTES];
-  copy_into_etherdream_broadcast_bytes( &mut buf, &test_device.intrinsics, &test_device.state );
+  emulator::copy_into_etherdream_broadcast_bytes( &mut buf, &test_device.intrinsics, &test_device.state );
 
   for i in 0..count {
     if let Err( err ) = local_socket.send_to( &buf, server.address() ).await {
@@ -100,7 +102,7 @@ async fn discovery_server_will_receive_a_single_etherdream_broadcast() -> Result
   let ( server, mut device_rx ) = TestDiscoveryServer::start().await;
 
   // Create a test device
-  let mut test_device = TestDevice::new();
+  let mut test_device = emulator::TestDevice::new();
   test_device.state.points_lifetime = 1234;
   test_device.state.points_per_second = 1024;
 
@@ -131,12 +133,12 @@ async fn discovery_server_will_only_execute_callback_once_for_each_unique_device
   let ( server, mut device_rx ) = TestDiscoveryServer::start().await;
 
   // Broadcasting this device ten (10) times
-  let mut test_device_1 = TestDevice::new();
+  let mut test_device_1 = emulator::TestDevice::new();
   test_device_1.intrinsics.mac_address = [10; 6].into();
   broadcast_device( &server, &test_device_1, 10 ).await?;
 
   // Broadcasting this device once (1)
-  let mut test_device_2 = TestDevice::new();
+  let mut test_device_2 = emulator::TestDevice::new();
   test_device_2.intrinsics.mac_address = [20; 6].into();
   broadcast_device( &server, &test_device_2, 1 ).await?;
 

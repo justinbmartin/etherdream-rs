@@ -1,1 +1,0 @@
-Be sure to set your network configurationt to that of the Etherdream. All the normal stuff (ip address, subnet, gateway)
