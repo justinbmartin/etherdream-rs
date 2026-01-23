@@ -1,0 +1,16 @@
+[package]
+authors = [ "Justin Martin <hello@justinmart.in>" ]
+description = "A library to discover, connect and write laser data to Etherdream devices."
+edition = "2024"
+license = "MIT"
+name = "etherdream"
+repository = "https://github.com/justinbmartin/etherdream-rs"
+version = "0.1.0"
+
+[dependencies]
+tokio = { workspace = true }
+tokio-util = { version = "0.7.18" }
+
+[dev-dependencies]
+etherdream-test = { path = "../etherdream-test" }
+tokio = { workspace = true }
