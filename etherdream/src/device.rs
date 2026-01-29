@@ -26,15 +26,15 @@ pub struct Device {
 impl Device {
   /// Creates a new `Device` from a socket address. Populates `intrinsics` and
   /// `state` from the provided byte array.
-  pub fn from_bytes( address: SocketAddr, bytes: &[u8; ETHERDREAM_BROADCAST_BYTES] ) -> Self {
+  pub(crate) fn from_bytes( address: SocketAddr, bytes: &[u8] ) -> Self {
     let ( intrinsic_bytes, state_bytes ) = bytes.split_at( ETHERDREAM_INTRINSIC_BYTES );
 
     // SAFETY: The two uses of unwrap are safe as they are inclusive of the
     // broadcast byte length.
     Self{
       address,
-      intrinsics: Intrinsics::from_bytes( intrinsic_bytes.try_into().unwrap() ),
-      state: State::from_bytes( state_bytes.try_into().unwrap() )
+      intrinsics: Intrinsics::from_bytes( intrinsic_bytes ),
+      state: State::from_bytes( state_bytes )
     }
   }
 
@@ -89,7 +89,7 @@ pub struct Intrinsics {
 
 impl Intrinsics {
   /// Decodes an Etherdream network byte array into an `Intrinsic` model.
-  pub fn from_bytes( bytes: &[u8; ETHERDREAM_INTRINSIC_BYTES] ) -> Self {
+  pub(crate) fn from_bytes( bytes: &[u8] ) -> Self {
     Self{
       buffer_capacity: u16::from_le_bytes([ bytes[10], bytes[11] ]),
       mac_address: MacAddress::new([ bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5] ]),
@@ -153,7 +153,7 @@ pub struct State {
 
 impl State {
   /// Decodes an Etherdream network byte array into a `Status` model.
-  pub fn from_bytes( bytes: &[u8; ETHERDREAM_STATE_BYTES] ) -> Self {
+  pub(crate) fn from_bytes( bytes: &[u8] ) -> Self {
     Self{
       protocol: bytes[0],
       light_engine_state: bytes[1].into(),
