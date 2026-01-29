@@ -18,9 +18,10 @@ pub const ETHERDREAM_CONTROL_NAK_FULL: u8     = b'F';
 pub const ETHERDREAM_CONTROL_NAK_INVALID: u8  = b'I';
 
 // Etherdream network payload sizes
-pub const ETHERDREAM_INTRINSIC_BYTES: usize = 16;
-pub const ETHERDREAM_RESPONSE_BYTES: usize  = 22;
-pub const ETHERDREAM_STATE_BYTES: usize     = 20;
+pub const ETHERDREAM_INTRINSIC_BYTES: usize   = 16;
+pub const ETHERDREAM_RESPONSE_BYTES: usize    = 22;
+pub const ETHERDREAM_POINT_DATA_BYTES: usize  = 18;
+pub const ETHERDREAM_STATE_BYTES: usize       = 20;
 
 // Etherdream broadcast
 pub const ETHERDREAM_BROADCAST_PORT: u16    = 7654;

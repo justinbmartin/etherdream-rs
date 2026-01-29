@@ -18,7 +18,7 @@ impl<T> CircularBuffer<T>
   {
     let buffer = Arc::new( CircularBuffer::<T>{
       capacity,
-      data: ManuallyDrop::new( Vec::with_capacity( capacity ) ).as_mut_ptr(),
+      data: ManuallyDrop::new( vec![ T::default(); capacity ] ).as_mut_ptr(),
       size: AtomicUsize::new( 0 )
     });
 

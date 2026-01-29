@@ -1,6 +1,6 @@
 //! An Etherdream DAC network client.
 use std::marker::PhantomData;
-use std::net::SocketAddr;
+use std::net::{ IpAddr, SocketAddr };
 use std::sync::{ Arc, atomic::{ AtomicUsize, Ordering::* } };
 use std::time::{ Duration, Instant };
 
@@ -19,7 +19,6 @@ type OnLowWatermarkCallback = Box<dyn FnMut( usize ) + Send>;
 type OnResponseCallback = fn( ControlSignal, Command, device::State );
 
 const DEFAULT_CLIENT_POINT_CAPACITY: usize = 32_768;
-const POINT_DATA_BYTES: usize = 18;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Traits
 
@@ -98,6 +97,7 @@ pub struct ClientBuilder<T> where T: Point,
 
 impl<T> ClientBuilder<T> where T: Point
 {
+  /// Creates a new client builder from a provided `device`.
   pub fn new( device: device::Device ) -> Self {
     Self{
       capacity: DEFAULT_CLIENT_POINT_CAPACITY,
@@ -107,6 +107,13 @@ impl<T> ClientBuilder<T> where T: Point
       on_response: None,
       phantom: PhantomData
     }
+  }
+
+  /// Creates a new client builder from provided device properties.
+  pub fn from_properties( ip: IpAddr, intrinsics: device::Intrinsics ) -> Self {
+    let socket_addr = SocketAddr::new( ip, ETHERDREAM_CLIENT_PORT );
+    let device = device::Device::from_parts( socket_addr, intrinsics, device::State::default() );
+    Self::new( device )
   }
 
   /// Defines the internal client's buffer capacity. Defaults to
@@ -305,7 +312,6 @@ impl<T: Point> Client<T> {
 
   /// Ping's the connected Etherdream DAC and awaits a response. Returns the
   /// <device::State> on success.
-  #[inline]
   pub async fn ping( &mut self ) -> CommandResult {
     self.send_command_and_wait( Command::Ping, 0 ).await
   }
@@ -353,7 +359,6 @@ impl<T: Point> Client<T> {
 
   /// Flushes all accumulated point data to the DAC and awaits an
   /// acknowledgement. Returns the device state on success.
-  #[inline]
   pub async fn flush_points_and_wait( &mut self ) -> CommandResult {
     self.send_command_and_wait( Command::Data, self.point_tx.len() ).await
   }
@@ -381,7 +386,6 @@ impl<T: Point> Client<T> {
   }
 
   /// Sends a message to the DAC to stop playing point data.
-  #[inline]
   pub async fn stop( &mut self ) -> CommandResult {
     self.send_command_and_wait( Command::Stop, 0 ).await
   }
@@ -492,7 +496,7 @@ impl<T: Point> Writer<T> {
   async fn start( &mut self ) -> Result<(),ClientError> {
     // The DAC can not support more than its intrinsic buffer capacity plus
     // three (3) bytes for the point data header.
-    let max_buffer_size: usize = ( self.dac_buffer_capacity * POINT_DATA_BYTES ) + 3;
+    let max_buffer_size: usize = ( self.dac_buffer_capacity * ETHERDREAM_POINT_DATA_BYTES ) + 3;
 
     // Locals
     let mut auto_ping_at = Instant::now();
@@ -573,7 +577,7 @@ impl<T: Point> Writer<T> {
 
           for point_index in 0..point_send_count {
             if let Some( point ) = self.point_rx.write().await.pop() {
-              buf_index = ( point_index * POINT_DATA_BYTES ) + 3;
+              buf_index = ( point_index * ETHERDREAM_POINT_DATA_BYTES ) + 3;
               let( x, y, r, g, b ) = point.for_etherdream();
 
               buf[buf_index..buf_index+2].fill( 0 ); // control (unused)
@@ -595,7 +599,7 @@ impl<T: Point> Writer<T> {
           buf[0] = ETHERDREAM_COMMAND_DATA;
           buf[1..3].copy_from_slice( &u16::to_le_bytes( buf_point_count as u16 ) );
           points_acc_send_count = points_acc_send_count.saturating_sub( buf_point_count );
-          ( buf_point_count * POINT_DATA_BYTES ) + 3
+          ( buf_point_count * ETHERDREAM_POINT_DATA_BYTES ) + 3
         } else {
           buf_committed_bytes
         };

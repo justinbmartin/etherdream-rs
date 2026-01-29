@@ -24,8 +24,8 @@ pub struct Device {
 }
 
 impl Device {
-  /// Creates a new `Device` from a socket address and a byte array. Most often
-  /// instantiated from the discovery server.
+  /// Creates a new `Device` from a socket address. Populates `intrinsics` and
+  /// `state` from the provided byte array.
   pub fn from_bytes( address: SocketAddr, bytes: &[u8; ETHERDREAM_BROADCAST_BYTES] ) -> Self {
     let ( intrinsic_bytes, state_bytes ) = bytes.split_at( ETHERDREAM_INTRINSIC_BYTES );
 
@@ -44,21 +44,27 @@ impl Device {
   }
 
   /// Returns the socket address that the device is communicating on.
+  #[inline]
   pub fn address( &self ) -> SocketAddr { self.address }
 
   /// Returns the maximum number of points the device can buffer.
+  #[inline]
   pub fn buffer_capacity( &self ) -> u16 { self.intrinsics.buffer_capacity }
 
   /// Returns the MAC address for this device.
+  #[inline]
   pub fn mac_address( &self ) -> MacAddress { self.intrinsics.mac_address }
 
   /// Returns the maximum number of points this device can process per second.
+  #[inline]
   pub fn max_points_per_second( &self ) -> u32 { self.intrinsics.max_points_per_second }
 
   /// Returns the state of the device when the device was discovered.
+  #[inline]
   pub fn state( &self ) -> State { self.state }
 
   /// Returns the hardware and software version installed on the device.
+  #[inline]
   pub fn version( &self ) -> Version { self.intrinsics.version }
 }
 
@@ -66,7 +72,7 @@ impl Device {
 
 /// A model that describes an Etherdream device's intrinsic properties, as
 /// provided by an Etherdream's network broadcast message.
-#[derive( Clone, Copy, Debug, PartialEq )]
+#[derive( Clone, Copy, Debug, Default, PartialEq )]
 pub struct Intrinsics {
   /// MAC address of the Etherdream device.
   pub mac_address: MacAddress,
@@ -270,6 +276,18 @@ impl Version {
   }
 }
 
+impl Default for Version {
+  fn default() -> Self {
+    Self{ hardware: 0, software: 0 }
+  }
+}
+
+impl From<[u16;2]> for Version {
+  fn from( bytes: [u16;2] ) -> Version {
+    Version::new( bytes[0], bytes[1] )
+  }
+}
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  MAC Address
 
 #[derive( Clone, Copy, Debug, PartialEq )]
@@ -284,6 +302,12 @@ impl MacAddress {
 
   pub fn as_slice( &self ) -> &[u8] {
     &self.address
+  }
+}
+
+impl Default for MacAddress {
+  fn default() -> Self {
+    Self{ address: [ 0, 0, 0, 0, 0, 0 ] }
   }
 }
 
