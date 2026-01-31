@@ -46,13 +46,13 @@ pub enum Command {
   Stop
 }
 
-#[derive( Clone, Copy, Debug )]
+#[derive( Clone, Copy, Debug, PartialEq )]
 pub enum ControlSignal {
   Ack,
   Nak( NakReason )
 }
 
-#[derive( Clone, Copy, Debug )]
+#[derive( Clone, Copy, Debug, PartialEq )]
 pub enum NakReason {
   /// The DAC command was refused as the DAC is in an E-stop.
   Estop,
@@ -453,16 +453,16 @@ impl Reader {
       let control_signal = ControlSignal::from( buf[0] );
       let command = Command::from( buf[1] );
 
+      dac_state = device::State::from_bytes( &buf[2..ETHERDREAM_RESPONSE_BYTES] );
+      *self.state.write().await = dac_state;
+
       // Update the client's `last_seen_at` to the current moment
       *self.last_seen_at.write().await = Instant::now();
 
-      // SAFETY: Unwrap is ok because buffer slice is within bounds of
-      // `read_exact`, above.
-      dac_state = device::State::from_bytes( buf[2..ETHERDREAM_RESPONSE_BYTES].try_into().unwrap() );
-      *self.state.write().await = dac_state;
-
       // Decrement the awaiting ack count (this unblocks the <Writer>)
-      let _ = self.awaiting_ack_count.fetch_update( Release, Acquire, |i|{ Some( i.saturating_sub( 1 ) ) });
+      if control_signal == ControlSignal::Ack {
+        let _ = self.awaiting_ack_count.fetch_update( Release, Acquire, |i|{ Some( i.saturating_sub( 1 ) ) });
+      }
 
       // If an `on_wait_command` exists, validate it against the currently
       // received command and acknowledge the message.
@@ -678,7 +678,12 @@ impl From<u8> for ControlSignal {
       ETHERDREAM_CONTROL_NAK_FULL => ControlSignal::Nak( NakReason::Full ),
       ETHERDREAM_CONTROL_NAK_ESTOP => ControlSignal::Nak( NakReason::Estop ),
       ETHERDREAM_CONTROL_NAK_INVALID => ControlSignal::Nak( NakReason::Invalid ),
-      _ => ControlSignal::Nak( NakReason::Invalid )
+      byte => {
+        // An unknown control signal was received. This will be translated to
+        // an E-stop and logged.
+        eprintln!( "An unknown control signal was received: {byte}" );
+        ControlSignal::Nak( NakReason::Estop )
+      }
     }
   }
 }
@@ -709,7 +714,12 @@ impl From<u8> for Command {
       ETHERDREAM_COMMAND_PREPARE => Command::Prepare,
       ETHERDREAM_COMMAND_QUEUE_RATE => Command::QueueRate,
       ETHERDREAM_COMMAND_STOP => Command::Stop,
-      byte => panic!( "An undefined command was received from the DAC: {byte}" )
+      byte => {
+        // An unknown command was received. This will be translated to an
+        // E-stop and logged.
+        eprintln!( "An unknown command was received: {byte}" );
+        Command::Estop
+      }
     }
   }
 }
