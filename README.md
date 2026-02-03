@@ -8,6 +8,12 @@ The Etherdream protocol is defined here: https://ether-dream.com/protocol.html
 > [!WARNING]
 > This library is a strong work-in-progress as I learn Rust. Use at your own risk.
 
+## TODO:
+- [ ] Stop (and Reset?) client if NAK is received. This will prevent potential 
+      lockup in `Client::Writer`.
+- [ ] Add a default point implementation for client.
+- [ ] Consider "on_error" callback. Let CLI development inform this.
+
 ## Discovery Server
 The discovery server allows for finding Etherdream DAC's on a network. Use 
 `Discovery::serve` to listen for UDP messages on the Etherdream-defined 

@@ -607,7 +607,7 @@ impl<T: Point> Writer<T> {
       // Write any committed bytes to the DAC, or yield control back to the
       // tokio run-time.
       if buf_committed_bytes > 0 {
-        self.dac_tx.write( &buf[..buf_committed_bytes] ).await?;
+        self.dac_tx.write_all( &buf[..buf_committed_bytes] ).await?;
         self.awaiting_ack_count.fetch_add( 1, AcqRel );
       } else {
         tokio::task::yield_now().await;
