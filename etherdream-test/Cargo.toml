@@ -1,6 +1,6 @@
 [package]
 authors = [ "Justin Martin <hello@justinmart.in>" ]
-description = "A server that emulates an Etherdream DAC."
+description = "Testing utilities for Etherdream code."
 edition = "2024"
 license = "MIT"
 name = "etherdream-test"
@@ -9,7 +9,4 @@ version = "0.1.0"
 
 [dependencies]
 etherdream = { path = "../etherdream" }
-tokio = { workspace = true }
-
-[dev-dependencies]
 tokio = { workspace = true }

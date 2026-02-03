@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["etherdream", "etherdream-test"]
+members = ["etherdream", "etherdream-cli", "etherdream-test"]
 
 [workspace.dependencies]
 tokio = { version = "1", features = ["io-util", "macros", "net", "rt", "time"] }

@@ -1,4 +1,14 @@
 //! A bounded single-producer single-consumer (SPSC) circular buffer.
+//!
+//! Developer Note: A custom circular buffer is not particularly needed for
+//! this crate. This is a personal exercise to learn how to build container
+//! types in Rust.
+//!
+//! Questions:
+//!   1. Should the `Reader` and `Writer` be restricted to the same thread?
+//!   2. Are the atomic ordering arguments correct? Are we indeed "safe"?
+#![allow(dead_code)]
+
 use std::mem::ManuallyDrop;
 use std::sync::{ Arc, atomic::{ AtomicUsize, Ordering } };
 

@@ -1,4 +1,4 @@
-use etherdream::circular_buffer::CircularBuffer;
+use crate::circular_buffer::CircularBuffer;
 
 #[test]
 fn buffer_push_and_pop_test() {
@@ -42,7 +42,7 @@ fn buffer_push_and_pop_test() {
   assert_eq!( writer.is_full(), true );
   assert_eq!( writer.len(), 2 );
   assert_eq!( writer.remaining(), 0 );
-  
+
   // Will return an insufficient capacity error if we attempt to push again
   assert_eq!( writer.push( "c" ), Some( "c" ) );
 

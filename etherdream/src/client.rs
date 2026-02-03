@@ -1,570 +1,552 @@
-//! An Etherdream DAC network client.
-use std::marker::PhantomData;
-use std::net::{ IpAddr, SocketAddr };
-use std::sync::{ Arc, atomic::{ AtomicUsize, Ordering::* } };
+use std::io;
+use std::net::SocketAddr;
+use std::sync::{ Arc, atomic::{ AtomicBool, Ordering::* } };
 use std::time::{ Duration, Instant };
 
-use tokio::io::{ self, AsyncReadExt, AsyncWriteExt };
-use tokio::net::{ TcpSocket, tcp::{ OwnedReadHalf, OwnedWriteHalf } };
-use tokio::sync::{ mpsc, RwLock, watch };
-use tokio::task::JoinSet;
+use tokio::io::{ AsyncReadExt, AsyncWriteExt };
+use tokio::net::{ tcp, TcpSocket };
+use tokio::sync::{ broadcast, mpsc, Mutex, oneshot, RwLock, RwLockReadGuard };
+use tokio::task::{ JoinHandle, JoinSet };
 use tokio::time;
+use tokio_util::sync::CancellationToken;
 
-use crate::circular_buffer;
-use crate::constants::*;
-use crate::device;
+use crate::circular_buffer::{ self, CircularBuffer };
+use crate::device_info::DeviceInfo;
+use crate::protocol::{ self, X, Y, R, G, B };
 
-type CommandResult = Result<device::State,CommandError>;
-type OnLowWatermarkCallback = Box<dyn FnMut( usize ) + Send>;
-type OnResponseCallback = fn( ControlSignal, Command, device::State );
+const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs( 1 );
+const DEFAULT_POINT_BUFFER_CAPACITY: usize = 10_000;
 
-const DEFAULT_CLIENT_POINT_CAPACITY: usize = 32_768;
+pub(crate) type Point = ( X, Y, R, G, B );
+pub(crate) type PointTx = circular_buffer::Writer<Point>;
+type OnResponseMsg = ( protocol::ControlSignal, protocol::Command, State );
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Traits
+// - - - - - - - - - - - - - - - - - -  Command, Control Signal and Error Enums
 
-/// Required trait for <Client> template argument to provide for Etherdream-
-/// compliant point data.
-///
-/// Returns values:
-/// ( x_pos, y_pos, red_value, green_value, blue_value )
-pub trait Point: 'static + Clone + Copy + Default + Send + Sync {
-  fn for_etherdream( &self ) -> ( i16, i16, u16, u16, u16 );
-}
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Enums
-
-/// Commands recognized by an Etherdream DAC.
+/// Commands with arguments
 #[derive( Clone, Copy, Debug, PartialEq )]
-pub enum Command {
-  Begin,
+pub(crate) enum Command {
+  Begin{ rate: usize },
   Clear,
-  Data,
+  Data{ count: usize },
   Estop,
   Ping,
   Prepare,
-  QueueRate,
+  _QueueRate{ rate: usize }, // Not implemented yet.
   Stop
 }
 
-#[derive( Clone, Copy, Debug, PartialEq )]
-pub enum ControlSignal {
-  Ack,
-  Nak( NakReason )
-}
-
-#[derive( Clone, Copy, Debug, PartialEq )]
-pub enum NakReason {
-  /// The DAC command was refused as the DAC is in an E-stop.
-  Estop,
-
-  /// The DAC point data command was ignored because the point buffer is full.
-  Full,
-
-  /// The DAC command was malformed.
-  Invalid
-}
-
 #[derive( Debug )]
-pub enum ClientError {
+pub enum Error {
   Command( CommandError ),
-  Io( io::Error )
+  Internal( String )
 }
 
 #[derive( Debug )]
 pub enum CommandError {
-  /// The DAC responded with a `nak` and reason.
+  /// The device responded to command with a `nak` and reason.
   Nak( NakReason ),
-
-  /// The <Client> is shutdown. No further commands should be attempted.
-  Shutdown,
-
-  /// The command timed-out when waiting for a DAC response.
+  /// The command timed-out while waiting for a device response.
   Timeout
+}
+
+#[derive( Clone, Copy, Debug, PartialEq )]
+pub enum NakReason {
+  /// The command was refused as the device is in an E-stop.
+  Estop,
+  /// The point data command was ignored because the device's point buffer is
+  /// full.
+  Full,
+  /// The command was invalid or malformed.
+  Invalid
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  State
+
+/// The shared client state that includes `last_seen_at`.
+#[derive( Clone, Copy, Debug )]
+pub struct State {
+  inner: protocol::State,
+  last_seen_at: Instant
+}
+
+impl State {
+  /// Returns true if the device is ready to receive point data.
+  pub fn is_ready( &self ) -> bool { self.inner.is_ready() }
+  /// Returns true if the device is playing point data.
+  pub fn is_playing( &self ) -> bool { self.inner.is_playing() }
+  /// Returns the current playback state of the device.
+  pub fn playback_state( &self ) -> protocol::PlaybackState { self.inner.playback_state }
+  /// Returns the number of points currently buffered in the device.
+  pub fn points_buffered( &self ) -> usize { self.inner.points_buffered as usize }
+  /// Returns true if the device shutter is open.
+  pub fn is_shutter_open( &self ) -> bool { self.inner.is_shutter_open() }
+  /// Returns true if the device is in an underflow state.
+  pub fn is_underflow( &self ) -> bool { self.inner.is_underflow() }
+  /// Returns true if the device is in an e-stop state.
+  pub fn is_e_stop( &self ) -> bool { self.inner.is_e_stop() }
+  /// Returns the current rate in which the device is playing point data.
+  pub fn points_per_second( &self ) -> usize { self.inner.points_per_second as usize }
+  /// Returns the total number of points played in this client session.
+  pub fn points_lifetime( &self ) -> usize { self.inner.points_lifetime as usize }
+  /// Returns the current data source for the device.
+  pub fn source( &self ) -> protocol::Source { self.inner.source }
+  /// Returns the current light engine state of the device.
+  pub fn light_engine_state( &self ) -> protocol::LightEngineState { self.inner.light_engine_state }
+}
+
+impl Default for State {
+  fn default() -> Self {
+    Self{ last_seen_at: Instant::now(), inner: protocol::State::default() }
+  }
+}
+
+/// A read-only version of a `State` shared reference.
+pub(crate) struct ReadOnlyState {
+  inner: Arc<RwLock<State>>
+}
+
+impl ReadOnlyState {
+  pub(crate) async fn read( &'_ self ) -> RwLockReadGuard<'_, State> {
+    self.inner.read().await
+  }
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Client Builder
 
-/// Client builder to configure and connect to an Etherdream DAC.
-pub struct ClientBuilder<T> where T: Point,
-{
+/// A builder allowing for the configuration and instantiation of a `Client`.
+pub struct Builder {
   capacity: usize,
-  device: device::Device,
-  low_watermark: usize,
-  on_low_watermark: Option<OnLowWatermarkCallback>,
-  on_response: Option<OnResponseCallback>,
-  phantom: PhantomData<T>
+  command_timeout: Duration,
+  device_info: DeviceInfo,
+  port: u16
 }
 
-impl<T> ClientBuilder<T> where T: Point
-{
-  /// Creates a new client builder from a provided `device`.
-  pub fn new( device: device::Device ) -> Self {
+impl Builder {
+  pub fn new( device_info: DeviceInfo ) -> Self {
     Self{
-      capacity: DEFAULT_CLIENT_POINT_CAPACITY,
-      device,
-      low_watermark: 0,
-      on_low_watermark: None,
-      on_response: None,
-      phantom: PhantomData
+      capacity: DEFAULT_POINT_BUFFER_CAPACITY,
+      command_timeout: DEFAULT_COMMAND_TIMEOUT,
+      device_info,
+      port: protocol::CLIENT_PORT
     }
   }
 
-  /// Creates a new client builder from provided device properties.
-  pub fn from_properties( ip: IpAddr, intrinsics: device::Intrinsics ) -> Self {
-    let socket_addr = SocketAddr::new( ip, ETHERDREAM_CLIENT_PORT );
-    let device = device::Device::from_parts( socket_addr, intrinsics, device::State::default() );
-    Self::new( device )
-  }
-
-  /// Defines the internal client's buffer capacity. Defaults to
-  /// `DEFAULT_CLIENT_POINT_CAPACITY`.
+  /// Sets a custom point buffer capacity for the client.
   pub fn capacity( mut self, capacity: usize ) -> Self {
     self.capacity = capacity;
     self
   }
 
-  /// Provides the caller an ability to receive a callback on each DAC
-  /// response. Callback should not block for any significant duration of time.
-  pub fn on_response( mut self, callback: OnResponseCallback ) -> Self {
-    self.on_response = Some( callback );
+  /// Sets a custom command timeout for the client.
+  pub fn command_timeout( mut self, duration: Duration ) -> Self {
+    self.command_timeout = duration;
     self
   }
 
-  /// Provides the caller an ability to define a callback that the <Client>
-  /// will execute once the DAC's point count drops below `count`. The provided
-  /// `callback` should not significantly block.
-  ///
-  /// The `callback` will only execute a single-time once the low watermark
-  /// range is entered. The low watermark warning will be reset once the
-  /// client's point count reports greater than `count`.
-  ///
-  /// The timing resolution of this routine is ~1ms.
-  pub fn on_low_watermark<F>( mut self, count: usize, callback: F ) -> Self
-    where F: 'static + FnMut( usize ) + Send
-  {
-    self.low_watermark = count;
-    self.on_low_watermark = Some( Box::new( callback ) );
+  /// Overrides the default Etherdream connection port (`7765`)
+  pub fn port( mut self, port: u16 ) -> Self {
+    self.port = port;
     self
   }
 
-  /// Creates a new `Client` that connects to the remote DAC. Consumes `self`.
-  pub async fn connect( self ) -> Result<Client<T>,ClientError> {
-    let awaiting_ack_count = Arc::new( AtomicUsize::new( 0 ) );
-    let last_seen_at = Arc::new( RwLock::new( Instant::now() ) );
-    let on_wait_command = Arc::new( RwLock::new( None ) );
-    let ( on_wait_tx, on_wait_rx ) = watch::channel( ( ControlSignal::Ack, device::State::default() ) );
-    let mut task_set: JoinSet<Result<(),ClientError>> = JoinSet::new();
-    let state = Arc::new( RwLock::new( self.device.state().clone() ) );
+  /// Connects to a remote Etherdream device using the provided configuration.
+  pub async fn connect( self ) -> Result<Client,Error> {
+    let awaiting_ack = Arc::new( AtomicBool::new( false ) );
+    let ( point_tx, point_rx ) = CircularBuffer::new( self.capacity );
+    let shutdown_token = CancellationToken::new();
+    let state = Arc::new( RwLock::new( State::default() ) );
+    let mut tasks = JoinSet::new();
 
-    // Responsible for communicating commands from the client run-time to the
-    // asynchronous DAC network writer (tx)
-    let ( command_tx, command_rx ) = mpsc::channel::<( Command, usize )>( 16 );
+    // Communicates commands from the client to the `<Writer>` task.
+    let ( command_tx, command_rx ) = mpsc::channel::<Command>( 16 );
 
-    // Create the internal point buffer
-    let ( point_tx, point_rx ) = circular_buffer::CircularBuffer::<T>::new( self.capacity );
-    let point_rx = Arc::new( RwLock::new( point_rx ) );
+    // Communicates received messages from the `<Reader>` task to all subscribers.
+    let ( on_response_tx, _ ) = broadcast::channel::<OnResponseMsg>( 16 );
 
-    // Connect to the Etherdream DAC at `address`
-    let dac_stream = TcpSocket::new_v4()?.connect( self.device.address() ).await?;
+    // Connect to the Etherdream device
+    let address = SocketAddr::new( self.device_info.address().ip(), self.port );
+    let dac_stream = TcpSocket::new_v4()?.connect( address ).await?;
     let ( dac_rx, dac_tx ) = dac_stream.into_split();
 
-    // Start the DAC network reader
-    task_set.spawn({
-      let awaiting_ack_count = awaiting_ack_count.clone();
-      let last_seen_at = last_seen_at.clone();
-      let on_wait_command = on_wait_command.clone();
-      let state = state.clone();
+    // Start the `<Reader>` task (w/ cancellation token)
+    tasks.spawn({
+      let on_response_tx = on_response_tx.clone();
+      let shutdown_token = shutdown_token.clone();
 
-      let mut reader = Reader{
-        awaiting_ack_count,
+      let reader = Reader{
+        awaiting_ack: awaiting_ack.clone(),
         dac_rx,
-        last_seen_at,
-        on_response: self.on_response,
-        on_wait_command,
-        on_wait_tx,
-        state
+        on_response_tx,
+        shutdown_token: shutdown_token.clone(),
+        state: state.clone()
       };
 
-      async move { reader.start().await }
+      async move {
+        tokio::select!{
+          _ = shutdown_token.cancelled() => { Ok( () ) }
+          result = reader.start() => { result }
+        }
+      }
     });
 
-    // Start the DAC network writer
-    task_set.spawn({
-      let awaiting_ack_count = awaiting_ack_count.clone();
-      let point_rx = point_rx.clone();
-      let state = state.clone();
+    // Start the `<Writer>` task (w/ cancellation token)
+    tasks.spawn({
+      let shutdown_token = shutdown_token.clone();
 
-      let mut writer = Writer::<T>{
-        awaiting_ack_count,
+      let writer = Writer{
+        awaiting_ack: awaiting_ack.clone(),
         command_rx,
-        dac_buffer_capacity: self.device.buffer_capacity() as usize,
         dac_tx,
+        device_info: self.device_info.clone(),
+        state: state.clone(),
         point_rx,
-        state
+        shutdown_token: shutdown_token.clone()
       };
 
-      async move { writer.start().await }
+      async move {
+        tokio::select!{
+          _ = shutdown_token.cancelled() => { Ok( () ) }
+          result = writer.start() => { result }
+        }
+      }
     });
-
-    // Start the (optional) low watermark service
-    if let Some( callback ) = self.on_low_watermark {
-      task_set.spawn({
-        let point_rx = point_rx.clone();
-        let state = state.clone();
-
-        let mut low_watermark_service =
-          LowWatermarkService{
-            callback,
-            low_watermark: self.low_watermark,
-            point_rx,
-            state
-          };
-
-        async move { low_watermark_service.start().await }
-      });
-    }
 
     let mut client = Client{
-      command_tx,
-      device: self.device,
-      on_wait_command,
-      on_wait_rx,
+      command_tx: CommandTx::new( command_tx, on_response_tx, self.command_timeout ).await,
+      device_info: self.device_info,
       point_tx,
+      shutdown_token,
       state,
-      tasks: task_set
+      tasks
     };
 
-    // Reset the Etherdream DAC which:
-    // (1) ensures the DAC is prepared to receive point data, and...
-    // (2) ensures the DAC's most current state is reflected in our client.
+    // Reset the client to a "ready" state
     match client.reset().await {
       Ok( _ ) => Ok( client ),
-      Err( error ) => Err( ClientError::Command( error ) )
+      Err( err ) => Err( err )
     }
   }
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Client
 
-/// A client that can communicate with an Etherdream DAC.
-pub struct Client<T: Point> {
-  // Channel used to send commands from the client to the async writer task
-  command_tx: mpsc::Sender<( Command, usize )>,
-
-  // The device that this client connected to when it was initialized.
-  device: device::Device,
-
-  // The point buffer writer that the client uses to communicate point data to
-  // the client's DAC <Writer> task.
-  point_tx: circular_buffer::Writer<T>,
-
-  // Used by `send_command_and_wait` to indicate to <Reader> a command to
-  // observe and acknowledge.
-  on_wait_command: Arc<RwLock<Option<Command>>>,
-
-  // Used by `send_command_and_wait` to receive a command acknowledgement from
-  // the <Reader>.
-  on_wait_rx: watch::Receiver<( ControlSignal, device::State )>,
-
-  // The shared device state as received from the client <Reader>.
-  state: Arc<RwLock<device::State>>,
-
-  // The clients async task handles.
-  tasks: JoinSet<Result<(),ClientError>>,
+pub struct Client {
+  // The buffer used to communicate command data to the `<Writer>` task.
+  command_tx: CommandTx,
+  // Intrinsic properties of the remote device.
+  device_info: DeviceInfo,
+  // The buffer used to communicate point data to the `<Writer>` task.
+  point_tx: PointTx,
+  // The cancellation token used to shut down the client.
+  shutdown_token: CancellationToken,
+  // The client's run-time state.
+  state: Arc<RwLock<State>>,
+  // The asynchronous task handles.
+  tasks: JoinSet<io::Result<()>>
 }
 
-impl<T: Point> Client<T> {
-  /// Returns the socket address of the remote DAC that the client is connected
-  /// to.
+impl Client {
+  /// Returns the socket address of the remote device that the client is
+  /// connected to.
   #[inline]
-  pub fn peer_addr( &self ) -> SocketAddr {
-    self.device.address()
+  pub fn peer_addr( &self ) -> &SocketAddr {
+    self.device_info.address()
   }
 
-  /// Returns the MAC address of the remote DAC.
+  /// Returns the MAC address of the remote device.
   #[inline]
-  pub fn mac_address( &self ) -> device::MacAddress {
-    self.device.mac_address()
+  pub fn mac_address( &self ) -> protocol::MacAddress {
+    self.device_info.mac_address()
   }
 
-  /// Returns the maximum number of points the DAC can process per second, as
-  /// reported by the device's broadcast payload.
+  /// Returns the constant maximum number of points the `Client` can buffer.
+  #[inline]
+  pub fn max_point_capacity( &self ) -> usize {
+    self.point_tx.capacity()
+  }
+
+  /// Returns the maximum number of points the device can process per second,
+  /// as reported by the device's broadcast payload.
   ///
   /// Important Note:
-  /// This number reflects the DAC's maximum capabilities, which may or
+  /// This number reflects the device's maximum capabilities, which may or may
   /// not match your laser's actual hardware capabilities. The ILDA protocol
   /// does not provide the hardware laser a mechanism to broadcast this
-  /// information to the DAC.
+  /// information to the Etherdream DAC.
   ///
   /// It is up to the `Client` implementor to always work within the bounds of
   /// their laser's documented specifications.
   #[inline]
   pub fn max_points_per_second( &self ) -> usize {
-    self.device.max_points_per_second() as usize
+    self.device_info.max_points_per_second()
   }
 
-  /// Copies the most recently recorded DAC state into the user-provided
-  /// `state`.
+  /// Returns a copy of the connection's current state.
   #[inline]
-  pub async fn copy_state( &self, state: &mut device::State ) {
-    *state = *self.state.read().await;
+  pub async fn state( &self ) -> State {
+    *self.state.read().await
   }
 
-  /// Ping's the connected Etherdream DAC and awaits a response. Returns the
-  /// <device::State> on success.
-  pub async fn ping( &mut self ) -> CommandResult {
-    self.send_command_and_wait( Command::Ping, 0 ).await
-  }
-
-  /// Returns the Etherdream DAC to a "prepared" state. Specifically:
-  ///   1. Will clear any DAC error condition, such as an E-stop or underflow.
-  ///   2. Clears the DAC's internal point buffer.
-  ///   3. Resets the DAC's internal point count to 0.
-  pub async fn reset( &mut self ) -> CommandResult {
-    match self.send_command_and_wait( Command::Clear, 0 ).await {
-      Ok( _ ) => self.send_command_and_wait( Command::Prepare, 0 ).await,
-      err => err
-    }
-  }
-
-  /// Pushes a single point of type <T> into the client's internal point
-  /// buffer.
-  ///
-  /// Point data is published to the DAC:
-  ///   1. When `flush_points` is called.
-  ///   2. When `start` is called and no existing point data has been
-  ///      published.
-  ///   3. When the <Writer> observes unpublished point data and the DAC is in
-  ///      a playing state.
-  ///
-  /// TODO: Allow for queue rate change.
+  /// Ping's the connected Etherdream device and awaits a response.
   #[inline]
-  pub fn push_point( &mut self, point: T ) -> Option<T> {
-    self.point_tx.push( point )
+  pub async fn ping( &mut self ) -> Result<State,Error> {
+    self.command_tx.send_and_wait( Command::Ping ).await
   }
 
-  /// Flushes all accumulated point data to the DAC. Returns the number of
-  /// points committed. The actual network send happens asynchronously in the
-  /// `Writer` task at a future time.
-  pub async fn flush_points( &self ) -> usize {
-    let count = self.point_tx.len();
-    if count == 0 { return 0; }
-
-    if let Ok(()) = self.command_tx.send( ( Command::Data, count ) ).await {
-      count
-    } else {
-      0
-    }
+  /// Resets the Etherdream device and returns it to a "prepared" state.
+  ///
+  /// Specifically:
+  ///   1. Will clear any error condition, such as an E-stop or underflow.
+  ///   2. Clears the device's internal point buffer.
+  ///   3. Resets the device's internal point count to 0.
+  pub async fn reset( &mut self ) -> Result<State,Error> {
+    self.command_tx.send_and_wait( Command::Clear ).await?;
+    self.command_tx.send_and_wait( Command::Prepare ).await
   }
 
-  /// Flushes all accumulated point data to the DAC and awaits an
-  /// acknowledgement. Returns the device state on success.
-  pub async fn flush_points_and_wait( &mut self ) -> CommandResult {
-    self.send_command_and_wait( Command::Data, self.point_tx.len() ).await
-  }
-
-  /// Returns the number of points in the clients internal buffer. These points
-  /// are awaiting being sent to the DAC.
+  /// Returns the number of points in the <Client>'s internal buffer.
   #[inline]
   pub fn point_count( &self ) -> usize {
     self.point_tx.len()
   }
 
-  /// Sends a message to the DAC to start playing point data at the provided
-  /// `rate`.
+  /// Writes point data into client's internal buffer. On success, will return
+  /// `None`. If the internal buffer is full, will return `Some::<PointData>`.
   ///
-  /// Any points currently stored in the client's internal buffer will be
-  /// flushed to the DAC prior to sending a `Begin` command.
-  pub async fn start( &mut self, rate: usize ) -> CommandResult {
+  /// Must call `flush_points` periodically to commit point data to the
+  /// asynchronous `<Writer>` task.
+  #[inline]
+  pub fn push_point( &mut self, x: X, y: Y, r: R, g: G, b: B ) -> Option<Point> {
+    self.point_tx.push( ( x, y, r, g, b ) )
+  }
+
+  /// Will flush any uncommitted point data to the `<Writer>` task.
+  #[inline]
+  pub async fn flush_points( &mut self ) -> Result<State,Error> {
+    self.command_tx.send_and_wait( Command::Data{ count: self.point_tx.len() } ).await
+  }
+
+  /// Commands the device to start playing point data from its internal buffers
+  /// at the provided `rate` (points per second).
+  pub async fn start( &mut self, rate: usize ) -> Result<State,Error> {
     let point_count = self.point_tx.len();
 
     if point_count > 0 {
-      self.send_command_and_wait( Command::Data, point_count ).await?;
+      self.flush_points().await?;
     }
 
-    self.send_command_and_wait( Command::Begin, rate ).await
+    self.command_tx.send_and_wait( Command::Begin{ rate } ).await
   }
 
-  /// Sends a message to the DAC to stop playing point data.
-  pub async fn stop( &mut self ) -> CommandResult {
-    self.send_command_and_wait( Command::Stop, 0 ).await
+  /// Commands the device to stop playing point data.
+  #[inline]
+  pub async fn stop( &mut self ) -> Result<State,Error> {
+    self.command_tx.send_and_wait( Command::Stop ).await
   }
 
-  /// Terminates all asynchronous tasks and consumes `self`.
-  pub async fn disconnect( mut self ) {
-    self.tasks.abort_all();
+  /// Commands the device to enter an E-stop.
+  #[inline]
+  pub async fn e_stop( &mut self ) -> Result<State,Error> {
+    self.command_tx.send_and_wait( Command::Estop ).await
   }
 
-  async fn send_command_and_wait( &mut self, command: Command, n: usize )-> CommandResult {
-    {
-      let mut guard = self.on_wait_command.write().await;
-      *guard = Some( command );
+  /// Shuts down all asynchronous tasks and disconnects the client from the
+  /// device, consuming `self`.
+  pub async fn disconnect( self ) {
+    self.shutdown_token.cancel();
+    self.tasks.join_all().await;
+  }
 
-      self.on_wait_rx.mark_unchanged();
+  /// Breaks the client into its constituent parts. Designed for use by the
+  /// `Generator`. Crate-internal function, only.
+  pub(crate) fn into_parts( self ) -> ( ReadOnlyClient, CommandTx, PointTx ) {
+    let client = ReadOnlyClient{
+      device_info: self.device_info,
+      shutdown_token: self.shutdown_token,
+      state: self.state,
+      tasks: self.tasks
+    };
 
-      self.command_tx.send( ( command, n ) ).await.map_err(|_|{ CommandError::Shutdown })?;
-    }
+    ( client, self.command_tx, self.point_tx )
+  }
 
-    // Wait for a command acknowledgement with `on_wait_rx` or timeout.
-    let result =
-      time::timeout(
-        Duration::from_secs( 2 ),
-        async {
-          let _ = self.on_wait_rx.changed().await;
-          *self.on_wait_rx.borrow_and_update()
-        }
-      ).await;
-
-    // Reset `on_wait_command`
-    *self.on_wait_command.write().await = None;
-
-    match result {
-      Ok( ( signal, state ) ) =>
-        match signal {
-          ControlSignal::Ack => Ok( state ),
-          ControlSignal::Nak( reason ) => Err( CommandError::Nak( reason ) )
-        },
-
-      Err( _ ) =>
-        Err( CommandError::Timeout )
+  /// Reconstructs a client from its constituent parts. Designed for use by the
+  /// `Generator`. Crate-internal function, only.
+  pub(crate) fn from_parts( client: ReadOnlyClient, command_tx: CommandTx, point_tx: PointTx ) -> Client {
+    Self{
+      command_tx,
+      device_info: client.device_info,
+      point_tx,
+      shutdown_token: client.shutdown_token,
+      state: client.state,
+      tasks: client.tasks
     }
   }
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - DAC Reader
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Reader
 
 struct Reader {
-  awaiting_ack_count: Arc<AtomicUsize>,
-  dac_rx: OwnedReadHalf,
-  last_seen_at: Arc<RwLock<Instant>>,
-  on_response: Option<OnResponseCallback>,
-  on_wait_command: Arc<RwLock<Option<Command>>>,
-  on_wait_tx: watch::Sender<( ControlSignal, device::State )>,
-  state: Arc<RwLock<device::State>>
+  awaiting_ack: Arc<AtomicBool>,
+  dac_rx: tcp::OwnedReadHalf,
+  on_response_tx: broadcast::Sender<OnResponseMsg>,
+  shutdown_token: CancellationToken,
+  state: Arc<RwLock<State>>
 }
 
 impl Reader {
-  async fn start( &mut self ) -> Result<(),ClientError> {
-    let mut buf = [0u8; ETHERDREAM_RESPONSE_BYTES];
-    let mut dac_state: device::State;
+  async fn start( mut self ) -> Result<(),io::Error> {
+    let mut buf = [0u8; protocol::RESPONSE_BYTES_SIZE];
 
     loop {
+      if self.shutdown_token.is_cancelled() {
+        return Ok( () );
+      }
+
       self.dac_rx.read_exact( &mut buf ).await?;
-      let control_signal = ControlSignal::from( buf[0] );
-      let command = Command::from( buf[1] );
 
-      dac_state = device::State::from_bytes( &buf[2..ETHERDREAM_RESPONSE_BYTES] );
-      *self.state.write().await = dac_state;
+      let control_signal =
+        match buf[0].try_into() {
+          Ok( control_signal ) => control_signal,
+          Err( unknown ) => {
+            // An unknown control signal was received. The reader will shut
+            // down as the data stream can no longer be trusted.
+            eprintln!( "An unknown control signal was received: {unknown}" );
+            self.shutdown_token.cancel();
+            continue;
+          }
+        };
 
-      // Update the client's `last_seen_at` to the current moment
-      *self.last_seen_at.write().await = Instant::now();
+      let command =
+        match buf[1].try_into() {
+          Ok( command ) => command,
+          Err( unknown ) => {
+            // An unknown command was received. The reader will shut down as
+            // the data stream can no longer be trusted.
+            eprintln!( "An unknown command was received: {unknown}" );
+            self.shutdown_token.cancel();
+            continue;
+          }
+        };
 
-      // Decrement the awaiting ack count (this unblocks the <Writer>)
-      if control_signal == ControlSignal::Ack {
-        let _ = self.awaiting_ack_count.fetch_update( Release, Acquire, |i|{ Some( i.saturating_sub( 1 ) ) });
-      }
-
-      // If an `on_wait_command` exists, validate it against the currently
-      // received command and acknowledge the message.
       {
-        let mut guard = self.on_wait_command.write().await;
-        if let Some( _ ) = guard.take_if(|on_wait_cmd|{ *on_wait_cmd == command }) {
-          let _ = self.on_wait_tx.send( ( control_signal, dac_state ) );
-        }
-      }
+        let mut state = self.state.write().await;
+        state.inner = protocol::State::from_bytes( &buf[2..protocol::RESPONSE_BYTES_SIZE] );
+        state.last_seen_at = Instant::now();
 
-      // Execute the `on_response` callback, if it is defined.
-      if let Some( callback ) = self.on_response {
-        callback( control_signal, command, *self.state.read().await );
+        // If a successful acknowledgment, set `awaiting_ack` to false,
+        // unblocking the `<Writer>` task.
+        self.awaiting_ack.store( false, Release );
+
+        // Publish the response to all subscribers.
+        let _ = self.on_response_tx.send( ( control_signal, command, *state ) );
       }
     }
   }
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - DAC Writer
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Writer
 
-struct Writer<T: Point> {
-  awaiting_ack_count: Arc<AtomicUsize>,
-  command_rx: mpsc::Receiver<( Command, usize )>,
-  dac_buffer_capacity: usize,
-  dac_tx: OwnedWriteHalf,
-  point_rx: Arc<RwLock<circular_buffer::Reader<T>>>,
-  state: Arc<RwLock<device::State>>
+struct Writer {
+  awaiting_ack: Arc<AtomicBool>,
+  command_rx: mpsc::Receiver<Command>,
+  dac_tx: tcp::OwnedWriteHalf,
+  device_info: DeviceInfo,
+  point_rx: circular_buffer::Reader<Point>,
+  shutdown_token: CancellationToken,
+  state: Arc<RwLock<State>>
 }
 
-impl<T: Point> Writer<T> {
-  async fn start( &mut self ) -> Result<(),ClientError> {
-    // The DAC can not support more than its intrinsic buffer capacity plus
-    // three (3) bytes for the point data header.
-    let max_buffer_size: usize = ( self.dac_buffer_capacity * ETHERDREAM_POINT_DATA_BYTES ) + 3;
-
-    // Locals
+impl Writer {
+  async fn start( mut self ) -> Result<(),io::Error>
+  {
     let mut auto_ping_at = Instant::now();
-    let mut buf: Vec<u8> = vec![0; max_buffer_size];
     let mut buf_committed_bytes: usize;
     let mut buf_index: usize;
     let mut buf_point_count: usize;
     let mut point_send_count: usize = 0;
-    let mut points_acc_send_count: usize = 0;
-    let mut state: device::State;
+    let mut point_send_count_accumulated: usize = 0;
+    let mut state: State;
+
+    // The device can not support more than its intrinsic buffer capacity plus
+    // three (3) bytes for the point data header.
+    let max_buffer_size: usize = ( self.device_info.buffer_capacity() * protocol::POINT_DATA_BYTES_SIZE ) + 3;
+    let mut buf: Vec<u8> = vec![0; max_buffer_size];
 
     loop {
-      // Only send DAC commands if all messages have been acknowledged.
-      if self.awaiting_ack_count.load( Acquire ) > 0 {
+      if self.shutdown_token.is_cancelled() {
+        return Ok( () );
+      }
+
+      // Only send commands if all messages have been acknowledged.
+      if self.awaiting_ack.load( Acquire ) == true {
         tokio::time::sleep( Duration::from_millis( 1 ) ).await;
         continue;
       }
 
-      // Copy the current DAC state into our local `state`
+      // Copy the current device state into our local `state`
       state = *self.state.read().await;
 
       // Receive any commands and populate the network buffer as required. Any
-      // positive `buf_commited_bytes` will be written to the DAC.
+      // positive `buf_commited_bytes` will be written to the device.
       buf_committed_bytes =
         match self.command_rx.try_recv() {
-          Ok( ( Command::Begin, rate ) ) => {
-            buf[0] = ETHERDREAM_COMMAND_BEGIN;
+          Ok( Command::Begin{ rate } ) => {
+            buf[0] = protocol::COMMAND_BEGIN;
             buf[1..3].fill( 0 );
             buf[3..7].copy_from_slice( &u32::to_le_bytes( rate as u32 ) );
             7
           },
-
-          Ok( ( Command::Data, point_count ) ) => {
-            // Because the DAC has a limited buffer in comparison to our
-            // client, we accumulate `point_count`. This allows our client to
-            // continue publishing point data to DAC as buffer capacity becomes
-            // available.
-            points_acc_send_count += point_count;
-            point_send_count = calculate_point_send_count( &state, points_acc_send_count, self.dac_buffer_capacity );
-            0
-          },
-
-          // Sends any other single-byte command to the DAC
-          Ok( ( cmd, _ ) ) => {
-            buf[0] = cmd.into();
+          Ok( Command::Clear ) => {
+            buf[0] = protocol::COMMAND_CLEAR;
             1
           },
-
+          Ok( Command::Data{ count: point_count } ) => {
+            point_send_count_accumulated += point_count;
+            point_send_count = calculate_point_send_count( &state, point_send_count_accumulated, self.device_info.buffer_capacity() );
+            0
+          },
+          Ok( Command::Estop ) => {
+            buf[0] = protocol::COMMAND_ESTOP;
+            1
+          },
+          Ok( Command::Ping ) => {
+            buf[0] = protocol::COMMAND_PING;
+            1
+          },
+          Ok( Command::Prepare ) => {
+            buf[0] = protocol::COMMAND_PREPARE;
+            1
+          },
+          Ok( Command::_QueueRate{ rate } ) => {
+            buf[0] = protocol::COMMAND_QUEUE_RATE;
+            buf[1..5].copy_from_slice( &u32::to_le_bytes( rate as u32 ) );
+            5
+          },
+          Ok( Command::Stop ) => {
+            buf[0] = protocol::COMMAND_STOP;
+            1
+          },
           Err( mpsc::error::TryRecvError::Empty ) => {
             // Since no command was received, commit any accumulated points
-            point_send_count = calculate_point_send_count( &state, points_acc_send_count, self.dac_buffer_capacity );
+            point_send_count = calculate_point_send_count( &state, point_send_count_accumulated, self.device_info.buffer_capacity() );
 
             // Auto-ping: If no point data is available, send a ping every 5ms
-            // to ensure our client state reflects the remote DAC's state.
+            // to ensure our client state reflects the remote device's state.
             if point_send_count == 0 &&
               ( Instant::now() - auto_ping_at ) > Duration::from_millis( 5 )
             {
-              buf[0] = Command::Ping.into();
+              buf[0] = protocol::COMMAND_PING;
               auto_ping_at = Instant::now();
               1
             } else {
               0
             }
           },
-
           Err( mpsc::error::TryRecvError::Disconnected ) => {
             // The command sender has disconnected, the routine should now exit.
-            return Ok(());
+            return Ok( () );
           }
         };
 
@@ -576,17 +558,16 @@ impl<T: Point> Writer<T> {
           buf_point_count = 0;
 
           for point_index in 0..point_send_count {
-            if let Some( point ) = self.point_rx.write().await.pop() {
-              buf_index = ( point_index * ETHERDREAM_POINT_DATA_BYTES ) + 3;
-              let( x, y, r, g, b ) = point.for_etherdream();
+            if let Some( ( x, y, r, g, b ) ) = self.point_rx.pop() {
+              buf_index = ( point_index * protocol::POINT_DATA_BYTES_SIZE ) + 3;
 
               buf[buf_index..buf_index+2].fill( 0 ); // control (unused)
-              buf[buf_index+2..buf_index+4].copy_from_slice( &i16::to_le_bytes( x ) );
-              buf[buf_index+4..buf_index+6].copy_from_slice( &i16::to_le_bytes( y ) );
-              buf[buf_index+6..buf_index+8].copy_from_slice( &u16::to_le_bytes( r ) );
-              buf[buf_index+8..buf_index+10].copy_from_slice( &u16::to_le_bytes( g ) );
-              buf[buf_index+10..buf_index+12].copy_from_slice( &u16::to_le_bytes( b ) );
-              buf[buf_index+12..buf_index+14].copy_from_slice( &u16::to_le_bytes( u16::MAX ) );
+              buf[buf_index+2..buf_index+4].copy_from_slice( &x.to_le_bytes() );
+              buf[buf_index+4..buf_index+6].copy_from_slice( &y.to_le_bytes() );
+              buf[buf_index+6..buf_index+8].copy_from_slice( &r.to_le_bytes() );
+              buf[buf_index+8..buf_index+10].copy_from_slice( &g.to_le_bytes() );
+              buf[buf_index+10..buf_index+12].copy_from_slice( &b.to_le_bytes() );
+              buf[buf_index+12..buf_index+14].copy_from_slice( &u16::MAX.to_le_bytes() );
               buf[buf_index+14..buf_index+18].fill( 0 );
 
               buf_point_count += 1;
@@ -596,10 +577,10 @@ impl<T: Point> Writer<T> {
           }
 
           // Commit point data (including the 3 byte point header)
-          buf[0] = ETHERDREAM_COMMAND_DATA;
+          buf[0] = protocol::COMMAND_DATA;
           buf[1..3].copy_from_slice( &u16::to_le_bytes( buf_point_count as u16 ) );
-          points_acc_send_count = points_acc_send_count.saturating_sub( buf_point_count );
-          ( buf_point_count * ETHERDREAM_POINT_DATA_BYTES ) + 3
+          point_send_count_accumulated = point_send_count_accumulated.saturating_sub( buf_point_count );
+          ( buf_point_count * protocol::POINT_DATA_BYTES_SIZE ) + 3
         } else {
           buf_committed_bytes
         };
@@ -607,8 +588,9 @@ impl<T: Point> Writer<T> {
       // Write any committed bytes to the DAC, or yield control back to the
       // tokio run-time.
       if buf_committed_bytes > 0 {
-        self.dac_tx.write( &buf[..buf_committed_bytes] ).await?;
-        self.awaiting_ack_count.fetch_add( 1, AcqRel );
+        self.dac_tx.write_all( &buf[..buf_committed_bytes] ).await?;
+        self.awaiting_ack.store( true, Release );
+        auto_ping_at = Instant::now();
       } else {
         tokio::task::yield_now().await;
       }
@@ -616,116 +598,172 @@ impl<T: Point> Writer<T> {
   }
 }
 
-/// Calculates the DAC's available capacity, and returns the minimum of that
+/// Calculates the device's available capacity, and returns the minimum of that
 /// and the accumulated point count.
-#[inline]
-fn calculate_point_send_count( state: &device::State, points_acc_send_count: usize, buffer_capacity: usize ) -> usize {
+#[inline(always)]
+fn calculate_point_send_count( state: &State, point_send_count_accumulated: usize, buffer_capacity: usize ) -> usize {
   if state.is_ready() {
-    points_acc_send_count.min( buffer_capacity.saturating_sub( state.points_buffered as usize ) )
+    point_send_count_accumulated.min( buffer_capacity.saturating_sub( state.points_buffered() ) )
   } else {
     0
   }
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - -  Low Watermark Service
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Read Only Client
 
-struct LowWatermarkService<T: Point> {
-  callback: OnLowWatermarkCallback,
-  low_watermark: usize,
-  point_rx: Arc<RwLock<circular_buffer::Reader<T>>>,
-  state: Arc<RwLock<device::State>>
+/// A read-only version of a `Client` for use by `Generator`s.
+pub(crate) struct ReadOnlyClient {
+  device_info: DeviceInfo,
+  shutdown_token: CancellationToken,
+  state: Arc<RwLock<State>>,
+  tasks: JoinSet<io::Result<()>>
 }
 
-impl<T: Point> LowWatermarkService<T> {
-  async fn start( &mut self ) -> Result<(),ClientError> {
-    let mut in_low_watermark = false;
-    let mut state: device::State;
+impl ReadOnlyClient {
+  /// Returns a read-only clone of the client's state.
+  pub(crate) fn clone_state( &self ) -> ReadOnlyState {
+    ReadOnlyState{ inner: self.state.clone() }
+  }
 
-    loop {
-      state = *self.state.read().await;
+  /// Returns the `DeviceInfo` associated with this client.
+  pub(crate) fn device_info( &self ) -> &DeviceInfo {
+    &self.device_info
+  }
+}
 
-      if state.is_playing() {
-        // If the active point count drops below the `low_watermark`, execute
-        // the user-provided `callback`. The callback will not be executed
-        // again until the point count has recovered to above the
-        // `low_watermark`.
-        let active_point_count = state.points_buffered as usize + self.point_rx.read().await.len();
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Command Tx
 
-        if in_low_watermark {
-          if active_point_count > self.low_watermark {
-            in_low_watermark = false;
-          }
-        } else {
-          if active_point_count <= self.low_watermark {
-            in_low_watermark = true;
-            ( self.callback )( active_point_count );
+type CommandTxWaitForRef = Arc<Mutex<Option<CommandTxWaitFor>>>;
+
+struct CommandTxWaitFor {
+  callback: Option<oneshot::Sender<OnResponseMsg>>,
+  cmd: protocol::Command,
+}
+
+/// Provides functionality for sending commands to the `<Writer>` task and
+/// validating acknowledgments.
+pub(crate) struct CommandTx {
+  // Channel used to send commands to the `<Writer>` task.
+  command_tx: mpsc::Sender<Command>,
+  // The task handle that consumes all received messages from the `<Reader>`
+  _handle: JoinHandle<()>,
+  // Used when cloning this `CommandTx`.
+  on_response_tx: broadcast::Sender<OnResponseMsg>,
+  // The duration of time to wait for command acknowledgements before
+  // returning a timeout.
+  timeout: Duration,
+  // Shared data between `CommandTx` and the asynchronous task.
+  wait_for: CommandTxWaitForRef
+}
+
+impl CommandTx {
+  async fn new(
+    command_tx: mpsc::Sender<Command>,
+    on_response_tx: broadcast::Sender<OnResponseMsg>,
+    timeout: Duration
+  ) -> CommandTx {
+    let wait_for = Arc::new( Mutex::new( None::<CommandTxWaitFor> ) );
+
+    // Start a task that will receive all responses processed by the `Reader`.
+    // If `wait_for` is `Some`, will check each response against
+    // `wait_for.command`, executing the callback on a match.
+    let handle = tokio::spawn({
+      let mut on_response_rx = on_response_tx.subscribe();
+      let wait_for = wait_for.clone();
+
+      async move {
+        while let Ok( ( control_signal, cmd, state ) ) = on_response_rx.recv().await {
+          if let Some( callback ) = wait_for.lock().await
+            .take_if( |wf| wf.cmd == cmd )
+            .and_then( |mut wf| wf.callback.take() )
+          {
+            let _ = callback.send( ( control_signal, cmd, state ) );
           }
         }
       }
+    });
 
-      // Yield control back to the tokio control time via `sleep`
-      tokio::time::sleep( Duration::from_millis( 1 ) ).await;
+    Self{
+      command_tx,
+      _handle: handle,
+      on_response_tx,
+      timeout,
+      wait_for
     }
   }
-}
 
-//  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  /// Will send `command` to the `<Writer>` task and await an acknowledgement.
+  pub(crate) async fn send_and_wait( &mut self, command: Command )-> Result<State,Error> {
+    let ( wait_for_tx, wait_for_rx ) = oneshot::channel::<OnResponseMsg>();
 
-impl From<u8> for ControlSignal {
-  fn from( byte: u8 ) -> ControlSignal {
-    match byte {
-      ETHERDREAM_CONTROL_ACK => ControlSignal::Ack,
-      ETHERDREAM_CONTROL_NAK_FULL => ControlSignal::Nak( NakReason::Full ),
-      ETHERDREAM_CONTROL_NAK_ESTOP => ControlSignal::Nak( NakReason::Estop ),
-      ETHERDREAM_CONTROL_NAK_INVALID => ControlSignal::Nak( NakReason::Invalid ),
-      byte => {
-        // An unknown control signal was received. This will be translated to
-        // an E-stop and logged.
-        eprintln!( "An unknown control signal was received: {byte}" );
-        ControlSignal::Nak( NakReason::Estop )
+    // Create our shared "wait_for" payload and send the command
+    {
+      let mut wait_for = self.wait_for.lock().await;
+
+      *wait_for = Some( CommandTxWaitFor{
+        cmd: command.into(),
+        callback: Some( wait_for_tx )
+      });
+
+      self.command_tx.send( command ).await?;
+    }
+
+    // Waits for the command acknowledgement
+    match time::timeout( self.timeout, wait_for_rx ).await {
+      Ok( Ok( response ) ) => {
+        *self.wait_for.lock().await = None; // not needed
+
+        match response {
+          ( protocol::ControlSignal::Ack, _, state ) => Ok( state ),
+          ( protocol::ControlSignal::NakEstop, _, _ ) => Err( Error::Command( CommandError::Nak( NakReason::Estop ) ) ),
+          ( protocol::ControlSignal::NakFull, _, _ ) => Err( Error::Command( CommandError::Nak( NakReason::Full ) ) ),
+          ( protocol::ControlSignal::NakInvalid, _, _ ) => Err( Error::Command( CommandError::Nak( NakReason::Invalid ) ) )
+        }
+      },
+      Ok( Err( _ ) ) => {
+        // The sender has prematurely closed.
+        *self.wait_for.lock().await = None;
+        Err( Error::Internal( "The command acknowledgement sender closed.".to_string() ) )
+      },
+      Err( _ ) => {
+        // The timeout was hit.
+        *self.wait_for.lock().await = None;
+        Err( Error::Command( CommandError::Timeout ) )
       }
     }
   }
+
+  /// Clones a new `CommandTx`.
+  pub(crate) async fn clone( &self ) -> Self {
+    Self::new( self.command_tx.clone(), self.on_response_tx.clone(), self.timeout ).await
+  }
 }
 
-impl From<Command> for u8 {
-  fn from( cmd: Command ) -> u8 {
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Conversions
+
+impl From<io::Error> for Error {
+  fn from( err: io::Error ) -> Self {
+    Self::Internal( err.to_string() )
+  }
+}
+
+impl From<mpsc::error::SendError<Command>> for Error {
+  fn from( _err: mpsc::error::SendError<Command> ) -> Self {
+    Self::Internal( "Command failed to send due to unavailable receiver.".to_string() )
+  }
+}
+
+impl From<Command> for protocol::Command {
+  fn from( cmd: Command ) -> Self {
     match cmd {
-      Command::Begin => ETHERDREAM_COMMAND_BEGIN,
-      Command::Clear => ETHERDREAM_COMMAND_CLEAR,
-      Command::Data => ETHERDREAM_COMMAND_DATA,
-      Command::Estop => ETHERDREAM_COMMAND_ESTOP,
-      Command::Ping => ETHERDREAM_COMMAND_PING,
-      Command::Prepare => ETHERDREAM_COMMAND_PREPARE,
-      Command::QueueRate => ETHERDREAM_COMMAND_QUEUE_RATE,
-      Command::Stop => ETHERDREAM_COMMAND_STOP,
+      Command::Begin{ .. } => Self::Begin,
+      Command::Clear => Self::Clear,
+      Command::Data{ .. } => Self::Data,
+      Command::Estop => Self::Estop,
+      Command::Ping => Self::Ping,
+      Command::Prepare => Self::Prepare,
+      Command::_QueueRate{ .. } => Self::QueueRate,
+      Command::Stop => Self::Stop
     }
-  }
-}
-
-impl From<u8> for Command {
-  fn from( byte: u8 ) -> Command {
-    match byte {
-      ETHERDREAM_COMMAND_BEGIN => Command::Begin,
-      ETHERDREAM_COMMAND_CLEAR => Command::Clear,
-      ETHERDREAM_COMMAND_DATA => Command::Data,
-      ETHERDREAM_COMMAND_ESTOP => Command::Estop,
-      ETHERDREAM_COMMAND_PING => Command::Ping,
-      ETHERDREAM_COMMAND_PREPARE => Command::Prepare,
-      ETHERDREAM_COMMAND_QUEUE_RATE => Command::QueueRate,
-      ETHERDREAM_COMMAND_STOP => Command::Stop,
-      byte => {
-        // An unknown command was received. This will be translated to an
-        // E-stop and logged.
-        eprintln!( "An unknown command was received: {byte}" );
-        Command::Estop
-      }
-    }
-  }
-}
-
-impl From<io::Error> for ClientError {
-  fn from( err: io::Error ) -> ClientError {
-    ClientError::Io( err )
   }
 }

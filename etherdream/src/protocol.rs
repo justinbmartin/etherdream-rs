@@ -1,95 +1,117 @@
-//! Network data models associated with Etherdream devices.
+//! Network models associated with the Etherdream communication protocol.
 //!
 //! The Etherdream protocol definition can be found at:
 //! https://ether-dream.com/protocol.html
 use std::fmt;
-use std::net::SocketAddr;
 
-use crate::constants::*;
+// Point data type aliases
+pub type X = i16;
+pub type Y = i16;
+pub type R = u16;
+pub type G = u16;
+pub type B = u16;
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Device
+// Network Ports
+pub const BROADCAST_PORT: u16 = 7654;
+pub const CLIENT_PORT: u16    = 7765;
 
-/// Container that encodes information about an Etherdream device and its
-/// run-time state.
-#[derive( Clone, Copy, Debug )]
-pub struct Device {
-  /// The remote socket address that the Etherdream device is listening on.
-  address: SocketAddr,
+// Command signals
+pub const COMMAND_BEGIN: u8        = b'b';
+pub const COMMAND_CLEAR: u8        = b'c';
+pub const COMMAND_DATA: u8         = b'd';
+pub const COMMAND_ESTOP: u8        = b'0';
+pub const COMMAND_PING: u8         = b'?';
+pub const COMMAND_PREPARE: u8      = b'p';
+pub const COMMAND_QUEUE_RATE: u8   = b'q';
+pub const COMMAND_STOP: u8         = b's';
 
-  /// The intrinsic Etherdream device properties.
-  intrinsics: Intrinsics,
-
-  /// The Etherdream device engine state.
-  state: State
+#[repr(u8)]
+#[derive( Clone, Copy, Debug, PartialEq )]
+pub enum Command {
+  Begin     = COMMAND_BEGIN,
+  Clear     = COMMAND_CLEAR,
+  Data      = COMMAND_DATA,
+  Estop     = COMMAND_ESTOP,
+  Ping      = COMMAND_PING,
+  Prepare   = COMMAND_PREPARE,
+  QueueRate = COMMAND_QUEUE_RATE,
+  Stop      = COMMAND_STOP
 }
 
-impl Device {
-  /// Creates a new `Device` from a socket address. Populates `intrinsics` and
-  /// `state` from the provided byte array.
-  pub(crate) fn from_bytes( address: SocketAddr, bytes: &[u8] ) -> Self {
-    let ( intrinsic_bytes, state_bytes ) = bytes.split_at( ETHERDREAM_INTRINSIC_BYTES );
+impl TryFrom<u8> for Command {
+  type Error = u8;
 
-    // SAFETY: The two uses of unwrap are safe as they are inclusive of the
-    // broadcast byte length.
-    Self{
-      address,
-      intrinsics: Intrinsics::from_bytes( intrinsic_bytes ),
-      state: State::from_bytes( state_bytes )
+  fn try_from( byte: u8 ) -> Result<Self, Self::Error> {
+    match byte {
+      COMMAND_BEGIN => Ok( Command::Begin ),
+      COMMAND_CLEAR => Ok( Command::Clear ),
+      COMMAND_DATA => Ok( Command::Data ),
+      COMMAND_ESTOP => Ok( Command::Estop ),
+      COMMAND_PING => Ok( Command::Ping ),
+      COMMAND_PREPARE => Ok( Command::Prepare ),
+      COMMAND_QUEUE_RATE => Ok( Command::QueueRate ),
+      COMMAND_STOP => Ok( Command::Stop ),
+      byte => Err( byte )
     }
   }
-
-  /// Creates a new `Device` from constituent `intrinsics` and `state` parts.
-  pub fn from_parts( address: SocketAddr, intrinsics: Intrinsics, state: State ) -> Self {
-    Self{ address, intrinsics, state }
-  }
-
-  /// Returns the socket address that the device is communicating on.
-  #[inline]
-  pub fn address( &self ) -> SocketAddr { self.address }
-
-  /// Returns the maximum number of points the device can buffer.
-  #[inline]
-  pub fn buffer_capacity( &self ) -> u16 { self.intrinsics.buffer_capacity }
-
-  /// Returns the MAC address for this device.
-  #[inline]
-  pub fn mac_address( &self ) -> MacAddress { self.intrinsics.mac_address }
-
-  /// Returns the maximum number of points this device can process per second.
-  #[inline]
-  pub fn max_points_per_second( &self ) -> u32 { self.intrinsics.max_points_per_second }
-
-  /// Returns the state of the device when the device was discovered.
-  #[inline]
-  pub fn state( &self ) -> State { self.state }
-
-  /// Returns the hardware and software version installed on the device.
-  #[inline]
-  pub fn version( &self ) -> Version { self.intrinsics.version }
 }
+
+// Control signals
+pub const CONTROL_ACK: u8          = b'a';
+pub const CONTROL_NAK_ESTOP: u8    = b'!';
+pub const CONTROL_NAK_FULL: u8     = b'F';
+pub const CONTROL_NAK_INVALID: u8  = b'I';
+
+#[repr(u8)]
+#[derive( Clone, Copy, Debug, PartialEq )]
+pub enum ControlSignal {
+  Ack         = CONTROL_ACK,
+  NakEstop    = CONTROL_NAK_ESTOP,
+  NakFull     = CONTROL_NAK_FULL,
+  NakInvalid  = CONTROL_NAK_INVALID
+}
+
+impl TryFrom<u8> for ControlSignal {
+  type Error = u8;
+
+  fn try_from( byte: u8 ) -> Result<Self, Self::Error> {
+    match byte {
+      CONTROL_ACK => Ok( ControlSignal::Ack ),
+      CONTROL_NAK_ESTOP => Ok( ControlSignal::NakEstop ),
+      CONTROL_NAK_FULL => Ok( ControlSignal::NakFull ),
+      CONTROL_NAK_INVALID => Ok( ControlSignal::NakInvalid ),
+      byte => Err( byte )
+    }
+  }
+}
+
+// Network message sizes
+pub const INTRINSIC_BYTES_SIZE: usize   = 16;
+pub const POINT_DATA_BYTES_SIZE: usize  = 18;
+pub const RESPONSE_BYTES_SIZE: usize    = 22;
+pub const STATE_BYTES_SIZE: usize       = 20;
+
+pub const BROADCAST_BYTES_SIZE: usize = INTRINSIC_BYTES_SIZE + STATE_BYTES_SIZE;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Intrinsics
 
-/// A model that describes an Etherdream device's intrinsic properties, as
-/// provided by an Etherdream's network broadcast message.
-#[derive( Clone, Copy, Debug, Default, PartialEq )]
+/// Describes an Etherdream DAC's intrinsic properties, as provided by its
+/// network broadcast message.
+#[derive( Clone, Copy, Debug, Default )]
 pub struct Intrinsics {
-  /// MAC address of the Etherdream device.
+  /// MAC address of the Etherdream DAC.
   pub mac_address: MacAddress,
-
-  /// Hardware and software version for the Etherdream device.
+  /// Hardware and software version for the Etherdream DAC.
   pub version: Version,
-
-  /// Maximum capacity of the Etherdream device point buffer.
+  /// Maximum capacity of the Etherdream DACs point buffer.
   pub buffer_capacity: u16,
-
-  /// Maximum number of points the Etherdream device can process per second.
-  pub max_points_per_second: u32,
+  /// Maximum number of points the Etherdream DAC can process per second.
+  pub max_points_per_second: u32
 }
 
 impl Intrinsics {
-  /// Decodes an Etherdream network byte array into an `Intrinsic` model.
-  pub(crate) fn from_bytes( bytes: &[u8] ) -> Self {
+  /// Decodes a slice of bytes into an `Intrinsics` model.
+  pub fn from_bytes( bytes: &[u8] ) -> Self {
     Self{
       buffer_capacity: u16::from_le_bytes([ bytes[10], bytes[11] ]),
       mac_address: MacAddress::new([ bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5] ]),
@@ -102,23 +124,16 @@ impl Intrinsics {
   }
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  State
-
-/// A model that describes an Etherdream engine status.
 #[derive( Clone, Copy, Debug, Default )]
 pub struct State {
   // [Unknown]
   pub protocol: u8,
-
   // The current light engine state of the DAC
   pub light_engine_state: LightEngineState,
-
   // The current playback state of the DAC
   pub playback_state: PlaybackState,
-
   // The current playback source of the DAC
   pub source: Source,
-
   // The current light engine flags. DAC is ready if all flags are zero.
   // Bits:
   //  [0]: Emergency stop occurred due to E-Stop packet or invalid command.
@@ -128,7 +143,6 @@ pub struct State {
   //  [4]: Overtemperature condition is currently active.
   //  [5]: Emergency stop occurred due to loss of Ethernet link.
   pub light_engine_flags: u16,
-
   // The current playback flags. Bits will be non-zero during normal operation.
   // Bits:
   //  [0]: Shutter state: 0 = closed, 1 = open.
@@ -137,23 +151,19 @@ pub struct State {
   //  [2]: E-Stop. 1 if the last stream ended because the E-Stop state was
   //       entered. Reset to zero by the Prepare command.
   pub playback_flags: u16,
-
   // [Unknown]
   pub source_flags: u16,
-
   // The current number of points that are buffered in the DAC.
   pub points_buffered: u16,
-
   // The current number of points that the DAC is processing per second.
   pub points_per_second: u32,
-
   // The total number of points that the DAC has processed.
   pub points_lifetime: u32
 }
 
 impl State {
-  /// Decodes an Etherdream network byte array into a `Status` model.
-  pub(crate) fn from_bytes( bytes: &[u8] ) -> Self {
+  /// Decodes a slice of bytes into a `State` model.
+  pub fn from_bytes( bytes: &[u8] ) -> Self {
     Self{
       protocol: bytes[0],
       light_engine_state: bytes[1].into(),
@@ -177,6 +187,10 @@ impl State {
   pub fn is_playing( &self ) -> bool {
     self.is_ready() && self.playback_state == PlaybackState::Playing
   }
+
+  pub fn is_e_stop( &self ) -> bool { ( 1 & ( self.playback_flags >> 2 ) ) == 1 }
+  pub fn is_shutter_open( &self ) -> bool { ( 1 & ( self.playback_flags >> 0 ) ) == 1 }
+  pub fn is_underflow( &self ) -> bool { ( 1 & ( self.playback_flags >> 1 ) ) == 1 }
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Light Engine State
@@ -190,7 +204,7 @@ pub enum LightEngineState {
 }
 
 impl LightEngineState {
-  fn from_byte( byte: u8 ) -> Self {
+  pub fn from_byte( byte: u8 ) -> Self {
     match byte {
       0 => LightEngineState::Ready,
       1 => LightEngineState::WarmUp,
@@ -218,7 +232,7 @@ pub enum PlaybackState {
 }
 
 impl PlaybackState {
-  fn from_byte( byte: u8 ) -> Self {
+  pub fn from_byte( byte: u8 ) -> Self {
     match byte {
       0 => PlaybackState::Idle,
       1 => PlaybackState::Prepared,
@@ -245,7 +259,7 @@ pub enum Source {
 }
 
 impl Source {
-  fn from_byte( byte: u8 ) -> Self {
+  pub fn from_byte( byte: u8 ) -> Self {
     match byte {
       0 => Source::Network,
       1 => Source::Ilda,
@@ -292,33 +306,24 @@ impl From<[u16;2]> for Version {
 
 #[derive( Clone, Copy, Debug, PartialEq )]
 pub struct MacAddress {
-  address: [u8; 6]
+  inner: [u8; 6]
 }
 
 impl MacAddress {
-  pub fn new( address: [u8; 6] ) -> Self {
-    Self{ address }
-  }
-
-  pub fn as_slice( &self ) -> &[u8] {
-    &self.address
-  }
+  pub fn new( address: [u8; 6] ) -> Self { Self{ inner: address } }
+  pub fn as_slice( &self ) -> &[u8] { &self.inner }
 }
 
 impl Default for MacAddress {
-  fn default() -> Self {
-    Self{ address: [ 0, 0, 0, 0, 0, 0 ] }
-  }
+  fn default() -> Self { Self{ inner: [ 0, 0, 0, 0, 0, 0 ] } }
 }
 
 impl fmt::Display for MacAddress {
   fn fmt( &self, f: &mut fmt::Formatter ) -> fmt::Result {
-    write!( f, "{:02X?}", self.address )
+    write!( f, "{:02X?}", self.inner )
   }
 }
 
 impl From<[u8;6]> for MacAddress {
-  fn from( bytes: [u8;6] ) -> MacAddress {
-    MacAddress::new( bytes )
-  }
+  fn from( bytes: [u8;6] ) -> Self { Self::new( bytes ) }
 }
