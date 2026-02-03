@@ -1,5 +1,4 @@
 //! An Etherdream DAC network client.
-use std::marker::PhantomData;
 use std::net::{ IpAddr, SocketAddr };
 use std::sync::{ Arc, atomic::{ AtomicUsize, Ordering::* } };
 use std::time::{ Duration, Instant };
@@ -17,19 +16,9 @@ use crate::device;
 type CommandResult = Result<device::State,CommandError>;
 type OnLowWatermarkCallback = Box<dyn FnMut( usize ) + Send>;
 type OnResponseCallback = fn( ControlSignal, Command, device::State );
+type PointData = ( i16, i16, u16, u16, u16 );
 
 const DEFAULT_CLIENT_POINT_CAPACITY: usize = 32_768;
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Traits
-
-/// Required trait for <Client> template argument to provide for Etherdream-
-/// compliant point data.
-///
-/// Returns values:
-/// ( x_pos, y_pos, red_value, green_value, blue_value )
-pub trait Point: 'static + Clone + Copy + Default + Send + Sync {
-  fn for_etherdream( &self ) -> ( i16, i16, u16, u16, u16 );
-}
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Enums
 
@@ -85,17 +74,16 @@ pub enum CommandError {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Client Builder
 
 /// Client builder to configure and connect to an Etherdream DAC.
-pub struct ClientBuilder<T> where T: Point,
+pub struct ClientBuilder
 {
   capacity: usize,
   device: device::Device,
   low_watermark: usize,
   on_low_watermark: Option<OnLowWatermarkCallback>,
-  on_response: Option<OnResponseCallback>,
-  phantom: PhantomData<T>
+  on_response: Option<OnResponseCallback>
 }
 
-impl<T> ClientBuilder<T> where T: Point
+impl ClientBuilder
 {
   /// Creates a new client builder from a provided `device`.
   pub fn new( device: device::Device ) -> Self {
@@ -104,8 +92,7 @@ impl<T> ClientBuilder<T> where T: Point
       device,
       low_watermark: 0,
       on_low_watermark: None,
-      on_response: None,
-      phantom: PhantomData
+      on_response: None
     }
   }
 
@@ -148,7 +135,7 @@ impl<T> ClientBuilder<T> where T: Point
   }
 
   /// Creates a new `Client` that connects to the remote DAC. Consumes `self`.
-  pub async fn connect( self ) -> Result<Client<T>,ClientError> {
+  pub async fn connect( self ) -> Result<Client,ClientError> {
     let awaiting_ack_count = Arc::new( AtomicUsize::new( 0 ) );
     let last_seen_at = Arc::new( RwLock::new( Instant::now() ) );
     let on_wait_command = Arc::new( RwLock::new( None ) );
@@ -161,7 +148,7 @@ impl<T> ClientBuilder<T> where T: Point
     let ( command_tx, command_rx ) = mpsc::channel::<( Command, usize )>( 16 );
 
     // Create the internal point buffer
-    let ( point_tx, point_rx ) = circular_buffer::CircularBuffer::<T>::new( self.capacity );
+    let ( point_tx, point_rx ) = circular_buffer::CircularBuffer::<PointData>::new( self.capacity );
     let point_rx = Arc::new( RwLock::new( point_rx ) );
 
     // Connect to the Etherdream DAC at `address`
@@ -194,7 +181,7 @@ impl<T> ClientBuilder<T> where T: Point
       let point_rx = point_rx.clone();
       let state = state.clone();
 
-      let mut writer = Writer::<T>{
+      let mut writer = Writer{
         awaiting_ack_count,
         command_rx,
         dac_buffer_capacity: self.device.buffer_capacity() as usize,
@@ -247,7 +234,7 @@ impl<T> ClientBuilder<T> where T: Point
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Client
 
 /// A client that can communicate with an Etherdream DAC.
-pub struct Client<T: Point> {
+pub struct Client {
   // Channel used to send commands from the client to the async writer task
   command_tx: mpsc::Sender<( Command, usize )>,
 
@@ -256,7 +243,7 @@ pub struct Client<T: Point> {
 
   // The point buffer writer that the client uses to communicate point data to
   // the client's DAC <Writer> task.
-  point_tx: circular_buffer::Writer<T>,
+  point_tx: circular_buffer::Writer<PointData>,
 
   // Used by `send_command_and_wait` to indicate to <Reader> a command to
   // observe and acknowledge.
@@ -273,7 +260,7 @@ pub struct Client<T: Point> {
   tasks: JoinSet<Result<(),ClientError>>,
 }
 
-impl<T: Point> Client<T> {
+impl Client {
   /// Returns the socket address of the remote DAC that the client is connected
   /// to.
   #[inline]
@@ -339,8 +326,8 @@ impl<T: Point> Client<T> {
   ///
   /// TODO: Allow for queue rate change.
   #[inline]
-  pub fn push_point( &mut self, point: T ) -> Option<T> {
-    self.point_tx.push( point )
+  pub fn push_point( &mut self, x: i16, y: i16, r: u16, g: u16, b: u16 ) -> Option<PointData> {
+    self.point_tx.push( ( x, y, r, g, b ) )
   }
 
   /// Flushes all accumulated point data to the DAC. Returns the number of
@@ -483,16 +470,16 @@ impl Reader {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - DAC Writer
 
-struct Writer<T: Point> {
+struct Writer {
   awaiting_ack_count: Arc<AtomicUsize>,
   command_rx: mpsc::Receiver<( Command, usize )>,
   dac_buffer_capacity: usize,
   dac_tx: OwnedWriteHalf,
-  point_rx: Arc<RwLock<circular_buffer::Reader<T>>>,
+  point_rx: Arc<RwLock<circular_buffer::Reader<PointData>>>,
   state: Arc<RwLock<device::State>>
 }
 
-impl<T: Point> Writer<T> {
+impl Writer {
   async fn start( &mut self ) -> Result<(),ClientError> {
     // The DAC can not support more than its intrinsic buffer capacity plus
     // three (3) bytes for the point data header.
@@ -576,9 +563,8 @@ impl<T: Point> Writer<T> {
           buf_point_count = 0;
 
           for point_index in 0..point_send_count {
-            if let Some( point ) = self.point_rx.write().await.pop() {
+            if let Some( ( x, y, r, g, b  ) ) = self.point_rx.write().await.pop() {
               buf_index = ( point_index * ETHERDREAM_POINT_DATA_BYTES ) + 3;
-              let( x, y, r, g, b ) = point.for_etherdream();
 
               buf[buf_index..buf_index+2].fill( 0 ); // control (unused)
               buf[buf_index+2..buf_index+4].copy_from_slice( &i16::to_le_bytes( x ) );
@@ -629,14 +615,14 @@ fn calculate_point_send_count( state: &device::State, points_acc_send_count: usi
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - -  Low Watermark Service
 
-struct LowWatermarkService<T: Point> {
+struct LowWatermarkService {
   callback: OnLowWatermarkCallback,
   low_watermark: usize,
-  point_rx: Arc<RwLock<circular_buffer::Reader<T>>>,
+  point_rx: Arc<RwLock<circular_buffer::Reader<PointData>>>,
   state: Arc<RwLock<device::State>>
 }
 
-impl<T: Point> LowWatermarkService<T> {
+impl LowWatermarkService {
   async fn start( &mut self ) -> Result<(),ClientError> {
     let mut in_low_watermark = false;
     let mut state: device::State;

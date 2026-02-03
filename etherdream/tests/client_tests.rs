@@ -4,27 +4,6 @@ use tokio::time::{ sleep, Duration };
 use etherdream::Client;
 use etherdream_test::emulator::Emulator;
 
-#[derive( Clone, Copy, Default )]
-struct Point {
-  x: i16,
-  y: i16,
-  r: u16,
-  g: u16,
-  b: u16
-}
-
-impl Point {
-  fn new( x: i16, y: i16, r: u16, g: u16, b: u16 ) -> Self {
-    Self{ x, y, r, g, b }
-  }
-}
-
-impl etherdream::Point for Point {
-  fn for_etherdream( &self ) -> ( i16, i16, u16, u16, u16 ) {
-    ( self.x, self.y, self.r, self.g, self.b )
-  }
-}
-
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Tests
 
 #[tokio::test]
@@ -58,9 +37,9 @@ async fn a_reset_will_be_acked() {
 async fn can_push_and_flush_points() {
   let ( _, mut client ) = setup().await;
 
-  client.push_point( Point::new( 0, 0, 0, 0, 0 ) );
-  client.push_point( Point::new( 0, 0, 0, 0, 0 ) );
-  client.push_point( Point::new( 0, 0, 0, 0, 0 ) );
+  client.push_point( 0, 0, 0, 0, 0 );
+  client.push_point( 0, 0, 0, 0, 0 );
+  client.push_point( 0, 0, 0, 0, 0 );
   assert_eq!( client.point_count(), 3 );
 
   let state = client.flush_points_and_wait().await.unwrap();
@@ -73,10 +52,10 @@ async fn can_push_and_flush_points_within_the_limits_of_the_devices_capacity() {
   let ( _, mut client ) = setup_with_emulator_capacity( 2 ).await;
 
   // Push four points (two more than the device's capacity)
-  client.push_point( Point::new( 0, 0, 0, 0, 0 ) );
-  client.push_point( Point::new( 0, 0, 0, 0, 0 ) );
-  client.push_point( Point::new( 0, 0, 0, 0, 0 ) );
-  client.push_point( Point::new( 0, 0, 0, 0, 0 ) );
+  client.push_point( 0, 0, 0, 0, 0 );
+  client.push_point( 0, 0, 0, 0, 0 );
+  client.push_point( 0, 0, 0, 0, 0 );
+  client.push_point( 0, 0, 0, 0, 0 );
   assert_eq!( client.point_count(), 4 );
 
   let state = client.flush_points_and_wait().await.unwrap();
@@ -91,10 +70,10 @@ async fn can_start_the_client() {
   let ( mut emulator, mut client ) = setup_with_emulator_capacity( 2 ).await;
 
   // Push four points (two more than the device's capacity)
-  client.push_point( Point::new( 0, 0, 0, 0, 0 ) );
-  client.push_point( Point::new( 0, 0, 0, 0, 0 ) );
-  client.push_point( Point::new( 0, 0, 0, 0, 0 ) );
-  client.push_point( Point::new( 0, 0, 0, 0, 0 ) );
+  client.push_point( 0, 0, 0, 0, 0 );
+  client.push_point( 0, 0, 0, 0, 0 );
+  client.push_point( 0, 0, 0, 0, 0 );
+  client.push_point( 0, 0, 0, 0, 0 );
   assert_eq!( client.point_count(), 4 );
 
   let mut state = client.start( 1000 ).await.unwrap();
@@ -122,16 +101,16 @@ async fn will_execute_a_low_watermark_callback() {
   let ( watch_tx, mut watch_rx ) = watch::channel( 0 );
 
   let mut client =
-    etherdream::ClientBuilder::<Point>::new( emulator.device().unwrap() )
+    etherdream::ClientBuilder::new( emulator.device().unwrap() )
       .on_low_watermark( 2, move | count | { let _ = watch_tx.send( count ).is_ok(); })
       .connect().await
       .expect( "Failed to connect to Etherdream device" );
 
   // Push 3 points to the client. This engages the low watermark trigger since
   // `point_buffer = 3` (greater than our limit of `2`)
-  client.push_point( Point::new( 0, 0, 0, 0, 0 ) );
-  client.push_point( Point::new( 0, 0, 0, 0, 0 ) );
-  client.push_point( Point::new( 0, 0, 0, 0, 0 ) );
+  client.push_point( 0, 0, 0, 0, 0 );
+  client.push_point( 0, 0, 0, 0, 0 );
+  client.push_point( 0, 0, 0, 0, 0 );
   let _ = client.start( 1000 ).await;
   assert_eq!( watch_rx.has_changed().unwrap(), false );
 
@@ -148,9 +127,9 @@ async fn will_execute_a_low_watermark_callback() {
   assert_eq!( watch_rx.has_changed().unwrap(), false );
 
   // Push 3 points to the client. This re-engages the low watermark trigger.
-  client.push_point( Point::new( 0, 0, 0, 0, 0 ) );
-  client.push_point( Point::new( 0, 0, 0, 0, 0 ) );
-  client.push_point( Point::new( 0, 0, 0, 0, 0 ) );
+  client.push_point( 0, 0, 0, 0, 0 );
+  client.push_point( 0, 0, 0, 0, 0 );
+  client.push_point( 0, 0, 0, 0, 0 );
   let _ = client.flush_points_and_wait().await;
   assert_eq!( watch_rx.has_changed().unwrap(), false );
 
@@ -178,17 +157,17 @@ async fn can_disconnect_the_client() {
 }
 
 // Creates a default Etherdream emulator and a client.
-async fn setup() -> ( Emulator, Client<Point> ) {
+async fn setup() -> ( Emulator, Client ) {
   setup_with_emulator_capacity( 16 ).await
 }
 
 // Creates an Etherdream emulator and client using a provided emulator point
 // buffer `capacity`.
-async fn setup_with_emulator_capacity( capacity: usize ) -> ( Emulator, Client<Point>  ) {
+async fn setup_with_emulator_capacity( capacity: usize ) -> ( Emulator, Client  ) {
   let emulator = Emulator::start_with_capacity( capacity ).await.unwrap();
 
   let client =
-    etherdream::ClientBuilder::<Point>::new( emulator.device().unwrap() ).connect().await
+    etherdream::ClientBuilder::new( emulator.device().unwrap() ).connect().await
       .expect( "Failed to connect to Etherdream device" );
 
   ( emulator, client )
