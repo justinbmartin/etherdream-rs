@@ -1,0 +1,15 @@
+[package]
+authors = [ "Justin Martin <hello@justinmart.in>" ]
+description = "A command-line application to query and test Etherdream devices."
+edition = "2024"
+license = "MIT"
+name = "etherdream-cli"
+repository = "https://github.com/justinbmartin/etherdream-rs"
+version = "0.1.0"
+
+[dependencies]
+clap = { version = "4.5.35", features = ["derive"] }
+etherdream = { path = "../etherdream" }
+nalgebra = { version = "0.34.1" }
+shlex = { version="1.3.0" }
+tokio = { workspace = true, features = ["full"] }
