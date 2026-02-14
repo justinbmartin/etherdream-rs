@@ -7,12 +7,12 @@ use etherdream_cli::App;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Main
 
-#[tokio::main]
+#[tokio::main( flavor="current_thread" )]
 async fn main() {
   let mut app = App::new().await;
   let mut input = String::new();
 
-  // Define the REPL interface
+  // Define the REPL interface using CLAP
   let mut cli = clap::Command::new( "Etherdream" )
     .about( "Discover and manage Etherdream devices." )
     .disable_help_subcommand( true )

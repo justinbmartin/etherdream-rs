@@ -3,7 +3,6 @@ pub mod client;
 pub mod constants;
 pub mod device;
 pub mod discovery;
-pub mod generator;
 
 // Convenience exports
 pub use client::{ Client, ClientBuilder };
