@@ -8,8 +8,9 @@ repository = "https://github.com/justinbmartin/etherdream-rs"
 version = "0.1.0"
 
 [dependencies]
+futures = { version = "0.3" }
 tokio = { workspace = true }
-tokio-util = { version = "0.7.18" }
+tokio-util = { version = "0.7.18", features = [ "codec", "net" ] }
 
 [dev-dependencies]
 etherdream-test = { path = "../etherdream-test" }
