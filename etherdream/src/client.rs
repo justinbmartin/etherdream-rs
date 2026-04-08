@@ -1,3 +1,4 @@
+use std::fmt;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::{ Arc, atomic::{ AtomicBool, Ordering::* } };
@@ -42,12 +43,30 @@ pub enum Error {
   Internal( String )
 }
 
+impl fmt::Display for Error {
+  fn fmt( &self, f: &mut fmt::Formatter<'_> ) -> fmt::Result {
+    match self {
+      Self::Command( err ) => write!( f, "Command Error: {err}" ),
+      Self::Internal( msg ) => write!( f, "Internal Error: {msg}" )
+    }
+  }
+}
+
 #[derive( Debug )]
 pub enum CommandError {
   /// The device responded to command with a `nak` and reason.
   Nak( NakReason ),
   /// The command timed-out while waiting for a device response.
   Timeout
+}
+
+impl fmt::Display for CommandError {
+  fn fmt( &self, f: &mut fmt::Formatter<'_> ) -> fmt::Result {
+    match self {
+      Self::Nak( reason ) => write!( f, "Nak: {reason}" ),
+      Self::Timeout => write!( f, "Timeout" )
+    }
+  }
 }
 
 #[derive( Clone, Copy, Debug, PartialEq )]
@@ -59,6 +78,16 @@ pub enum NakReason {
   Full,
   /// The command was invalid or malformed.
   Invalid
+}
+
+impl fmt::Display for NakReason {
+  fn fmt( &self, f: &mut fmt::Formatter<'_> ) -> fmt::Result {
+    match self {
+      Self::Estop => write!( f, "E-stop" ),
+      Self::Full => write!( f, "Full" ),
+      Self::Invalid => write!( f, "Invalid" )
+    }
+  }
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  State
@@ -118,8 +147,7 @@ impl ReadOnlyState {
 pub struct Builder {
   capacity: usize,
   command_timeout: Duration,
-  device_info: DeviceInfo,
-  port: u16
+  device_info: DeviceInfo
 }
 
 impl Builder {
@@ -127,8 +155,7 @@ impl Builder {
     Self{
       capacity: DEFAULT_POINT_BUFFER_CAPACITY,
       command_timeout: DEFAULT_COMMAND_TIMEOUT,
-      device_info,
-      port: protocol::CLIENT_PORT
+      device_info
     }
   }
 
@@ -141,12 +168,6 @@ impl Builder {
   /// Sets a custom command timeout for the client.
   pub fn command_timeout( mut self, duration: Duration ) -> Self {
     self.command_timeout = duration;
-    self
-  }
-
-  /// Overrides the default Etherdream connection port (`7765`)
-  pub fn port( mut self, port: u16 ) -> Self {
-    self.port = port;
     self
   }
 
@@ -165,8 +186,7 @@ impl Builder {
     let ( on_response_tx, _ ) = broadcast::channel::<OnResponseMsg>( 16 );
 
     // Connect to the Etherdream device
-    let address = SocketAddr::new( self.device_info.address().ip(), self.port );
-    let dac_stream = TcpSocket::new_v4()?.connect( address ).await?;
+    let dac_stream = TcpSocket::new_v4()?.connect( *self.device_info.address() ).await?;
     let ( dac_rx, dac_tx ) = dac_stream.into_split();
 
     // Start the `<Reader>` task (w/ cancellation token)
@@ -256,7 +276,7 @@ impl Client {
 
   /// Returns the MAC address of the remote device.
   #[inline]
-  pub fn mac_address( &self ) -> protocol::MacAddress {
+  pub fn mac_address( &self ) -> &protocol::MacAddress {
     self.device_info.mac_address()
   }
 
@@ -723,7 +743,7 @@ impl CommandTx {
       Ok( Err( _ ) ) => {
         // The sender has prematurely closed.
         *self.wait_for.lock().await = None;
-        Err( Error::Internal( "The command acknowledgement sender closed.".to_string() ) )
+        Err( Error::Internal( "The command acknowledgement sender closed.".to_owned() ) )
       },
       Err( _ ) => {
         // The timeout was hit.
@@ -749,7 +769,7 @@ impl From<io::Error> for Error {
 
 impl From<mpsc::error::SendError<Command>> for Error {
   fn from( _err: mpsc::error::SendError<Command> ) -> Self {
-    Self::Internal( "Command failed to send due to unavailable receiver.".to_string() )
+    Self::Internal( "Command failed to send due to unavailable receiver.".to_owned() )
   }
 }
 

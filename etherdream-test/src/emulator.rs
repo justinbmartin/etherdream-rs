@@ -1,3 +1,9 @@
+//! Emulator: A tokio TCP server the emulates a running Etherdream DAC. Useful
+//! for local software development.
+//!
+//! Developer Note: The complete Etherdream protocol is not fully implemented.
+//! Be sure to read and understand this module to understand protocol
+//! limitations.
 use std::io;
 use std::net::{ IpAddr, Ipv4Addr, SocketAddr };
 use std::sync::{ Arc, RwLock };
@@ -9,39 +15,40 @@ use tokio::task;
 use etherdream::DeviceInfo;
 use etherdream::protocol;
 
-/// A server that emulates an Etherdream DAC. Useful for software testing.
+const DEFAULT_POINT_BUFFER_CAPACITY: u16 = 1024;
+
+/// A tokio TCP server that implements the Etherdream protocol.
 pub struct Emulator {
-  /// The local socket address that the emulator is running on.
+  // The local socket address that the emulator is running on.
   address: SocketAddr,
-
-  /// The intrinsic properties of the device associated with this emulator.
+  // The intrinsic properties of the device associated with this emulator.
   intrinsics: protocol::Intrinsics,
-
-  /// The real-time device state associated with this emulator.
+  // The real-time device state associated with this emulator.
   state: Arc<RwLock<protocol::State>>,
-
-  /// The join handle that owns the asynchronous server task.
+  // The join handle that owns the asynchronous server task.
   _handle: task::JoinHandle<io::Result<()>>
 }
 
 impl Emulator {
-  /// Starts an Etherdream emulation server.
+  /// Starts an Etherdream emulation server with the default capacity.
   pub async fn start() -> io::Result<Self> {
-    let ( intrinsics, state ) = default_test_device_properties();
-    Self::do_start( intrinsics, state ).await
+    Self::start_with_capacity( DEFAULT_POINT_BUFFER_CAPACITY ).await
   }
 
   /// Starts an Etherdream emulation server using the provided point buffer
-  /// `capacity`.
-  pub async fn start_with_capacity( capacity: usize ) -> io::Result<Self> {
-    let ( mut intrinsics, state ) = default_test_device_properties();
-    intrinsics.buffer_capacity = capacity as u16;
+  /// `capacity`. Will bind locally to `127.0.0.1:*` (any available port).
+  pub async fn start_with_capacity( capacity: u16 ) -> io::Result<Self> {
+    let intrinsics = protocol::Intrinsics{
+      buffer_capacity: capacity,
+      ..Default::default()
+    };
 
-    Self::do_start( intrinsics, state ).await
-  }
+    let state = Arc::new( RwLock::new( protocol::State{
+      playback_state: protocol::PlaybackState::Prepared,
+      ..Default::default()
+    } ) );
 
-  async fn do_start( intrinsics: protocol::Intrinsics, state: protocol::State ) -> io::Result<Self> {
-    let state = Arc::new( RwLock::new( state ) );
+    // Start listening on `127.0.0.1:*` (any available port)
     let listener = TcpListener::bind( SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), 0 ) ).await?;
     let address = listener.local_addr()?;
 
@@ -69,7 +76,7 @@ impl Emulator {
 
           match cmd {
             protocol::COMMAND_PREPARE => {
-              if let Ok( mut state) = state.write() {
+              if let Ok( mut state ) = state.write() {
                 state.light_engine_state = protocol::LightEngineState::Ready;
                 state.playback_state = protocol::PlaybackState::Prepared;
                 state.points_buffered = 0;
@@ -114,7 +121,7 @@ impl Emulator {
             }
           };
 
-          //
+          // Send the Etherdream response
           if let Ok( state ) = state.read() {
             tx_buf[0] = control_signal;
             tx_buf[1] = cmd;
@@ -157,16 +164,18 @@ impl Emulator {
     })
   }
 
-  /// Returns an `etherdream::DeviceInfo` from the running emulator.
-  pub fn device_info( &self ) -> DeviceInfo {
+  /// Returns an `etherdream::DeviceInfo` configured to connect to this
+  /// emulator.
+  pub fn get_device_info( &self ) -> DeviceInfo {
     DeviceInfo::new( self.address, self.intrinsics )
   }
 
+  /// Returns the point count currently buffered in the emulator.
   pub fn point_count( &self ) -> usize {
     if let Ok( state ) = self.state.read() {
       state.points_buffered as usize
     } else {
-      1234
+      0
     }
   }
 
@@ -176,18 +185,4 @@ impl Emulator {
       state.points_buffered = state.points_buffered.saturating_sub( count );
     }
   }
-}
-
-fn default_test_device_properties() -> ( protocol::Intrinsics, protocol::State ) {
-  let intrinsics = protocol::Intrinsics{
-    buffer_capacity: 1024,
-    ..Default::default()
-  };
-
-  let state = protocol::State{
-    playback_state: protocol::PlaybackState::Prepared,
-    ..Default::default()
-  };
-
-  ( intrinsics, state )
 }

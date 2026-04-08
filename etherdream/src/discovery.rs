@@ -1,4 +1,4 @@
-//! A service to discover Etherdream DAC's on a network.
+//! Discovery: Tools to discover Etherdream devices on a network.
 use std::collections::HashMap;
 use std::io;
 use std::net::{ IpAddr, Ipv4Addr, SocketAddr };
@@ -19,8 +19,9 @@ type DeviceMap = HashMap<SocketAddr,DiscoveredDeviceInfo>;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - Discovered Device Info
 
-//
-#[derive( Clone )]
+/// Models a broadcast message from an Etherdream device as its `DeviceInfo`
+/// and `protocol::State` (as received on first broadcast).
+#[derive( Clone, Debug )]
 pub struct DiscoveredDeviceInfo {
   device_info: DeviceInfo,
   state: protocol::State
@@ -31,22 +32,26 @@ impl DiscoveredDeviceInfo {
   pub fn state( &self ) -> &protocol::State { &self.state }
 }
 
+impl From<DiscoveredDeviceInfo> for DeviceInfo {
+  fn from( discovered_device_info: DiscoveredDeviceInfo ) -> Self {
+    discovered_device_info.device_info
+  }
+}
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Discovery Server
 
 pub struct Server {
-  /// The local socket address that the server is listening on.
+  // The local socket address that the discovery server is listening on.
   address: SocketAddr,
-
-  /// The tokio join handle that owns the asynchronous listening task.
+  // The tokio join handle that owns the asynchronous listening task.
   handle: JoinHandle<Result<(),io::Error>>,
-
-  /// The cancellation token used to shut down the discovery server.
+  // The cancellation token used to shut down the discovery server.
   shutdown_token: CancellationToken
 }
 
 impl Server {
-  /// Starts the discovery server and listens on the Etherdream protocol
-  /// defined broadcast port (`7654`).
+  /// Starts the discovery server and listens for Etherdream broadcasts on
+  /// `0.0.0.0:7654`.
   pub async fn serve( device_tx: Sender<DiscoveredDeviceInfo> ) -> Result<Self,io::Error> {
     Self::serve_with_address(
       SocketAddr::new( IpAddr::V4( Ipv4Addr::UNSPECIFIED ), protocol::BROADCAST_PORT ),
@@ -54,8 +59,11 @@ impl Server {
     ).await
   }
 
-  /// Starts the discovery server and listens on a user-provided socket address.
-  pub async fn serve_with_address( address: SocketAddr, device_tx: Sender<DiscoveredDeviceInfo> ) -> Result<Self,io::Error> {
+  /// Starts the discovery server and listens for Etherdream broadcasts on a
+  /// user-provided socket address.
+  pub async fn serve_with_address( address: SocketAddr, device_tx: Sender<DiscoveredDeviceInfo> )
+    -> Result<Self,io::Error>
+  {
     let shutdown_token = CancellationToken::new();
 
     let socket = UdpSocket::bind( address ).await?;
@@ -79,10 +87,8 @@ impl Server {
     })
   }
 
-  /// Returns the local socket address that the discovery server is listening on.
-  pub fn address( &self ) -> SocketAddr {
-    self.address
-  }
+  /// Returns the local socket address that the discovery server is bound to.
+  pub fn address( &self ) -> &SocketAddr { &self.address }
 
   /// Shuts down the discovery server and consumes `self`.
   pub async fn shutdown( self ) {
@@ -93,7 +99,8 @@ impl Server {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Listen Handler
 
-async fn do_listen( socket: UdpSocket, device_tx: Sender<DiscoveredDeviceInfo> ) -> Result<(),io::Error>
+async fn do_listen( socket: UdpSocket, tx: Sender<DiscoveredDeviceInfo> )
+  -> Result<(),io::Error>
 {
   let mut framed = UdpFramed::new( socket, BroadcastDecoder{} );
   let mut registry = DeviceMap::new();
@@ -102,17 +109,22 @@ async fn do_listen( socket: UdpSocket, device_tx: Sender<DiscoveredDeviceInfo> )
     if let Some( frame ) = framed.next().await {
       match frame {
         Ok( ( ( intrinsics, state ), address ) ) => {
-          let device_info = DeviceInfo::new( address, intrinsics );
+          if registry.contains_key( &address ) { continue; }
+
+          // The broadcast port is not the same port that the client will
+          // communicate on. Construct a `client_addr` with the broadcast
+          // address, but `protocol::CLIENT_PORT`.
+          let client_addr = SocketAddr::new( address.ip(), protocol::CLIENT_PORT );
+
+          let device_info = DeviceInfo::new( client_addr, intrinsics );
           let discovered_device = DiscoveredDeviceInfo{ device_info, state };
 
-          // Insert the device into the registry. Only broadcast the device if
-          // it is the first time the server has seen it.
-          if let None = registry.insert( address, discovered_device.clone() ) {
-            let _ = device_tx.send( discovered_device ).await;
-          }
+          // Insert the device into the registry and broadcast it to `tx`
+          registry.insert( address, discovered_device.clone() );
+          let _ = tx.send( discovered_device ).await;
         }
         Err( e ) => {
-          eprintln!( "Error receiving datagram: {}", e );
+          eprintln!( "Error receiving discovery broadcast: {}", e );
         }
       }
     }

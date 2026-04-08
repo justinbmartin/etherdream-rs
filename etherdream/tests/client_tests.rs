@@ -11,7 +11,7 @@ use etherdream::protocol;
 async fn will_return_device_properties() {
   let ( emulator, client ) = setup().await;
 
-  let device_info = emulator.device_info();
+  let device_info = emulator.get_device_info();
   assert_eq!( client.mac_address(), device_info.mac_address() );
   assert_eq!( client.max_points_per_second(), device_info.max_points_per_second() );
   assert_eq!( client.peer_addr(), device_info.address() );
@@ -120,11 +120,12 @@ async fn setup() -> ( Emulator, Client ) {
 
 // Creates an Etherdream emulator and client using a provided emulator point
 // buffer `capacity`.
-async fn setup_with_emulator_capacity( capacity: usize ) -> ( Emulator, Client  ) {
+async fn setup_with_emulator_capacity( capacity: u16 ) -> ( Emulator, Client  ) {
   let emulator = Emulator::start_with_capacity( capacity ).await.unwrap();
 
   let client =
-    etherdream::connect( emulator.device_info() ).await
+    etherdream::client::Builder::new( emulator.get_device_info() )
+      .connect().await
       .expect( "Failed to create a client from Etherdream connection" );
 
   ( emulator, client )

@@ -1,5 +1,5 @@
 //! CLI tool to discover, connect and test Etherdream DAC's.
-mod generators;
+mod executors;
 
 use std::collections::HashMap;
 use std::io::{ self, Write };
@@ -7,301 +7,313 @@ use std::sync::Arc;
 
 use clap;
 use etherdream::generator;
-use tokio::sync::{ RwLock, RwLockReadGuard };
-use tokio::task::JoinHandle;
+use tokio::sync::RwLock;
 
-use generators::GeneratorId;
-
+const CONSOLE_PREFIX: &str = "> ";
+const TEXT_CLIENT_ERROR: &str = "client error: ";
 const TEXT_NO_ACTIVE_DEVICE: &str = "(no active device)";
 const TEXT_NOT_FOUND: &str = "(not found)";
+
+type DeviceInfosRef = Arc<RwLock<Vec<etherdream::DeviceInfo>>>;
+type GeneratorMap = HashMap<usize,etherdream::Generator>;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Main
 
 #[tokio::main]
 async fn main() {
-  let mut app = App::new().await;
+  let mut current_index = None::<usize>;
+  let device_infos: DeviceInfosRef = Arc::new( RwLock::new( Vec::new() ) );
+  let mut generators = GeneratorMap::new();
   let mut input = String::new();
+
+  // Start the Etherdream discovery service
+  let ( device_info_tx, mut device_info_rx ) = tokio::sync::mpsc::channel( 16 );
+
+  let discovery_server =
+    match etherdream::discover( device_info_tx ).await {
+      Ok( server ) => server,
+      Err( err ) => {
+        println!( "(discovery error: {:?})", err );
+        return;
+      }
+    };
+
+  // Start a task to receive discovered devices and add them to `device_infos`
+  let device_info_handle = tokio::spawn({
+    let device_infos = device_infos.clone();
+
+    async move {
+      while let Some( discovered_device_info ) = device_info_rx.recv().await {
+        device_infos.write().await.push( discovered_device_info.info().clone() );
+      }
+    }
+  });
 
   // Define the REPL interface
   let mut cli = clap::Command::new( "Etherdream" )
-    .about( "Discover and manage Etherdream devices." )
+    .about( "Discover and test Etherdream devices." )
+    .disable_help_flag( true )
     .disable_help_subcommand( true )
     .multicall( true )
     .subcommand_required( true )
     .subcommands([
       clap::Command::new( "connect" )
-        .about( "Connects to a discovered Etherdream device at the provided `index`." )
+        .about( "Connects to a discovered device at the index from `list`. This device becomes the currently active device." )
         .arg( clap::Arg::new( "index" )
           .required( true )
           .value_parser( clap::value_parser!( usize ) ) ),
-      clap::Command::new( "exit" ),
-      clap::Command::new( "help" ),
-      clap::Command::new( "info" )
-        .about( "Prints info about the currently connected device." ),
+      clap::Command::new( "exit" )
+        .about( "Shuts down all generators and closes the console." ),
+      clap::Command::new( "help" )
+        .about( "Prints command help." ),
       clap::Command::new( "list" )
-        .about( "List discovered Etherdream devices." )
+        .about( "Lists all discovered Etherdream devices." )
         .visible_alias( "ls" ),
       clap::Command::new( "ping" )
-        .about( "Pings the currently active Etherdream device and prints the active device state." ),
+        .about( "Pings the currently active device and prints the device state." ),
       clap::Command::new( "play" )
-        .about( "Starts a generator." )
+        .about( "Starts a generator for the currently active device. Available generators: demo. [default: demo]" )
         .arg( clap::Arg::new( "generator" )
-          .default_value( "xs" )
-          .value_parser([ "xs" ])
-          .help( "Must be one of: xs" ) ),
+          .default_value( "demo" )
+          .value_parser([ "demo" ]) ),
       clap::Command::new( "stop" )
-        .about( "Stops an actively running generator." )
+        .about( "Stops a running generator for the currently active device." )
     ]);
 
+  // Start the REPL
   loop {
-    // Print console prefix
-    if let Some( index ) = app.current_index() {
-      print!( "[{}]> ", index )
+    input.clear();
+
+    // Print the console prefix (including `current_index`, if set)
+    if let Some( index ) = current_index {
+      print!( "[{}]{}", index, CONSOLE_PREFIX )
     } else {
-      print!( "> " )
+      print!( "{CONSOLE_PREFIX}" );
     }
 
-    input.clear();
+    // Read CLI input
     let _ = io::stdout().flush();
     let _ = io::stdin().read_line( &mut input );
+    let Some( args ) = shlex::split( input.trim() ) else { continue };
 
-    if let Some( args ) = shlex::split( input.trim() ) {
-      match cli.try_get_matches_from_mut( args ) {
-        Ok( matches ) =>
+    // Handle CLI command
+    match cli.try_get_matches_from_mut( args ) {
+      Ok( matches ) => {
+        let console_out =
           match matches.subcommand() {
-            Some(( "connect", args )) => {
-              if let Err( err ) = app.connect( *args.get_one::<usize>( "index" ).unwrap() ).await {
-                print_err( err, "Failed to connect" )
-              }
-            },
-            Some(( "exit", _ )) => {
-              break
-            },
-            Some(( "help", _ )) => {
-              cli.print_help().unwrap()
-            },
-            Some(( "info", _ )) => {
-              if let Some( index ) = app.current_index() {
-                let device_info = app.device_info( index ).await.unwrap();
-
-                println!( "Device:" );
-                println!( "  Buffer capacity = {}", device_info.buffer_capacity() );
-                println!( "  Mac address = {}", device_info.mac_address() );
-                println!( "  Max points per second = {}", device_info.max_points_per_second() );
-                println!( "  Version = hardware: {}; software: {}", device_info.version().hardware, device_info.version().software );
-              } else {
-                println!( "{TEXT_NO_ACTIVE_DEVICE}" );
-              }
+            Some( ( "connect", args ) ) => {
+              // SAFETY: Unwrap is safe since `index` is a required argument
+              let index = args.get_one::<usize>( "index" ).unwrap();
+              do_connect( &device_infos, &mut generators, &mut current_index, *index ).await
             }
-            Some(( "list", _ )) => {
-              let devices = app.devices().await;
-
-              if devices.is_empty() {
-                println!( "(no devices)" );
-              } else {
-                for ( index, device ) in devices.iter().enumerate() {
-                  println!( "  [{}] {} (MAC: {})", index, device.address().ip(), device.mac_address() );
-                }
-              }
-            },
-            Some(( "ping", _ )) => {
-              if let Some( index ) = app.current_index() {
-                match app.ping( index ).await {
-                  Ok( state ) => {
-                    println!( "State:" );
-                    println!( "  Light engine = {:?}", state.light_engine_state() );
-                    println!( "  Playback = {:?}", state.playback_state() );
-                    println!( "    Shutter = {:?}", state.is_shutter_open() );
-                    println!( "    Underflow = {:?}", state.is_underflow() );
-                    println!( "    E-stop = {:?}", state.is_e_stop() );
-                    println!( "  Source = {:?}", state.source() );
-                    println!( "  Points buffered = {:?}", state.points_buffered() );
-                    println!( "  Points per second = {:?}", state.points_per_second() );
-                    println!( "  Points lifetime = {:?}", state.points_lifetime() );
-                  },
-                  Err( err ) => print_err( err, "Failed to ping" )
-                }
-              } else {
-                println!( "{TEXT_NO_ACTIVE_DEVICE}" );
-              }
-            },
-            Some(( "play", args )) => {
-              if let Some( index ) = app.current_index() {
-                if let Some( generator_id ) = GeneratorId::from_str( args.get_one::<String>( "generator" ).unwrap().as_str() ) {
-                  if let Err( err ) = app.play( index, generator_id ).await {
-                    print_err( err, "Failed to play" )
-                  }
-                } else {
-                  println!( "(unknown generator)" );
-                }
-              } else {
-                println!( "{TEXT_NO_ACTIVE_DEVICE}" );
-              }
-            },
-            Some(( "stop", _ )) => {
-              if let Some( index ) = app.current_index() {
-                if let Err( err ) = app.stop( index ).await {
-                  print_err( err, "Failed to stop" )
-                }
-              } else {
-                println!( "{TEXT_NO_ACTIVE_DEVICE}" );
-              }
-            },
-            _ => {
-              /* unrecognized subcommand, no-op */
+            Some( ( "exit", _ ) ) => break,
+            Some( ( "help", _ ) ) => { let _ = cli.print_long_help(); None }
+            Some( ( "list", _ ) ) => do_list( &device_infos ).await,
+            Some( ( "ping", _ ) ) => do_ping( &device_infos, &mut generators, current_index ).await,
+            Some( ( "play", args ) ) => {
+              // SAFETY: Unwrap is safe since `generator` has a default value
+              let generator_name = args.get_one::<String>( "generator" ).unwrap();
+              do_play( &mut generators, current_index, generator_name ).await
             }
-          },
-        Err( _ ) => {}
-      }
-    }
-  }
-}
+            Some( ( "stop", _ ) ) => do_stop( &mut generators, current_index ).await,
+            Some( _ ) | None => Some( "(unknown cmd)".to_owned() )
+          };
 
-fn print_err( err: Error, prefix: &str ) {
-  match err {
-    Error::NotFound => println!( "{TEXT_NOT_FOUND}" ),
-    Error::Internal( msg ) => eprintln!( "{prefix}: {msg}" )
-  }
-}
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Error
-
-pub enum Error {
-  Internal( String ),
-  NotFound
-}
-
-impl From<generator::Error> for Error {
-  fn from( err: generator::Error ) -> Self {
-    Self::Internal( format!( "Generator error: {:?}", err ) )
-  }
-}
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
-
-pub struct App {
-  // The currently active generator
-  current_index: Option<usize>,
-  // A list of all discovered Etherdream devices
-  discovered_devices: Arc<RwLock<Vec<etherdream::DeviceInfo>>>,
-  // The handle to the discovery server
-  _discovery_handle: JoinHandle<()>,
-  // A map of running generators, indexed by an id
-  generators: HashMap<usize,generator::Generator>,
-}
-
-impl App {
-  pub async fn new() -> Self {
-    let discovered_devices = Arc::new( RwLock::new( Vec::new() ) );
-
-    // Start the Etherdream discovery service.
-    let discovery_handle = tokio::spawn({
-      let discovered_devices = discovered_devices.clone();
-
-      async move {
-        let ( tx, mut rx ) = tokio::sync::mpsc::channel( 16 );
-        let _ = etherdream::Discovery::serve( tx ).await;
-
-        while let Some( discovered_device ) = rx.recv().await {
-          discovered_devices.write().await.push( discovered_device.info().clone() );
-        }
-      }
-    });
-
-    App{
-      current_index: None,
-      discovered_devices,
-      _discovery_handle: discovery_handle,
-      generators: HashMap::new()
-    }
-  }
-
-  /// Returns the currently active device id
-  pub fn current_index( &self ) -> Option<usize> {
-    self.current_index
-  }
-
-  /// Returns an iterator of all discovered devices.
-  pub async fn devices( &self ) -> RwLockReadGuard<'_, Vec<etherdream::DeviceInfo>> {
-    self.discovered_devices.read().await
-  }
-
-  /// Returns back the `DeviceInfo` at `index`.
-  pub async fn device_info( &self, index: usize ) -> Option<etherdream::DeviceInfo> {
-    self.discovered_devices.read().await.get( index ).copied()
-  }
-
-  /// Connects to the discovered device at `index`
-  pub async fn connect( &mut self, index: usize ) -> Result<(),Error> {
-    // Generator already exists.
-    if self.generators.contains_key( &index ) {
-      self.current_index = Some( index );
-      return Ok( () );
-    }
-
-    // Connect to device using `DeviceInfo` at discovered `index`
-    match self.discovered_devices.read().await.get( index ) {
-      Some( &device_info ) => {
-        match etherdream::connect( device_info ).await {
-          Ok( client ) => {
-            let generator = etherdream::generator( client, Box::new( generators::Noop::new() ) );
-            self.generators.insert( index, generator );
-            self.current_index = Some( index );
-            Ok( () )
-          }
-
-          Err( err ) => {
-            Err( Error::Internal( format!( "{:?}", err ) ) )
-          }
+        // Print any generated console output from commands
+        if let Some( msg ) = console_out {
+          println!( "{msg}" )
         }
       },
 
-      None => {
-        Err( Error::NotFound )
-      }
-    }
-  }
-
-  /// Send a ping to the device associated with the generator at `index`.
-  pub async fn ping( &mut self, index: usize ) -> Result<etherdream::State,Error> {
-    if let Some( generator ) = self.generators.get_mut( &index ) {
-      match generator.ping().await {
-        Ok( state ) => Ok( state ),
-        Err( err ) => Err( Error::Internal( format!( "{:?}", err ) ) )
-      }
-    } else {
-      Err( Error::NotFound )
-    }
-  }
-
-  pub async fn play( &mut self, index: usize, generator_id: GeneratorId ) -> Result<(),Error> {
-    if let Some( generator ) = self.generators.remove( &index ) {
-      let client = generator.into_client().await?;
-
-      match generator_id {
-        GeneratorId::Xs => {
-          let mut generator = etherdream::generator( client, Box::new( generators::Xs::new() ) );
-          generator.start().await;
-          self.generators.insert( index, generator );
-          Ok( () )
+      Err( err ) => {
+        match err.kind() {
+          clap::error::ErrorKind::MissingSubcommand => {
+            // Ignore any missing subcommand errors. An empty command is ok in
+            // the REPL.
+          },
+          _ => println!( "{err}" )
         }
       }
-    } else {
-      Err( Error::NotFound )
     }
   }
 
-  pub async fn stop( &mut self, index: usize ) -> Result<(),Error> {
-    if let Some( generator ) = self.generators.remove( &index ) {
-      let mut generator = etherdream::generator(
-        generator.into_client().await?,
-        Box::new( generators::Noop::new() ) );
-      generator.start().await;
-      self.generators.insert( index, generator );
-      Ok( () )
-    } else {
-      // TODO
-      Err( Error::Internal( "Generator not found".to_string() ) )
+  // Shutdown all generators
+  for ( _, generator ) in generators.drain() {
+    match generator.into_client().await {
+      Ok( client ) => client.disconnect().await,
+      Err( _ ) => {}
     }
+  }
+
+  // Shutdown the discovery server
+  discovery_server.shutdown().await;
+  let _ = device_info_handle.await;
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Command Handlers
+
+async fn do_connect(
+  device_infos: &DeviceInfosRef,
+  generators: &mut GeneratorMap,
+  current_index: &mut Option<usize>,
+  index: usize
+) -> Option<String> {
+  // If generator already exists for `index`, assign it as our
+  // `current_index` and continue REPL.
+  if generators.contains_key( &index ) {
+    *current_index = Some( index );
+    return None
+  }
+
+  // Connect to Etherdream using the `DeviceInfo` at `index`
+  match device_infos.read().await.get( index ) {
+    Some( &device_info ) => {
+      match etherdream::connect( device_info ).await {
+        Ok( client ) => {
+          // To simplify client management, we create a no-op
+          // generator so we only have to persist generator-types.
+          let generator = etherdream::make_generator( client, Box::new( executors::Noop::new() ) );
+          generators.insert( index, generator );
+          *current_index = Some( index );
+          None
+        }
+        Err( err ) =>
+          Some( format!( "({TEXT_CLIENT_ERROR}{:?})", err ) )
+      }
+    },
+    None =>
+      Some( "(unknown device)".to_owned() )
+  }
+}
+
+async fn do_list( device_infos: &DeviceInfosRef ) -> Option<String> {
+  let device_infos = device_infos.read().await;
+
+  if device_infos.is_empty() {
+    return Some( "(no devices)".to_owned() )
+  }
+
+  let copy: String =
+    device_infos.iter()
+      .enumerate()
+      .map( |( index, device_info )| {
+        format!( "  [{}] {} (MAC: {})\n", index, device_info.address().ip(), device_info.mac_address() )
+      })
+      .collect::<Vec<String>>()
+      .join( "\n" );
+
+  Some( copy )
+}
+
+async fn do_ping(
+  device_infos: &DeviceInfosRef,
+  generators: &mut GeneratorMap,
+  current_index: Option<usize>
+) -> Option<String> {
+  let Some( index ) = current_index else {
+    return Some( TEXT_NO_ACTIVE_DEVICE.to_string() )
+  };
+
+  let Some( generator ) = generators.get_mut( &index) else {
+    return Some( TEXT_NOT_FOUND.to_owned() )
+  };
+
+  match generator.ping().await {
+    Ok( state ) => {
+      let guard = device_infos.read().await;
+      let Some( device_info ) = guard.get( index ) else { return None };
+
+      Some( format!( "Device:
+  Buffer Capacity = {dac_buffer_capacity}
+  Mac Address = {dac_mac_address}
+  Max points per second = {dac_max_pps},
+  Version = hardware: {dac_version_hw}; software: {dac_version_sw}
+State:
+  Light engine = {state_light_engine:?}
+  Playback = {state_playback:?}
+    E-stop = {state_playback_e_stop:?}
+    Shutter = {state_playback_shutter:?}
+    Underflow = {state_playback_underflow:?}
+  Points = {state_points_buffered}
+    Lifetime = {state_points_lifetime}
+    Rate per second = {state_points_per_second}
+  Source = {state_source:?}",
+                     dac_buffer_capacity = device_info.buffer_capacity(),
+                     dac_mac_address = device_info.mac_address(),
+                     dac_max_pps = device_info.max_points_per_second(),
+                     dac_version_hw = device_info.version().hardware,
+                     dac_version_sw = device_info.version().software,
+                     state_light_engine = state.light_engine_state(),
+                     state_playback = state.playback_state(),
+                     state_playback_e_stop = state.is_e_stop(),
+                     state_playback_shutter = state.is_shutter_open(),
+                     state_playback_underflow = state.is_underflow(),
+                     state_points_buffered = state.points_buffered(),
+                     state_points_lifetime = state.points_lifetime(),
+                     state_points_per_second = state.points_per_second(),
+                     state_source = state.source()
+      ) )
+    }
+    Err( err ) =>
+      Some( format!( "({TEXT_CLIENT_ERROR}{:?})", err ) )
+  }
+}
+
+async fn do_play(
+  generators: &mut GeneratorMap,
+  current_index: Option<usize>,
+  generator_name: &str
+) -> Option<String> {
+  let Some( index ) = current_index else {
+    return Some( TEXT_NO_ACTIVE_DEVICE.to_owned() )
+  };
+
+  let Some( generator ) = generators.remove( &index ) else {
+    return Some( TEXT_NOT_FOUND.to_owned() )
+  };
+
+  // Create an executor for the provided `generator_name`
+  let executor: Box<dyn generator::Executable> =
+    match generator_name.to_uppercase().as_str() {
+      "DEMO" => Box::new( executors::Demo::new() ),
+      _ => {
+        generators.insert( index, generator );
+        return Some( "(unknown generator)".to_owned() )
+      }
+    };
+
+  // Acquire the underlying `Client` from the current `generator`
+  let client =
+    match generator.into_client().await {
+      Ok( client ) => client,
+      Err( err ) => {
+        return Some( format!( "({TEXT_CLIENT_ERROR}{:?})", err ) )
+      }
+    };
+
+  // Create and start a generator with our `client` and `executor`
+  let mut generator = etherdream::make_generator( client, executor );
+  generator.start().await;
+  generators.insert( index, generator );
+  None
+}
+
+async fn do_stop( generators: &mut GeneratorMap, current_index: Option<usize> ) -> Option<String> {
+  let Some( index ) = current_index else {
+    return Some( TEXT_NO_ACTIVE_DEVICE.to_owned() );
+  };
+
+  let Some( generator ) = generators.remove( &index ) else {
+    return Some( TEXT_NOT_FOUND.to_owned() );
+  };
+
+  match generator.into_client().await {
+    Ok( client ) => {
+      let generator = etherdream::make_generator( client, Box::new( executors::Noop::new() ) );
+      generators.insert( index, generator );
+      None
+    }
+    Err( err ) =>
+      Some( format!( "({TEXT_CLIENT_ERROR}{:?})", err ) )
   }
 }

@@ -60,7 +60,7 @@ impl TestDiscoveryServer {
 
   fn address( &self ) -> SocketAddr {
     match self.server.read().unwrap().as_ref() {
-      Some( server ) => server.address(),
+      Some( server ) => *server.address(),
       None => panic!( "The discovery server has already been shutdown." )
     }
   }
@@ -158,9 +158,9 @@ async fn discovery_server_will_receive_a_single_etherdream_broadcast() -> Result
 
   // Verify discovered device attributes
   assert_eq!( discovered_device.info().buffer_capacity(), intrinsics.buffer_capacity as usize );
-  assert_eq!( discovered_device.info().mac_address(), intrinsics.mac_address );
+  assert_eq!( *discovered_device.info().mac_address(), intrinsics.mac_address );
   assert_eq!( discovered_device.info().max_points_per_second(), intrinsics.max_points_per_second as usize );
-  assert_eq!( discovered_device.info().version(), intrinsics.version );
+  assert_eq!( *discovered_device.info().version(), intrinsics.version );
 
   assert_eq!( discovered_device.state().light_engine_state, LightEngineState::Ready );
   assert_eq!( discovered_device.state().playback_state, PlaybackState::Prepared );
@@ -194,10 +194,10 @@ async fn discovery_server_will_only_execute_callback_once_for_each_unique_device
   broadcast_device( &server, &intrinsics_2, &state, 1 ).await?;
 
   let discovered_device = device_rx.recv().await.unwrap();
-  assert_eq!( discovered_device.info().mac_address(), intrinsics_1.mac_address );
+  assert_eq!( *discovered_device.info().mac_address(), intrinsics_1.mac_address );
 
   let discovered_device = device_rx.recv().await.unwrap();
-  assert_eq!( discovered_device.info().mac_address(), intrinsics_2.mac_address );
+  assert_eq!( *discovered_device.info().mac_address(), intrinsics_2.mac_address );
 
   Ok(())
 }

@@ -1,14 +1,13 @@
 //! A bounded single-producer single-consumer (SPSC) circular buffer.
 //!
 //! Developer Note: A custom circular buffer is not particularly needed for
-//! this crate. This is a personal exercise to learn how to build container
-//! types in Rust.
+//! this crate. This is a personal exercise to learn how to build an optimized
+//! container type in Rust.
 //!
 //! Questions:
 //!   1. Should the `Reader` and `Writer` be restricted to the same thread?
-//!   2. Are the atomic ordering arguments correct? Are we indeed "safe"?
-#![allow(dead_code)]
-
+//!   2. Are the atomic ordering arguments correct? Are we indeed using
+//!      `unsafe`, safely?
 use std::mem::ManuallyDrop;
 use std::sync::{ Arc, atomic::{ AtomicUsize, Ordering } };
 
@@ -57,14 +56,9 @@ pub struct Reader<T>
 
 impl<T> Reader<T>
 {
-  /// Returns true if the buffer is empty
+  /// Returns `true` if the buffer is empty
   pub fn is_empty( &self ) -> bool {
     self.len() == 0
-  }
-
-  /// Returns true if the buffer is at capacity
-  pub fn is_full( &self ) -> bool { 
-    self.len() == self.capacity
   }
 
   /// Returns the count of unread items in the buffer
@@ -72,18 +66,8 @@ impl<T> Reader<T>
     self.buffer.size.load( Ordering::Acquire )
   }
 
-  /// Returns the remaining capacity in the buffer
-  pub fn remaining( &self ) -> usize {
-    self.capacity - self.len()
-  }
-
-  /// Returns the static maximum capacity of the buffer
-  pub fn capacity( &self ) -> usize {
-    self.capacity
-  }
-
   /// Returns the currently available item (if one is available) and advances
-  /// the head. If the buffer is empty, returns None.
+  /// the head. If the buffer is empty, returns `None`.
   pub fn pop( &mut self ) -> Option<T> {
     if self.is_empty() {
       return None;
@@ -113,12 +97,7 @@ pub struct Writer<T>
 
 impl<T> Writer<T>
 {
-  /// Returns true if the buffer is empty
-  pub fn is_empty( &self ) -> bool {
-    self.len() == 0
-  }
-
-  /// Returns true if the buffer is at capacity
+  /// Returns `true` if the buffer is at capacity
   pub fn is_full( &self ) -> bool { 
     self.len() == self.capacity
   }
@@ -157,3 +136,81 @@ impl<T> Writer<T>
 // * Logical guarantee that the reader will never consume from the writer's head.
 unsafe impl<T: Send> Send for Writer<T> { }
 unsafe impl<T: Sync> Sync for Writer<T> { }
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Tests
+
+#[test]
+fn buffer_push_and_pop_test() {
+  let ( mut writer, mut reader ) = CircularBuffer::<&str>::new( 2 );
+
+  // The buffer is empty
+  assert_eq!( reader.capacity, 2 );
+  assert_eq!( reader.is_empty(), true );
+  assert_eq!( reader.len(), 0 );
+
+  assert_eq!( writer.capacity(), 2 );
+  assert_eq!( writer.is_full(), false );
+  assert_eq!( writer.len(), 0 );
+  assert_eq!( writer.remaining(), 2 );
+
+  // The buffer has a single item
+  let _ = writer.push( "a" );
+
+  assert_eq!( reader.is_empty(), false );
+  assert_eq!( reader.len(), 1 );
+
+  assert_eq!( writer.is_full(), false );
+  assert_eq!( writer.len(), 1 );
+  assert_eq!( writer.remaining(), 1 );
+
+  // The buffer is at capacity
+  let _ = writer.push( "b" );
+
+  assert_eq!( reader.is_empty(), false );
+  assert_eq!( reader.len(), 2 );
+
+  assert_eq!( writer.is_full(), true );
+  assert_eq!( writer.len(), 2 );
+  assert_eq!( writer.remaining(), 0 );
+
+  // Will return an insufficient capacity error if we attempt to push again
+  assert_eq!( writer.push( "c" ), Some( "c" ) );
+
+  // The caller has consumed a single item
+  assert_eq!( "a", reader.pop().unwrap() );
+
+  assert_eq!( reader.is_empty(), false );
+  assert_eq!( reader.len(), 1 );
+
+  assert_eq!( writer.is_full(), false );
+  assert_eq!( writer.len(), 1 );
+
+  // The caller has consumed all items
+  assert_eq!( "b", reader.pop().unwrap() );
+
+  assert_eq!( reader.is_empty(), true );
+  assert_eq!( reader.len(), 0 );
+
+  assert_eq!( writer.is_full(), false );
+  assert_eq!( writer.len(), 0 );
+
+  // The buffer will return None since all items have been consumed
+  assert!( reader.pop().is_none() );
+}
+
+#[test]
+fn buffer_will_handle_rollover_test() {
+  let ( mut writer, mut reader ) = CircularBuffer::<&str>::new( 3 );
+
+  let _ = writer.push( "a" );
+  let _ = writer.push( "b" );
+  let _ = reader.pop();
+  let _ = writer.push( "c" );
+
+  assert_eq!( writer.is_full(), false );
+  assert_eq!( writer.len(), 2 );
+
+  let _ = writer.push( "d" );
+  assert_eq!( writer.is_full(), true );
+  assert_eq!( writer.len(), 3 );
+}
