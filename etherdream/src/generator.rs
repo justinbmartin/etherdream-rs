@@ -1,10 +1,11 @@
+//! Generator: Utilities for pull-based point-data generation.
 use std::time::Duration;
 
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::client::{ self, Client };
-use crate::device_info;
+use crate::device_info::DeviceInfo;
 use crate::protocol::{ X, Y, R, G, B };
 
 const DEFAULT_LOW_WATERMARK_PERCENTAGE: f32 = 0.7;
@@ -12,75 +13,99 @@ const DEFAULT_LOW_WATERMARK_PERCENTAGE: f32 = 0.7;
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Executable Trait
 
 pub trait Executable: Send + Sync {
+  /// Called upon `Generator::start`, before any call to `Executable::execute`.
+  ///
+  /// The `OnStartContext` provides information about the Etherdream device and
+  /// the `Client`'s point buffer capacity. This information is useful in
+  /// defining the generator's `Config`, the required return value.
+  fn on_start( &mut self, ctx: OnStartContext ) -> Config;
+
+  /// Called any time the underlying `Client`'s point buffer descends below
+  /// the configured low-watermark threshold. This routine is the primary
+  /// work-horse driving point data generation.
+  ///
+  /// Point data can be queried and published using the provided
+  /// `ExecutionContext`.
   fn execute( &mut self, ctx: &mut ExecutionContext );
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Generator Error
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Config
+
+#[derive( Debug )]
+pub struct Config {
+  low_watermark: f32,
+  point_rate: usize
+}
+
+impl Config {
+  /// Creates a new `Config` with the provided `point_rate` (points-per-second).
+  pub fn new( point_rate: usize ) -> Self {
+    Self {
+      low_watermark: DEFAULT_LOW_WATERMARK_PERCENTAGE,
+      point_rate
+    }
+  }
+
+  /// Sets the percentage threshold at which the `Generator` will call the
+  /// user-provided `Executable`.
+  ///
+  /// The `amount` will be clamped to a value between `[0.0, 1.0]`. The
+  /// user-provided `Executable` will be called when the `Client`'s point count
+  /// descends below this threshold.
+  pub fn low_watermark( &mut self, amount: f32 ) {
+    self.low_watermark = amount.clamp( 0.0, 1.0 );
+  }
+
+  /// Sets the default point rate that the generator will play point-data.
+  pub fn point_rate( &mut self, rate: usize ) {
+    self.point_rate = rate;
+  }
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Generator
 
 #[derive( Debug )]
 pub enum Error {
   Internal( String )
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Config
-
-pub struct Config {
-  low_watermark: Option<usize>
-}
-
-impl Config {
-  pub fn new() -> Self {
-    Self{ low_watermark: None }
-  }
-
-  /// Defines the point threshold in which the `Generator` will call the
-  /// `executor`. Value will be limited to the client's max buffer capacity.
-  pub fn low_watermark( mut self, low_watermark: usize ) -> Self {
-    self.low_watermark = Some( low_watermark );
-    self
-  }
-}
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Task
-
 struct Task {
-  handle: JoinHandle<( client::PointTx, Box<dyn Executable> )>,
+  handle: JoinHandle<( client::PointTx, Box<dyn Executable>, Option<client::Error> )>,
   shutdown_token: CancellationToken
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Generator
-
+/// A `Generator` allows for pull-based point-data publishing.
+///
+/// The generator is not started on instantiation. Call `Generator::start()` to
+/// start the generator.
+///
+/// To use, an author must provide a `client::Client` and a struct that
+/// implements `generator::Executable`. The executable provides a means for
+/// authors to persist state between `Executable::execute` invocations. This
+/// state is accessible via `&mut self`.
+///
+/// During an invocation, the `Executable` is also provided an
+/// `generator::ExecutionContext`. This context allows for point-data querying
+/// (via call's to `ctx.remaining()`, `ctx.max_points()`, etc.) and point-data
+/// publishing (via `ctx.push_point(...)`).
 pub struct Generator {
   client: client::ReadOnlyClient,
   command_tx: client::CommandTx,
   executor: Option<Box<dyn Executable>>,
-  low_watermark: usize,
   point_tx: Option<client::PointTx>,
   task: Option<Task>
 }
 
 impl Generator {
-  /// Create a `Generator`.
+  /// Creates a `Generator` from a `Client` and `executor`. The generator is
+  /// not started on instantiation.
   pub fn new( client: Client, executor: Box<dyn Executable> ) -> Self {
-    Self::with_config( client, executor, Config::new() )
-  }
-
-  /// Create a `Generator` with provided configuration.
-  pub fn with_config( client: Client, executor: Box<dyn Executable>, config: Config ) -> Self {
     let ( read_only_client, command_tx, point_tx ) = client.into_parts();
-
-    let low_watermark =
-      if let Some( low_watermark ) = config.low_watermark {
-        low_watermark.min( point_tx.capacity() )
-      } else {
-        ( point_tx.capacity() as f32 * DEFAULT_LOW_WATERMARK_PERCENTAGE ) as usize
-      };
 
     Self{
       client: read_only_client,
       command_tx,
       executor: Some( executor ),
-      low_watermark,
       point_tx: Some( point_tx ),
       task: None
     }
@@ -95,9 +120,9 @@ impl Generator {
     }
   }
 
-  /// Returns the `DeviceInfo` associated with the underlying client.
+  /// Returns the `DeviceInfo` associated with the underlying `Client`.
   #[inline]
-  pub fn device_info( &self ) -> &device_info::DeviceInfo {
+  pub fn device_info( &self ) -> &DeviceInfo {
     self.client.device_info()
   }
 
@@ -107,7 +132,8 @@ impl Generator {
     self.command_tx.send_and_wait( client::Command::Ping ).await
   }
   
-  /// Start the generator.
+  /// Starts the generator, playing point data at the provided `rate` (points
+  /// per second).
   pub async fn start( &mut self ) {
     if self.is_running() { return; }
 
@@ -116,16 +142,18 @@ impl Generator {
 
       let handle = tokio::spawn({
         let mut command_tx = self.command_tx.clone().await;
-        let low_watermark = self.low_watermark;
+        let device_info = self.client.device_info().clone();
         let shutdown_token = shutdown_token.child_token();
         let state = self.client.clone_state();
 
         async move {
+          let config = executor.on_start( OnStartContext{ device_info: &device_info, capacity: point_tx.capacity() } );
+          let low_watermark = ( point_tx.capacity() as f32 * config.low_watermark ) as usize;
           let mut ctx = ExecutionContext{ max_points: 0, point_count: 0, point_tx };
 
           loop {
             if shutdown_token.is_cancelled() {
-              return ( ctx.point_tx, executor );
+              return ( ctx.point_tx, executor, None );
             }
 
             if state.read().await.is_ready() && ctx.point_tx.len() <= low_watermark {
@@ -140,21 +168,19 @@ impl Generator {
               // `ctx.max_points`.
               ctx.point_count = 0;
 
-              // Run the executor with the configured context.
+              // Run the executor with the configured execution context.
               executor.execute( &mut ctx );
 
               // Flush any published point data to the `Client::Writer` task.
-              // TODO: Generator should provide error reporting, reset, etc.
               if ctx.point_count > 0 {
                 match command_tx.send_and_wait( client::Command::Data{ count: ctx.point_count } ).await {
                   Ok( state ) => {
                     if ! state.is_playing() {
-                      let _ = command_tx.send_and_wait( client::Command::Begin{ rate: 1000 } ).await;
+                      let _ = command_tx.send_and_wait( client::Command::Begin{ rate: config.point_rate } ).await;
                     }
                   }
                   Err( err ) => {
-                    dbg!( err );
-                    return ( ctx.point_tx, executor );
+                    return ( ctx.point_tx, executor, Some( err ) );
                   }
                 }
               }
@@ -171,6 +197,9 @@ impl Generator {
   }
 
   /// Stops the `Generator`.
+  ///
+  /// This action deconstructs the asynchronous task. The generator can be
+  /// re-started by calling `Generator::start`.
   pub async fn stop( &mut self ) -> Result<(),Error> {
     if let Some( task ) = self.task.take() {
       let _ = self.command_tx.send_and_wait( client::Command::Stop ).await;
@@ -178,12 +207,17 @@ impl Generator {
       task.shutdown_token.cancel();
 
       match task.handle.await {
-        Ok( ( point_tx, executor ) ) => {
+        Ok( ( point_tx, executor, err ) ) => {
           self.executor = Some( executor );
           self.point_tx = Some( point_tx );
-          Ok( () )
+
+          if let Some( err ) = err {
+            Err( Error::Internal( format!( "Client Error: {err}" ) ) )
+          } else {
+            Ok( () )
+          }
         },
-        Err( err ) => Err( Error::Internal( err.to_string() ) )
+        Err( err ) => Err( Error::Internal( format!( "Join Error: {}", err.to_string() ) ) )
       }
     } else {
       Ok( () )
@@ -197,9 +231,24 @@ impl Generator {
     if let Some( point_tx ) = self.point_tx.take() {
       Ok( Client::from_parts( self.client, self.command_tx, point_tx ) )
     } else {
-      Err( Error::Internal( "".to_string() ) )
+      Err( Error::Internal( "Point publisher was not returned to generator".to_owned() ) )
     }
   }
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - On Start Context
+
+pub struct OnStartContext<'a> {
+  device_info: &'a DeviceInfo,
+  capacity: usize
+}
+
+impl<'a> OnStartContext<'a> {
+  /// Returns the `DeviceInfo` associated with the underlying `Client`.
+  pub fn device_info( &self ) -> &DeviceInfo { self.device_info }
+
+  /// Returns the maximum capacity of the `Client`'s internal point buffer.
+  pub fn point_capacity( &self ) -> usize { self.capacity }
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Execution Context
@@ -214,20 +263,19 @@ pub struct ExecutionContext {
 }
 
 impl ExecutionContext {
-  /// Returns the number of points published during this context.
+  /// Returns the number of points published during this invocation.
   pub fn point_count( &self ) -> usize {
     self.point_count
   }
 
   /// Returns the remaining number of points that can be published during this
-  /// context.
+  /// invocation.
   pub fn remaining( &self ) -> usize {
     self.max_points.saturating_sub( self.point_count )
   }
 
   /// Returns the maximum number of points that can be published during this
-  /// context. This is a constant for the duration of a single executor
-  /// invocation.
+  /// invocation. This is a constant value for the duration of an invocation.
   pub fn max_points( &self ) -> usize {
     self.max_points
   }

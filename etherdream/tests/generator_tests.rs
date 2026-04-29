@@ -6,10 +6,21 @@ use etherdream::generator;
 use etherdream_test::emulator::Emulator;
 
 struct TestExecutor{
-  invoked: mpsc::Sender<usize>
+  invoked: mpsc::Sender<usize>,
+  low_watermark: Option<f32>
 }
 
 impl generator::Executable for TestExecutor {
+  fn on_start( &mut self, _: generator::OnStartContext ) -> generator::Config {
+    let mut config = generator::Config::new( 1_000 );
+
+    if let Some( low_watermark ) = self.low_watermark {
+      config.low_watermark( low_watermark );
+    }
+
+    config
+  }
+
   fn execute( &mut self, ctx: &mut generator::ExecutionContext ) {
     while ctx.remaining() > 0 {
       ctx.push_point( 1, 2, 3, 4, 5 );
@@ -23,13 +34,13 @@ impl generator::Executable for TestExecutor {
 async fn a_generator_will_publish_point_data() {
   let mut emulator = Emulator::start_with_capacity( 10 ).await.unwrap();
 
-  let client = client::Builder::new( emulator.device_info() )
+  let client = client::Builder::new( emulator.get_device_info() )
     .capacity( 10 )
     .connect().await
     .unwrap();
 
   let ( invoked_tx, mut invoked_rx ) = mpsc::channel::<usize>( 16 );
-  let executor = Box::new( TestExecutor{ invoked: invoked_tx } );
+  let executor = Box::new( TestExecutor{ invoked: invoked_tx, low_watermark: None } );
   let mut generator = generator::Generator::new( client, executor );
   generator.start().await;
 
@@ -68,16 +79,15 @@ async fn a_generator_will_publish_point_data() {
 async fn a_generator_can_be_configured_with_a_custom_low_watermark() {
   let mut emulator = Emulator::start_with_capacity( 10 ).await.unwrap();
 
-  let client = client::Builder::new( emulator.device_info() )
+  let client = client::Builder::new( emulator.get_device_info() )
     .capacity( 10 )
     .connect().await
     .unwrap();
 
   let ( invoked_tx, mut invoked_rx ) = mpsc::channel::<usize>( 16 );
-  let executor = Box::new( TestExecutor{ invoked: invoked_tx } );
+  let executor = Box::new( TestExecutor{ invoked: invoked_tx, low_watermark: Some( 0.4 ) } );
 
-  let config = generator::Config::new().low_watermark( 4 );
-  let mut generator = generator::Generator::with_config( client, executor, config );
+  let mut generator = generator::Generator::new( client, executor );
   generator.start().await;
 
   // The executor will be invoked twice
@@ -103,13 +113,13 @@ async fn a_generator_can_be_configured_with_a_custom_low_watermark() {
 async fn a_generator_can_ping_the_device() {
   let emulator = Emulator::start_with_capacity( 10 ).await.unwrap();
 
-  let client = client::Builder::new( emulator.device_info() )
+  let client = client::Builder::new( emulator.get_device_info() )
     .capacity( 10 )
     .connect().await
     .unwrap();
 
   let ( invoked_tx, _invoked_rx ) = mpsc::channel::<usize>( 16 );
-  let executor = Box::new( TestExecutor{ invoked: invoked_tx } );
+  let executor = Box::new( TestExecutor{ invoked: invoked_tx, low_watermark: None } );
   let mut generator = generator::Generator::new( client, executor );
   generator.start().await;
 
