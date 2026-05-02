@@ -6,7 +6,9 @@ use std::io::{ self, Write };
 use std::sync::Arc;
 
 use clap;
+use crossterm::event::{ self, KeyCode };
 use etherdream::generator;
+use ratatui::widgets::Paragraph;
 use tokio::sync::RwLock;
 
 const CONSOLE_PREFIX: &str = "> ";
@@ -80,62 +82,18 @@ async fn main() {
         .about( "Stops a running generator for the currently active device." )
     ]);
 
-  // Start the REPL
-  loop {
-    input.clear();
+  ratatui::run( |terminal| {
+    loop {
+      let _ = terminal.draw( |frame| {
+        let greeting = Paragraph::new( "Hello World! (press 'q' to quit)" );
+        frame.render_widget( greeting, frame.area() );
+      });
 
-    // Print the console prefix (including `current_index`, if set)
-    if let Some( index ) = current_index {
-      print!( "[{}]{}", index, CONSOLE_PREFIX )
-    } else {
-      print!( "{CONSOLE_PREFIX}" );
-    }
-
-    // Read CLI input
-    let _ = io::stdout().flush();
-    let _ = io::stdin().read_line( &mut input );
-    let Some( args ) = shlex::split( input.trim() ) else { continue };
-
-    // Handle CLI command
-    match cli.try_get_matches_from_mut( args ) {
-      Ok( matches ) => {
-        let console_out =
-          match matches.subcommand() {
-            Some( ( "connect", args ) ) => {
-              // SAFETY: Unwrap is safe since `index` is a required argument
-              let index = args.get_one::<usize>( "index" ).unwrap();
-              do_connect( &device_infos, &mut generators, &mut current_index, *index ).await
-            }
-            Some( ( "exit", _ ) ) => break,
-            Some( ( "help", _ ) ) => { let _ = cli.print_long_help(); None }
-            Some( ( "list", _ ) ) => do_list( &device_infos ).await,
-            Some( ( "ping", _ ) ) => do_ping( &device_infos, &mut generators, current_index ).await,
-            Some( ( "play", args ) ) => {
-              // SAFETY: Unwrap is safe since `generator` has a default value
-              let generator_name = args.get_one::<String>( "generator" ).unwrap();
-              do_play( &mut generators, current_index, generator_name ).await
-            }
-            Some( ( "stop", _ ) ) => do_stop( &mut generators, current_index ).await,
-            Some( _ ) | None => Some( "(unknown cmd)".to_owned() )
-          };
-
-        // Print any generated console output from commands
-        if let Some( msg ) = console_out {
-          println!( "{msg}" )
-        }
-      },
-
-      Err( err ) => {
-        match err.kind() {
-          clap::error::ErrorKind::MissingSubcommand => {
-            // Ignore any missing subcommand errors. An empty command is ok in
-            // the REPL.
-          },
-          _ => println!( "{err}" )
-        }
+      if should_quit() {
+        break;
       }
     }
-  }
+  });
 
   // Shutdown all generators
   for ( _, generator ) in generators.drain() {
@@ -148,6 +106,18 @@ async fn main() {
   // Shutdown the discovery server
   discovery_server.shutdown().await;
   let _ = device_info_handle.await;
+}
+
+fn should_quit() -> bool {
+  if event::poll( std::time::Duration::from_millis(250) ).unwrap() {
+    let q_pressed = event::read()
+      .unwrap()
+      .as_key_press_event()
+      .is_some_and(|key| key.code == KeyCode::Char('q'));
+    return q_pressed;
+  }
+
+  false
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Command Handlers
