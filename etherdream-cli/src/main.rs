@@ -1,37 +1,24 @@
 //! CLI tool to discover, connect and test Etherdream DAC's.
 mod executors;
 
-use std::collections::HashMap;
-use std::io::{ self, Write };
-use std::sync::Arc;
+use std::net::SocketAddr;
+use std::time::Duration;
 
-use clap;
-use crossterm::event::{ self, KeyCode };
-use etherdream::generator;
-use ratatui::widgets::Paragraph;
-use tokio::sync::RwLock;
-
-const CONSOLE_PREFIX: &str = "> ";
-const TEXT_CLIENT_ERROR: &str = "client error: ";
-const TEXT_NO_ACTIVE_DEVICE: &str = "(no active device)";
-const TEXT_NOT_FOUND: &str = "(not found)";
-
-type DeviceInfosRef = Arc<RwLock<Vec<etherdream::DeviceInfo>>>;
-type GeneratorMap = HashMap<usize,etherdream::Generator>;
+use crossterm::event::{ self, Event, KeyCode };
+use ratatui::prelude::*;
+use ratatui::style::palette::tailwind::{ SLATE };
+use ratatui::widgets::{ Block, List, ListItem, ListState, Paragraph };
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Main
 
 #[tokio::main]
 async fn main() {
-  let mut current_index = None::<usize>;
-  let device_infos: DeviceInfosRef = Arc::new( RwLock::new( Vec::new() ) );
-  let mut generators = GeneratorMap::new();
-  let mut input = String::new();
+  let mut app = App::new_for_dev();
 
   // Start the Etherdream discovery service
   let ( device_info_tx, mut device_info_rx ) = tokio::sync::mpsc::channel( 16 );
 
-  let discovery_server =
+  let _discovery_server =
     match etherdream::discover( device_info_tx ).await {
       Ok( server ) => server,
       Err( err ) => {
@@ -40,250 +27,147 @@ async fn main() {
       }
     };
 
-  // Start a task to receive discovered devices and add them to `device_infos`
-  let device_info_handle = tokio::spawn({
-    let device_infos = device_infos.clone();
-
-    async move {
-      while let Some( discovered_device_info ) = device_info_rx.recv().await {
-        device_infos.write().await.push( discovered_device_info.info().clone() );
-      }
-    }
-  });
-
-  // Define the REPL interface
-  let mut cli = clap::Command::new( "Etherdream" )
-    .about( "Discover and test Etherdream devices." )
-    .disable_help_flag( true )
-    .disable_help_subcommand( true )
-    .multicall( true )
-    .subcommand_required( true )
-    .subcommands([
-      clap::Command::new( "connect" )
-        .about( "Connects to a discovered device at the index from `list`. This device becomes the currently active device." )
-        .arg( clap::Arg::new( "index" )
-          .required( true )
-          .value_parser( clap::value_parser!( usize ) ) ),
-      clap::Command::new( "exit" )
-        .about( "Shuts down all generators and closes the console." ),
-      clap::Command::new( "help" )
-        .about( "Prints command help." ),
-      clap::Command::new( "list" )
-        .about( "Lists all discovered Etherdream devices." )
-        .visible_alias( "ls" ),
-      clap::Command::new( "ping" )
-        .about( "Pings the currently active device and prints the device state." ),
-      clap::Command::new( "play" )
-        .about( "Starts a generator for the currently active device. Available generators: demo. [default: demo]" )
-        .arg( clap::Arg::new( "generator" )
-          .default_value( "demo" )
-          .value_parser([ "demo" ]) ),
-      clap::Command::new( "stop" )
-        .about( "Stops a running generator for the currently active device." )
-    ]);
-
-  ratatui::run( |terminal| {
+  // https://ratatui.rs/recipes/apps/terminal-and-event-handler/
+  ratatui::run(| terminal |{
     loop {
-      let _ = terminal.draw( |frame| {
-        let greeting = Paragraph::new( "Hello World! (press 'q' to quit)" );
-        frame.render_widget( greeting, frame.area() );
-      });
-
       if should_quit() {
         break;
       }
+
+      while let Ok( device_info ) = device_info_rx.try_recv() {
+        app.devices.push( device_info.info().clone() );
+      }
+
+      let _ = terminal.draw(| frame |{
+        frame.render_widget( &mut app, frame.area() );
+      });
+
+      // 3. Handle Inputs
+      if let Ok( Event::Key( key ) ) = event::read() {
+        match key.code {
+          KeyCode::Char( 'q' ) | KeyCode::Esc => break,
+          KeyCode::Down => app.on_down(),
+          KeyCode::Up => app.on_up(),
+          _ => {}
+        }
+      }
+
+      if app.should_exit { break; }
     }
   });
-
-  // Shutdown all generators
-  for ( _, generator ) in generators.drain() {
-    match generator.into_client().await {
-      Ok( client ) => client.disconnect().await,
-      Err( _ ) => {}
-    }
-  }
-
-  // Shutdown the discovery server
-  discovery_server.shutdown().await;
-  let _ = device_info_handle.await;
 }
 
 fn should_quit() -> bool {
-  if event::poll( std::time::Duration::from_millis(250) ).unwrap() {
-    let q_pressed = event::read()
-      .unwrap()
-      .as_key_press_event()
-      .is_some_and(|key| key.code == KeyCode::Char('q'));
-    return q_pressed;
+  if let Ok( true ) = event::poll( Duration::from_secs( 0 ) ) {
+    if let Ok( event ) = event::read() {
+      return event
+        .as_key_press_event()
+        .is_some_and(|key| key.code == KeyCode::Esc || key.code == KeyCode::Char( 'q' ) );
+    }
   }
 
   false
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Command Handlers
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
 
-async fn do_connect(
-  device_infos: &DeviceInfosRef,
-  generators: &mut GeneratorMap,
-  current_index: &mut Option<usize>,
-  index: usize
-) -> Option<String> {
-  // If generator already exists for `index`, assign it as our
-  // `current_index` and continue REPL.
-  if generators.contains_key( &index ) {
-    *current_index = Some( index );
-    return None
+struct App {
+  devices: Vec<etherdream::DeviceInfo>,
+  devices_state: ListState,
+  should_exit: bool
+}
+
+impl App {
+  // TODO: dev-only
+  fn new_for_dev() -> Self {
+    let mut state = ListState::default();
+    state.select( Some( 0 ) );
+
+    Self{
+      devices: vec![
+        etherdream::DeviceInfo::new( SocketAddr::from(( [10, 0, 0, 1], 6543 )), etherdream::protocol::Intrinsics::default() ),
+        etherdream::DeviceInfo::new( SocketAddr::from(( [10, 0, 0, 2], 6543 )), etherdream::protocol::Intrinsics::default() )
+      ],
+      devices_state: state,
+      should_exit: false
+    }
   }
 
-  // Connect to Etherdream using the `DeviceInfo` at `index`
-  match device_infos.read().await.get( index ) {
-    Some( &device_info ) => {
-      match etherdream::connect( device_info ).await {
-        Ok( client ) => {
-          // To simplify client management, we create a no-op
-          // generator so we only have to persist generator-types.
-          let generator = etherdream::make_generator( client, Box::new( executors::Noop::new() ) );
-          generators.insert( index, generator );
-          *current_index = Some( index );
-          None
+  // 2. Define methods to update state on keypress
+  fn on_down( &mut self ) {
+    let i = match self.devices_state.selected() {
+      Some(i) => {
+        if i >= self.devices.len() - 1 {
+          0
+        } else {
+          i + 1
         }
-        Err( err ) =>
-          Some( format!( "({TEXT_CLIENT_ERROR}{:?})", err ) )
       }
-    },
-    None =>
-      Some( "(unknown device)".to_owned() )
-  }
-}
-
-async fn do_list( device_infos: &DeviceInfosRef ) -> Option<String> {
-  let device_infos = device_infos.read().await;
-
-  if device_infos.is_empty() {
-    return Some( "(no devices)".to_owned() )
-  }
-
-  let copy: String =
-    device_infos.iter()
-      .enumerate()
-      .map( |( index, device_info )| {
-        format!( "  [{}] {} (MAC: {})\n", index, device_info.address().ip(), device_info.mac_address() )
-      })
-      .collect::<Vec<String>>()
-      .join( "\n" );
-
-  Some( copy )
-}
-
-async fn do_ping(
-  device_infos: &DeviceInfosRef,
-  generators: &mut GeneratorMap,
-  current_index: Option<usize>
-) -> Option<String> {
-  let Some( index ) = current_index else {
-    return Some( TEXT_NO_ACTIVE_DEVICE.to_string() )
-  };
-
-  let Some( generator ) = generators.get_mut( &index) else {
-    return Some( TEXT_NOT_FOUND.to_owned() )
-  };
-
-  match generator.ping().await {
-    Ok( state ) => {
-      let guard = device_infos.read().await;
-      let Some( device_info ) = guard.get( index ) else { return None };
-
-      Some( format!( "Device:
-  Buffer Capacity = {dac_buffer_capacity}
-  Mac Address = {dac_mac_address}
-  Max points per second = {dac_max_pps},
-  Version = hardware: {dac_version_hw}; software: {dac_version_sw}
-State:
-  Light engine = {state_light_engine:?}
-  Playback = {state_playback:?}
-    E-stop = {state_playback_e_stop:?}
-    Shutter = {state_playback_shutter:?}
-    Underflow = {state_playback_underflow:?}
-  Points = {state_points_buffered}
-    Lifetime = {state_points_lifetime}
-    Rate per second = {state_points_per_second}
-  Source = {state_source:?}",
-                     dac_buffer_capacity = device_info.buffer_capacity(),
-                     dac_mac_address = device_info.mac_address(),
-                     dac_max_pps = device_info.max_points_per_second(),
-                     dac_version_hw = device_info.version().hardware,
-                     dac_version_sw = device_info.version().software,
-                     state_light_engine = state.light_engine_state(),
-                     state_playback = state.playback_state(),
-                     state_playback_e_stop = state.is_e_stop(),
-                     state_playback_shutter = state.is_shutter_open(),
-                     state_playback_underflow = state.is_underflow(),
-                     state_points_buffered = state.points_buffered(),
-                     state_points_lifetime = state.points_lifetime(),
-                     state_points_per_second = state.points_per_second(),
-                     state_source = state.source()
-      ) )
-    }
-    Err( err ) =>
-      Some( format!( "({TEXT_CLIENT_ERROR}{:?})", err ) )
-  }
-}
-
-async fn do_play(
-  generators: &mut GeneratorMap,
-  current_index: Option<usize>,
-  generator_name: &str
-) -> Option<String> {
-  let Some( index ) = current_index else {
-    return Some( TEXT_NO_ACTIVE_DEVICE.to_owned() )
-  };
-
-  let Some( generator ) = generators.remove( &index ) else {
-    return Some( TEXT_NOT_FOUND.to_owned() )
-  };
-
-  // Create an executor for the provided `generator_name`
-  let executor: Box<dyn generator::Executable> =
-    match generator_name.to_uppercase().as_str() {
-      "DEMO" => Box::new( executors::Demo::new() ),
-      _ => {
-        generators.insert( index, generator );
-        return Some( "(unknown generator)".to_owned() )
-      }
+      None => 0,
     };
 
-  // Acquire the underlying `Client` from the current `generator`
-  let client =
-    match generator.into_client().await {
-      Ok( client ) => client,
-      Err( err ) => {
-        return Some( format!( "({TEXT_CLIENT_ERROR}{:?})", err ) )
+    self.devices_state.select( Some( i ) );
+  }
+
+  fn on_up( &mut self ) {
+    let i = match self.devices_state.selected() {
+      Some(i) => {
+        if i == 0 {
+          self.devices.len() - 1
+        } else {
+          i - 1
+        }
       }
+      None => 0,
     };
 
-  // Create and start a generator with our `client` and `executor`
-  let mut generator = etherdream::make_generator( client, executor );
-  generator.start().await;
-  generators.insert( index, generator );
-  None
+    self.devices_state.select( Some( i ) );
+  }
 }
 
-async fn do_stop( generators: &mut GeneratorMap, current_index: Option<usize> ) -> Option<String> {
-  let Some( index ) = current_index else {
-    return Some( TEXT_NO_ACTIVE_DEVICE.to_owned() );
-  };
+impl Widget for &mut App {
+  fn render( self, area: Rect, buf: &mut Buffer ) where Self: Sized {
+    let main_layout = Layout::vertical([ Constraint::Fill(1), Constraint::Length(1) ]);
+    let [ content_area, footer_area ] = area.layout( &main_layout );
 
-  let Some( generator ) = generators.remove( &index ) else {
-    return Some( TEXT_NOT_FOUND.to_owned() );
-  };
+    // Main > Footer
+    Paragraph::new( "Use ↓↑ to move, ← to unselect, → to change status, g/G to go top/bottom." )
+      .centered()
+      .render( footer_area, buf );
 
-  match generator.into_client().await {
-    Ok( client ) => {
-      let generator = etherdream::make_generator( client, Box::new( executors::Noop::new() ) );
-      generators.insert( index, generator );
-      None
+    // Main > Content
+    let content_layout = Layout::horizontal([ Constraint::Length( 20 ), Constraint::Fill( 1 ) ]);
+    let [ devices_area, info_area ] = content_area.layout( &content_layout );
+
+    // Main > Content > Devices
+    let block = Block::bordered().title( Line::raw( " Devices " ) );
+
+    if self.devices.is_empty() {
+      Paragraph::new( "(no devices)" )
+        .centered()
+        .block( block )
+        .render( area, buf )
+    } else {
+      // Iterate through all `devices` and stylize them.
+      let devices: Vec<ListItem> = self.devices
+        .iter()
+        .enumerate()
+        .map(|(_i, device_info)| { ListItem::new( device_info.address().to_string() ) })
+        .collect();
+
+      // Create a List from all `devices` and highlight the currently selected one
+      let devices_list = List::new( devices )
+        .block( block )
+        .highlight_style( Style::new().bg( SLATE.c800 ).add_modifier( Modifier::BOLD ) )
+        .highlight_symbol( "> " )
+        .highlight_spacing( ratatui::widgets::HighlightSpacing::Always );
+
+      // We need to disambiguate this trait method as both `Widget` and `StatefulWidget` share the
+      // same method name `render`.
+      StatefulWidget::render( devices_list, devices_area, buf, &mut self.devices_state );
     }
-    Err( err ) =>
-      Some( format!( "({TEXT_CLIENT_ERROR}{:?})", err ) )
+
+    // Main > Content > Info
+    Block::bordered().title( " Info " ).render( info_area, buf )
   }
 }
