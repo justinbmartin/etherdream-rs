@@ -30,10 +30,6 @@ async fn main() {
   // https://ratatui.rs/recipes/apps/terminal-and-event-handler/
   ratatui::run(| terminal |{
     loop {
-      if should_quit() {
-        break;
-      }
-
       while let Ok( device_info ) = device_info_rx.try_recv() {
         app.devices.push( device_info.info().clone() );
       }
@@ -41,12 +37,15 @@ async fn main() {
       let _ = terminal.draw(| frame |{ app.render( frame ); });
 
       // 3. Handle Inputs
-      if let Ok( Event::Key( key ) ) = event::read() {
-        match key.code {
-          KeyCode::Char( 'q' ) | KeyCode::Esc => break,
-          KeyCode::Down => app.on_down(),
-          KeyCode::Up => app.on_up(),
-          _ => {}
+      if let Ok( true ) = event::poll( Duration::from_secs( 0 ) ) {
+        if let Ok( Event::Key( key ) ) = event::read() {
+          match key.code {
+            KeyCode::Char( 'q' ) | KeyCode::Esc => app.on_escape(),
+            KeyCode::Down => app.on_down(),
+            KeyCode::Up => app.on_up(),
+            KeyCode::Enter => app.on_enter(),
+            _ => {}
+          }
         }
       }
 
@@ -55,23 +54,12 @@ async fn main() {
   });
 }
 
-fn should_quit() -> bool {
-  if let Ok( true ) = event::poll( Duration::from_secs( 0 ) ) {
-    if let Ok( event ) = event::read() {
-      return event
-        .as_key_press_event()
-        .is_some_and(|key| key.code == KeyCode::Esc || key.code == KeyCode::Char( 'q' ) );
-    }
-  }
-
-  false
-}
-
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
 
 struct App {
   devices: Vec<etherdream::DeviceInfo>,
   devices_state: ListState,
+  device_selected: Option<usize>,
   should_exit: bool
 }
 
@@ -85,6 +73,7 @@ impl Default for App {
         etherdream::DeviceInfo::new( SocketAddr::from(( [10, 0, 0, 1], 6543 )), etherdream::protocol::Intrinsics::default() ),
         etherdream::DeviceInfo::new( SocketAddr::from(( [10, 0, 0, 2], 6543 )), etherdream::protocol::Intrinsics::default() )
       ],
+      device_selected: None,
       devices_state: state,
       should_exit: false
     }
@@ -97,20 +86,24 @@ impl App {
     let [ content_area, footer_area ] = frame.area().layout( &main_layout );
 
     // Main > Footer
-    Paragraph::new( "Use ↓↑ to move, ← to unselect, → to change status, g/G to go top/bottom." )
+    Paragraph::new( "Use ↓↑ to move, <Enter> to select a device, 'q' to quit." )
       .centered()
       .render( footer_area, frame.buffer_mut() );
 
-    // Main > Content
-    let content_layout = Layout::horizontal([ Constraint::Length( 20 ), Constraint::Fill( 1 ) ]);
-    let [ devices_area, info_area ] = content_area.layout( &content_layout );
-
     // Main > Content > Devices
-    let devices_list = DeviceList{ device_infos: &self.devices };
-    frame.render_stateful_widget( devices_list, devices_area, &mut self.devices_state );
+    if let Some( index ) = self.device_selected {
+      let device_info = self.devices.get( index ).unwrap();
+      let block = Block::bordered().title( Line::raw( format!( " Device: {}", device_info.address() ) ).centered() );
 
-    // Main > Content > Info
-    frame.render_widget( Block::bordered().title( " Info " ), info_area );
+      Paragraph::new( format!( "MAC Address: {}", device_info.mac_address() ) )
+        .centered()
+        .block( block )
+        .render( content_area, frame.buffer_mut() )
+
+    } else {
+      let devices_list = DeviceList{ device_infos: &self.devices };
+      frame.render_stateful_widget( devices_list, content_area, &mut self.devices_state );
+    }
   }
 
   // 2. Define methods to update state on keypress
@@ -143,6 +136,20 @@ impl App {
 
     self.devices_state.select( Some( i ) );
   }
+
+  fn on_enter( &mut self ) {
+    if self.device_selected.is_none() {
+      self.device_selected = Some( self.devices_state.selected().unwrap() )
+    }
+  }
+
+  fn on_escape( &mut self ) {
+    if self.device_selected.is_some() {
+      self.device_selected = None;
+    } else {
+      self.should_exit = true;
+    }
+  }
 }
 
 struct DeviceList<'a> {
@@ -153,7 +160,7 @@ impl<'a> StatefulWidget for DeviceList<'a> {
   type State = ListState;
 
   fn render( self, area: Rect, buf: &mut Buffer, state: &mut Self::State ) {
-    let block = Block::bordered().title( Line::raw( " Devices " ) );
+    let block = Block::bordered().title( Line::raw( " Devices " ).centered() );
 
     if self.device_infos.is_empty() {
       Paragraph::new( "(no devices)" )
