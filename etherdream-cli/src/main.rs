@@ -6,14 +6,14 @@ use std::time::Duration;
 
 use crossterm::event::{ self, Event, KeyCode };
 use ratatui::prelude::*;
-use ratatui::style::palette::tailwind::{ SLATE };
+use ratatui::style::palette::tailwind::SLATE;
 use ratatui::widgets::{ Block, List, ListItem, ListState, Paragraph };
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Main
 
 #[tokio::main]
 async fn main() {
-  let mut app = App::new_for_dev();
+  let mut app = App::default();
 
   // Start the Etherdream discovery service
   let ( device_info_tx, mut device_info_rx ) = tokio::sync::mpsc::channel( 16 );
@@ -38,9 +38,7 @@ async fn main() {
         app.devices.push( device_info.info().clone() );
       }
 
-      let _ = terminal.draw(| frame |{
-        frame.render_widget( &mut app, frame.area() );
-      });
+      let _ = terminal.draw(| frame |{ app.render( frame ); });
 
       // 3. Handle Inputs
       if let Ok( Event::Key( key ) ) = event::read() {
@@ -77,9 +75,8 @@ struct App {
   should_exit: bool
 }
 
-impl App {
-  // TODO: dev-only
-  fn new_for_dev() -> Self {
+impl Default for App {
+  fn default() -> Self {
     let mut state = ListState::default();
     state.select( Some( 0 ) );
 
@@ -91,6 +88,29 @@ impl App {
       devices_state: state,
       should_exit: false
     }
+  }
+}
+
+impl App {
+  fn render( &mut self, frame: &mut Frame ) {
+    let main_layout = Layout::vertical([ Constraint::Fill( 1 ), Constraint::Length( 1 ) ]);
+    let [ content_area, footer_area ] = frame.area().layout( &main_layout );
+
+    // Main > Footer
+    Paragraph::new( "Use ↓↑ to move, ← to unselect, → to change status, g/G to go top/bottom." )
+      .centered()
+      .render( footer_area, frame.buffer_mut() );
+
+    // Main > Content
+    let content_layout = Layout::horizontal([ Constraint::Length( 20 ), Constraint::Fill( 1 ) ]);
+    let [ devices_area, info_area ] = content_area.layout( &content_layout );
+
+    // Main > Content > Devices
+    let devices_list = DeviceList{ device_infos: &self.devices };
+    frame.render_stateful_widget( devices_list, devices_area, &mut self.devices_state );
+
+    // Main > Content > Info
+    frame.render_widget( Block::bordered().title( " Info " ), info_area );
   }
 
   // 2. Define methods to update state on keypress
@@ -125,31 +145,24 @@ impl App {
   }
 }
 
-impl Widget for &mut App {
-  fn render( self, area: Rect, buf: &mut Buffer ) where Self: Sized {
-    let main_layout = Layout::vertical([ Constraint::Fill(1), Constraint::Length(1) ]);
-    let [ content_area, footer_area ] = area.layout( &main_layout );
+struct DeviceList<'a> {
+  device_infos: &'a Vec<etherdream::DeviceInfo>
+}
 
-    // Main > Footer
-    Paragraph::new( "Use ↓↑ to move, ← to unselect, → to change status, g/G to go top/bottom." )
-      .centered()
-      .render( footer_area, buf );
+impl<'a> StatefulWidget for DeviceList<'a> {
+  type State = ListState;
 
-    // Main > Content
-    let content_layout = Layout::horizontal([ Constraint::Length( 20 ), Constraint::Fill( 1 ) ]);
-    let [ devices_area, info_area ] = content_area.layout( &content_layout );
-
-    // Main > Content > Devices
+  fn render( self, area: Rect, buf: &mut Buffer, state: &mut Self::State ) {
     let block = Block::bordered().title( Line::raw( " Devices " ) );
 
-    if self.devices.is_empty() {
+    if self.device_infos.is_empty() {
       Paragraph::new( "(no devices)" )
         .centered()
         .block( block )
         .render( area, buf )
     } else {
       // Iterate through all `devices` and stylize them.
-      let devices: Vec<ListItem> = self.devices
+      let devices: Vec<ListItem> = self.device_infos
         .iter()
         .enumerate()
         .map(|(_i, device_info)| { ListItem::new( device_info.address().to_string() ) })
@@ -164,10 +177,7 @@ impl Widget for &mut App {
 
       // We need to disambiguate this trait method as both `Widget` and `StatefulWidget` share the
       // same method name `render`.
-      StatefulWidget::render( devices_list, devices_area, buf, &mut self.devices_state );
+      StatefulWidget::render( devices_list, area, buf, state );
     }
-
-    // Main > Content > Info
-    Block::bordered().title( " Info " ).render( info_area, buf )
   }
 }
