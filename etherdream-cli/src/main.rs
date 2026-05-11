@@ -2,9 +2,8 @@
 mod executors;
 
 use std::net::SocketAddr;
-use std::time::Duration;
 
-use crossterm::event::{ self, Event, KeyCode };
+use crossterm::event::{ self, Event, KeyCode, KeyEventKind };
 use ratatui::prelude::*;
 use ratatui::style::palette::tailwind::SLATE;
 use ratatui::widgets::{ Block, List, ListItem, ListState, Paragraph };
@@ -27,18 +26,21 @@ async fn main() {
       }
     };
 
-  // https://ratatui.rs/recipes/apps/terminal-and-event-handler/
   ratatui::run(| terminal |{
     loop {
+      if app.should_exit { break; }
+
+      // Persist any discovered devices
       while let Ok( device_info ) = device_info_rx.try_recv() {
         app.devices.push( device_info.info().clone() );
       }
 
+      // Render interface
       let _ = terminal.draw(| frame |{ app.render( frame ); });
 
-      // 3. Handle Inputs
-      if let Ok( true ) = event::poll( Duration::from_secs( 0 ) ) {
-        if let Ok( Event::Key( key ) ) = event::read() {
+      // Handle Inputs
+      if let Ok( Event::Key( key ) ) = event::read() {
+        if key.kind == KeyEventKind::Press {
           match key.code {
             KeyCode::Char( 'q' ) | KeyCode::Esc => app.on_escape(),
             KeyCode::Down => app.on_down(),
@@ -48,8 +50,6 @@ async fn main() {
           }
         }
       }
-
-      if app.should_exit { break; }
     }
   });
 }
@@ -85,13 +85,8 @@ impl App {
     let main_layout = Layout::vertical([ Constraint::Fill( 1 ), Constraint::Length( 1 ) ]);
     let [ content_area, footer_area ] = frame.area().layout( &main_layout );
 
-    // Main > Footer
-    Paragraph::new( "Use ↓↑ to move, <Enter> to select a device, 'q' to quit." )
-      .centered()
-      .render( footer_area, frame.buffer_mut() );
-
-    // Main > Content > Devices
     if let Some( index ) = self.device_selected {
+      // Main > Device
       let device_info = self.devices.get( index ).unwrap();
       let block = Block::bordered().title( Line::raw( format!( " Device: {}", device_info.address() ) ).centered() );
 
@@ -101,22 +96,21 @@ impl App {
         .render( content_area, frame.buffer_mut() )
 
     } else {
+      // Main > Devices
       let devices_list = DeviceList{ device_infos: &self.devices };
       frame.render_stateful_widget( devices_list, content_area, &mut self.devices_state );
     }
+
+    // Main > Footer
+    Paragraph::new( "Use ↓↑ to move, <Enter> to select a device, 'q' to quit." )
+      .centered()
+      .render( footer_area, frame.buffer_mut() );
   }
 
-  // 2. Define methods to update state on keypress
   fn on_down( &mut self ) {
     let i = match self.devices_state.selected() {
-      Some(i) => {
-        if i >= self.devices.len() - 1 {
-          0
-        } else {
-          i + 1
-        }
-      }
-      None => 0,
+      Some(i) => i.saturating_add( 1 ) % self.devices.len(),
+      None => 0
     };
 
     self.devices_state.select( Some( i ) );
@@ -124,14 +118,8 @@ impl App {
 
   fn on_up( &mut self ) {
     let i = match self.devices_state.selected() {
-      Some(i) => {
-        if i == 0 {
-          self.devices.len() - 1
-        } else {
-          i - 1
-        }
-      }
-      None => 0,
+      Some(i) => i.saturating_sub( 1 ) % self.devices.len(),
+      None => 0
     };
 
     self.devices_state.select( Some( i ) );
