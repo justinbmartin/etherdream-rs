@@ -2,6 +2,7 @@
 mod executors;
 
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use crossterm::event::{ self, Event, KeyCode, KeyEventKind };
 use ratatui::prelude::*;
@@ -21,7 +22,7 @@ async fn main() {
     match etherdream::discover( device_info_tx ).await {
       Ok( server ) => server,
       Err( err ) => {
-        println!( "(discovery error: {:?})", err );
+        eprintln!( "Failed to start Etherdream discovery: {:?}", err );
         return;
       }
     };
@@ -30,23 +31,28 @@ async fn main() {
     loop {
       if app.should_exit { break; }
 
-      // Persist any discovered devices
+      // Capture any discovered devices from the Etherdream discovery service
       while let Ok( device_info ) = device_info_rx.try_recv() {
         app.devices.push( device_info.info().clone() );
       }
 
-      // Render interface
+      // Render
       let _ = terminal.draw(| frame |{ app.render( frame ); });
 
-      // Handle Inputs
-      if let Ok( Event::Key( key ) ) = event::read() {
-        if key.kind == KeyEventKind::Press {
-          match key.code {
-            KeyCode::Char( 'q' ) | KeyCode::Esc => app.on_escape(),
-            KeyCode::Down => app.on_down(),
-            KeyCode::Up => app.on_up(),
-            KeyCode::Enter => app.on_enter(),
-            _ => {}
+      // Handle any user-input
+      //
+      // We poll here to ensure we do not block on event `read`. This ensures
+      // that we always handle any discovered devices from `device_info_rx`.
+      if let Ok( true ) = event::poll( Duration::from_secs( 0 ) ) {
+        if let Ok( Event::Key( key ) ) = event::read() {
+          if key.kind == KeyEventKind::Press {
+            match key.code {
+              KeyCode::Char( 'q' ) | KeyCode::Esc => app.on_escape(),
+              KeyCode::Down => app.on_down(),
+              KeyCode::Up => app.on_up(),
+              KeyCode::Enter => app.on_enter(),
+              _ => {}
+            }
           }
         }
       }
@@ -88,13 +94,8 @@ impl App {
     if let Some( index ) = self.device_selected {
       // Main > Device
       let device_info = self.devices.get( index ).unwrap();
-      let block = Block::bordered().title( Line::raw( format!( " Device: {} ", device_info.address() ) ).centered() );
-
-      Paragraph::new( format!( "MAC Address: {}", device_info.mac_address() ) )
-        .centered()
-        .block( block )
-        .render( content_area, frame.buffer_mut() )
-
+      let device_page = DevicePage{ device_info: &device_info };
+      frame.render_widget( device_page, content_area );
     } else {
       // Main > Devices
       let devices_list = DeviceList{ device_infos: &self.devices };
@@ -140,6 +141,8 @@ impl App {
   }
 }
 
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Device List
+
 struct DeviceList<'a> {
   device_infos: &'a Vec<etherdream::DeviceInfo>
 }
@@ -158,10 +161,16 @@ impl<'a> StatefulWidget for DeviceList<'a> {
     } else {
       let devices: Vec<Row> = self.device_infos
         .iter()
-        .map(|di|{ Row::new([ di.address().to_string() ]) }).collect();
+        .map(|di|{ Row::new([
+          di.address().to_string(),
+          di.mac_address().to_string(),
+        ]) }).collect();
 
-      let table = Table::new( devices, [ Constraint::Fill( 1 ) ] )
+      let constraints = [ Constraint::Length( 25 ), Constraint::Fill( 1 ) ];
+
+      let table = Table::new( devices, constraints )
         .block( block )
+        .header( Row::new(vec![ "Address", "MAC" ]).style( Style::new().bold() ) )
         .row_highlight_style( Style::new().bg( SLATE.c800 ).add_modifier( Modifier::BOLD ) )
         .highlight_symbol( "> " )
         .highlight_spacing( ratatui::widgets::HighlightSpacing::Always );
@@ -170,5 +179,22 @@ impl<'a> StatefulWidget for DeviceList<'a> {
       // same method name `render`.
       StatefulWidget::render( table, area, buf, state );
     }
+  }
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Device Page
+
+struct DevicePage<'a> {
+  device_info: &'a etherdream::DeviceInfo
+}
+
+impl<'a> Widget for DevicePage<'a> {
+  fn render( self, area: Rect, buf: &mut Buffer ) {
+    let block = Block::bordered().title( Line::raw( format!( " Device: {} ", self.device_info.address() ) ).centered() );
+
+    Paragraph::new( format!( "MAC Address: {}", self.device_info.mac_address() ) )
+      .centered()
+      .block( block )
+      .render( area, buf )
   }
 }
