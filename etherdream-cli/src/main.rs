@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use crossterm::event::{ self, Event, KeyCode, KeyEventKind };
 use ratatui::prelude::*;
 use ratatui::style::palette::tailwind::SLATE;
-use ratatui::widgets::{ Block, List, ListItem, ListState, Paragraph };
+use ratatui::widgets::{ Block, Paragraph, Row, Table, TableState };
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Main
 
@@ -58,14 +58,14 @@ async fn main() {
 
 struct App {
   devices: Vec<etherdream::DeviceInfo>,
-  devices_state: ListState,
+  devices_state: TableState,
   device_selected: Option<usize>,
   should_exit: bool
 }
 
 impl Default for App {
   fn default() -> Self {
-    let mut state = ListState::default();
+    let mut state = TableState::default();
     state.select( Some( 0 ) );
 
     Self{
@@ -88,7 +88,7 @@ impl App {
     if let Some( index ) = self.device_selected {
       // Main > Device
       let device_info = self.devices.get( index ).unwrap();
-      let block = Block::bordered().title( Line::raw( format!( " Device: {}", device_info.address() ) ).centered() );
+      let block = Block::bordered().title( Line::raw( format!( " Device: {} ", device_info.address() ) ).centered() );
 
       Paragraph::new( format!( "MAC Address: {}", device_info.mac_address() ) )
         .centered()
@@ -145,10 +145,10 @@ struct DeviceList<'a> {
 }
 
 impl<'a> StatefulWidget for DeviceList<'a> {
-  type State = ListState;
+  type State = TableState;
 
   fn render( self, area: Rect, buf: &mut Buffer, state: &mut Self::State ) {
-    let block = Block::bordered().title( Line::raw( " Devices " ).centered() );
+    let block = Block::bordered().title( Line::raw( " Etherdream Devices " ).centered() );
 
     if self.device_infos.is_empty() {
       Paragraph::new( "(no devices)" )
@@ -156,23 +156,19 @@ impl<'a> StatefulWidget for DeviceList<'a> {
         .block( block )
         .render( area, buf )
     } else {
-      // Iterate through all `devices` and stylize them.
-      let devices: Vec<ListItem> = self.device_infos
+      let devices: Vec<Row> = self.device_infos
         .iter()
-        .enumerate()
-        .map(|(_i, device_info)| { ListItem::new( device_info.address().to_string() ) })
-        .collect();
+        .map(|di|{ Row::new([ di.address().to_string() ]) }).collect();
 
-      // Create a List from all `devices` and highlight the currently selected one
-      let devices_list = List::new( devices )
+      let table = Table::new( devices, [ Constraint::Fill( 1 ) ] )
         .block( block )
-        .highlight_style( Style::new().bg( SLATE.c800 ).add_modifier( Modifier::BOLD ) )
+        .row_highlight_style( Style::new().bg( SLATE.c800 ).add_modifier( Modifier::BOLD ) )
         .highlight_symbol( "> " )
         .highlight_spacing( ratatui::widgets::HighlightSpacing::Always );
 
       // We need to disambiguate this trait method as both `Widget` and `StatefulWidget` share the
       // same method name `render`.
-      StatefulWidget::render( devices_list, area, buf, state );
+      StatefulWidget::render( table, area, buf, state );
     }
   }
 }
