@@ -1,7 +1,9 @@
 //! CLI tool to discover, connect and test Etherdream DAC's.
 mod executors;
 
+use std::cell::RefCell;
 use std::net::SocketAddr;
+use std::rc::Rc;
 use std::time::Duration;
 
 use crossterm::event::{ self, Event, KeyCode, KeyEvent, KeyEventKind };
@@ -33,7 +35,7 @@ async fn main() {
 
       // Capture any discovered devices from the Etherdream discovery service
       while let Ok( device_info ) = device_info_rx.try_recv() {
-        app.devices.push( device_info.info().clone() );
+        app.device_infos.borrow_mut().push( device_info.info().clone() );
       }
 
       // Render
@@ -54,6 +56,7 @@ async fn main() {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
 
+#[derive( PartialEq )]
 enum Scenes { List, Info }
 
 trait Scene {
@@ -64,37 +67,38 @@ trait Scene {
   fn render( &mut self, area: Rect, buf: &mut Buffer );
 }
 
-struct App<'a> {
-  devices: Vec<etherdream::DeviceInfo>,
-  device_selected: Option<usize>,
+struct App {
+  device_infos: Rc<RefCell<Vec<etherdream::DeviceInfo>>>,
+  device_selected: Rc<RefCell<Option<usize>>>,
   scene: Scenes,
-  scene_list: ListScene<'a>,
-  scene_info: InfoScene<'a>,
+  scene_list: ListScene,
+  scene_info: InfoScene,
   should_exit: bool
 }
 
-impl Default for App<'_> {
+impl Default for App {
   fn default() -> Self {
-    let device_infos = vec![
+    let device_infos = Rc::new( RefCell::new( vec![
       etherdream::DeviceInfo::new( SocketAddr::from(( [10, 0, 0, 1], 6543 )), etherdream::protocol::Intrinsics::default() ),
       etherdream::DeviceInfo::new( SocketAddr::from(( [10, 0, 0, 2], 6543 )), etherdream::protocol::Intrinsics::default() )
-    ];
+    ] ) );
 
-    let list_scene = ListScene::new( &device_infos );
-    let info_scene = InfoScene{};
+    let device_selected = Rc::new( RefCell::new( None::<usize> ) );
+    let scene_list = ListScene::new( device_infos.clone(), device_selected.clone() );
+    let scene_info = InfoScene::new( device_infos.clone(), device_selected.clone() );
 
     Self{
-      devices: device_infos,
-      device_selected: None,
+      device_infos,
+      device_selected,
       scene: Scenes::List,
-      scene_info: info_scene,
-      scene_list: list_scene,
+      scene_info,
+      scene_list,
       should_exit: false
     }
   }
 }
 
-impl<'a> App<'a> {
+impl App {
   fn on_key_event( &mut self, key: KeyEvent ) {
     if key.kind == KeyEventKind::Press {
       let handled =
@@ -104,7 +108,22 @@ impl<'a> App<'a> {
         };
 
       if ! handled {
-        /* handle scene changes */
+        match key.code {
+          KeyCode::Char( 'q' ) | KeyCode::Esc => {
+            if self.device_selected.borrow().is_some() {
+              *self.device_selected.borrow_mut() = None;
+              self.scene = Scenes::List;
+            } else {
+              self.should_exit = true;
+            }
+          },
+          KeyCode::Enter => {
+            if self.scene == Scenes::List && self.device_selected.borrow().is_some() {
+              self.scene = Scenes::Info;
+            }
+          },
+          _ => {}
+        }
       }
     }
   }
@@ -123,45 +142,32 @@ impl<'a> App<'a> {
       .centered()
       .render( footer_area, frame.buffer_mut() );
   }
-
-  fn on_enter( &mut self ) {
-    if self.device_selected.is_none() {
-      self.device_selected = Some( self.devices_state.selected().unwrap() )
-    }
-  }
-
-  fn on_escape( &mut self ) {
-    if self.device_selected.is_some() {
-      self.device_selected = None;
-    } else {
-      self.should_exit = true;
-    }
-  }
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene: List
 
-struct ListScene<'a> {
-  device_infos: &'a Vec<etherdream::DeviceInfo>,
+struct ListScene {
+  device_infos: Rc<RefCell<Vec<etherdream::DeviceInfo>>>,
+  device_selected: Rc<RefCell<Option<usize>>>,
   state: TableState
 }
 
-impl<'a> ListScene<'a> {
-  fn new( device_infos: &'a Vec<etherdream::DeviceInfo> ) -> Self {
+impl ListScene {
+  fn new( device_infos: Rc<RefCell<Vec<etherdream::DeviceInfo>>>, device_selected: Rc<RefCell<Option<usize>>> ) -> Self {
     let mut state = TableState::default();
     state.select( Some( 0 ) );
 
-    Self{ device_infos, state }
+    Self{ device_infos, device_selected, state }
   }
 }
 
-impl<'a> Scene for ListScene<'a> {
+impl Scene for ListScene {
   fn on_key_press( &mut self, key: KeyCode ) -> bool {
     match key {
       KeyCode::Down => {
         let i =
           if let Some( i ) = self.state.selected() {
-            i.saturating_add( 1 ) % self.device_infos.len()
+            i.saturating_add( 1 ) % self.device_infos.borrow().len()
           } else {
             0
           };
@@ -172,7 +178,7 @@ impl<'a> Scene for ListScene<'a> {
       KeyCode::Up => {
         let i =
           if let Some( i ) = self.state.selected() {
-            i.saturating_sub( 1 ) % self.device_infos.len()
+            i.saturating_sub( 1 ) % self.device_infos.borrow().len()
           } else {
             0
           };
@@ -180,6 +186,11 @@ impl<'a> Scene for ListScene<'a> {
         self.state.select( Some( i ) );
         return true;
       },
+      KeyCode::Enter => {
+        if let Some( index ) = self.state.selected() {
+          *self.device_selected.borrow_mut() = Some( index );
+        }
+      }
       _ => {}
     }
 
@@ -190,13 +201,14 @@ impl<'a> Scene for ListScene<'a> {
   fn render( &mut self, area: Rect, buf: &mut Buffer ) {
     let block = Block::bordered().title( Line::raw( " Etherdream Devices " ).centered() );
 
-    if self.device_infos.is_empty() {
+    if self.device_infos.borrow().is_empty() {
       Paragraph::new( "(no devices)" )
         .centered()
         .block( block )
         .render( area, buf )
     } else {
       let devices: Vec<Row> = self.device_infos
+        .borrow()
         .iter()
         .map(|di|{ Row::new([
           di.address().to_string(),
@@ -221,22 +233,32 @@ impl<'a> Scene for ListScene<'a> {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene: Info
 
-struct InfoScene<'a> {
-  device_info: &'a etherdream::DeviceInfo
+struct InfoScene {
+  device_infos: Rc<RefCell<Vec<etherdream::DeviceInfo>>>,
+  device_selected: Rc<RefCell<Option<usize>>>
 }
 
-impl<'a> Scene for InfoScene<'a> {
-  fn on_key_press( &mut self, key: KeyCode ) -> bool {
+impl InfoScene {
+  fn new( device_infos: Rc<RefCell<Vec<etherdream::DeviceInfo>>>, device_selected: Rc<RefCell<Option<usize>>> ) -> Self {
+    Self{ device_infos, device_selected }
+  }
+}
+
+impl Scene for InfoScene {
+  fn on_key_press( &mut self, _key: KeyCode ) -> bool {
     // Bubble-up all other key events
     false
   }
 
   fn render( &mut self, area: Rect, buf: &mut Buffer ) {
-    let block = Block::bordered().title( Line::raw( format!( " Device: {} ", self.device_info.address() ) ).centered() );
+    if let Some( device_index ) = *self.device_selected.borrow() &&
+       let Some( device_info ) = self.device_infos.borrow().get( device_index ) {
+      let block = Block::bordered().title( Line::raw( format!( " Device: {} ", device_info.address() ) ).centered() );
 
-    Paragraph::new( format!( "MAC Address: {}", self.device_info.mac_address() ) )
-      .centered()
-      .block( block )
-      .render( area, buf )
+      Paragraph::new( format!( "MAC Address: {}", device_info.mac_address() ) )
+        .centered()
+        .block( block )
+        .render( area, buf )
+    }
   }
 }
