@@ -4,7 +4,7 @@ mod executors;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use crossterm::event::{ self, Event, KeyCode, KeyEventKind };
+use crossterm::event::{ self, Event, KeyCode, KeyEvent, KeyEventKind };
 use ratatui::prelude::*;
 use ratatui::style::palette::tailwind::SLATE;
 use ratatui::widgets::{ Block, Paragraph, Row, Table, TableState };
@@ -45,15 +45,7 @@ async fn main() {
       // that we always handle any discovered devices from `device_info_rx`.
       if let Ok( true ) = event::poll( Duration::from_secs( 0 ) ) {
         if let Ok( Event::Key( key ) ) = event::read() {
-          if key.kind == KeyEventKind::Press {
-            match key.code {
-              KeyCode::Char( 'q' ) | KeyCode::Esc => app.on_escape(),
-              KeyCode::Down => app.on_down(),
-              KeyCode::Up => app.on_up(),
-              KeyCode::Enter => app.on_enter(),
-              _ => {}
-            }
-          }
+          app.on_key_event( key );
         }
       }
     }
@@ -62,68 +54,74 @@ async fn main() {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
 
-struct App {
+enum Scenes { List, Info }
+
+trait Scene {
+  // ...
+  fn on_key_press( &mut self, key: KeyCode ) -> bool;
+
+  // ...
+  fn render( &mut self, area: Rect, buf: &mut Buffer );
+}
+
+struct App<'a> {
   devices: Vec<etherdream::DeviceInfo>,
-  devices_state: TableState,
   device_selected: Option<usize>,
+  scene: Scenes,
+  scene_list: ListScene<'a>,
+  scene_info: InfoScene<'a>,
   should_exit: bool
 }
 
-impl Default for App {
+impl Default for App<'_> {
   fn default() -> Self {
-    let mut state = TableState::default();
-    state.select( Some( 0 ) );
+    let device_infos = vec![
+      etherdream::DeviceInfo::new( SocketAddr::from(( [10, 0, 0, 1], 6543 )), etherdream::protocol::Intrinsics::default() ),
+      etherdream::DeviceInfo::new( SocketAddr::from(( [10, 0, 0, 2], 6543 )), etherdream::protocol::Intrinsics::default() )
+    ];
+
+    let list_scene = ListScene::new( &device_infos );
+    let info_scene = InfoScene{};
 
     Self{
-      devices: vec![
-        etherdream::DeviceInfo::new( SocketAddr::from(( [10, 0, 0, 1], 6543 )), etherdream::protocol::Intrinsics::default() ),
-        etherdream::DeviceInfo::new( SocketAddr::from(( [10, 0, 0, 2], 6543 )), etherdream::protocol::Intrinsics::default() )
-      ],
+      devices: device_infos,
       device_selected: None,
-      devices_state: state,
+      scene: Scenes::List,
+      scene_info: info_scene,
+      scene_list: list_scene,
       should_exit: false
     }
   }
 }
 
-impl App {
+impl<'a> App<'a> {
+  fn on_key_event( &mut self, key: KeyEvent ) {
+    if key.kind == KeyEventKind::Press {
+      let handled =
+        match self.scene {
+          Scenes::Info => self.scene_info.on_key_press( key.code ),
+          Scenes::List => self.scene_list.on_key_press( key.code )
+        };
+
+      if ! handled {
+        /* handle scene changes */
+      }
+    }
+  }
+
   fn render( &mut self, frame: &mut Frame ) {
     let main_layout = Layout::vertical([ Constraint::Fill( 1 ), Constraint::Length( 1 ) ]);
     let [ content_area, footer_area ] = frame.area().layout( &main_layout );
 
-    if let Some( index ) = self.device_selected {
-      // Main > Device
-      let device_info = self.devices.get( index ).unwrap();
-      let device_page = DevicePage{ device_info: &device_info };
-      frame.render_widget( device_page, content_area );
-    } else {
-      // Main > Devices
-      let devices_list = DeviceList{ device_infos: &self.devices };
-      frame.render_stateful_widget( devices_list, content_area, &mut self.devices_state );
+    match self.scene {
+      Scenes::Info => self.scene_info.render( content_area, frame.buffer_mut() ),
+      Scenes::List => self.scene_list.render( content_area, frame.buffer_mut() ),
     }
 
     // Main > Footer
     Paragraph::new( "Use ↓↑ to move, <Enter> to select a device, 'q' to quit." )
       .centered()
       .render( footer_area, frame.buffer_mut() );
-  }
-
-  fn on_down( &mut self ) {
-    let i = match self.devices_state.selected() {
-      Some(i) => i.saturating_add( 1 ) % self.devices.len(),
-      None => 0
-    };
-
-    self.devices_state.select( Some( i ) );
-  }
-
-  fn on_up( &mut self ) {
-    let i = match self.devices_state.selected() {
-      Some(i) => i.saturating_sub( 1 ) % self.devices.len(),
-      None => 0
-    };
-
-    self.devices_state.select( Some( i ) );
   }
 
   fn on_enter( &mut self ) {
@@ -141,16 +139,55 @@ impl App {
   }
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Device List
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene: List
 
-struct DeviceList<'a> {
-  device_infos: &'a Vec<etherdream::DeviceInfo>
+struct ListScene<'a> {
+  device_infos: &'a Vec<etherdream::DeviceInfo>,
+  state: TableState
 }
 
-impl<'a> StatefulWidget for DeviceList<'a> {
-  type State = TableState;
+impl<'a> ListScene<'a> {
+  fn new( device_infos: &'a Vec<etherdream::DeviceInfo> ) -> Self {
+    let mut state = TableState::default();
+    state.select( Some( 0 ) );
 
-  fn render( self, area: Rect, buf: &mut Buffer, state: &mut Self::State ) {
+    Self{ device_infos, state }
+  }
+}
+
+impl<'a> Scene for ListScene<'a> {
+  fn on_key_press( &mut self, key: KeyCode ) -> bool {
+    match key {
+      KeyCode::Down => {
+        let i =
+          if let Some( i ) = self.state.selected() {
+            i.saturating_add( 1 ) % self.device_infos.len()
+          } else {
+            0
+          };
+
+        self.state.select( Some( i ) );
+        return true;
+      },
+      KeyCode::Up => {
+        let i =
+          if let Some( i ) = self.state.selected() {
+            i.saturating_sub( 1 ) % self.device_infos.len()
+          } else {
+            0
+          };
+
+        self.state.select( Some( i ) );
+        return true;
+      },
+      _ => {}
+    }
+
+    // Bubble-up all other key events
+    false
+  }
+
+  fn render( &mut self, area: Rect, buf: &mut Buffer ) {
     let block = Block::bordered().title( Line::raw( " Etherdream Devices " ).centered() );
 
     if self.device_infos.is_empty() {
@@ -177,19 +214,24 @@ impl<'a> StatefulWidget for DeviceList<'a> {
 
       // We need to disambiguate this trait method as both `Widget` and `StatefulWidget` share the
       // same method name `render`.
-      StatefulWidget::render( table, area, buf, state );
+      StatefulWidget::render( table, area, buf, &mut self.state );
     }
   }
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Device Page
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene: Info
 
-struct DevicePage<'a> {
+struct InfoScene<'a> {
   device_info: &'a etherdream::DeviceInfo
 }
 
-impl<'a> Widget for DevicePage<'a> {
-  fn render( self, area: Rect, buf: &mut Buffer ) {
+impl<'a> Scene for InfoScene<'a> {
+  fn on_key_press( &mut self, key: KeyCode ) -> bool {
+    // Bubble-up all other key events
+    false
+  }
+
+  fn render( &mut self, area: Rect, buf: &mut Buffer ) {
     let block = Block::bordered().title( Line::raw( format!( " Device: {} ", self.device_info.address() ) ).centered() );
 
     Paragraph::new( format!( "MAC Address: {}", self.device_info.mac_address() ) )
