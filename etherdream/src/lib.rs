@@ -14,6 +14,7 @@ use tokio::sync::mpsc;
 // Convenience exports
 pub use client::{ Client, State };
 pub use device_info::DeviceInfo;
+pub use discovery::DiscoveredDeviceInfo;
 pub use generator::Generator;
 
 /// Starts a server that discovers Etherdream network device's. The server will
@@ -21,7 +22,7 @@ pub use generator::Generator;
 ///
 /// Each unique device will be published to the user-provided `tx` a single
 /// time.
-pub async fn discover( tx: mpsc::Sender<discovery::DiscoveredDeviceInfo> )
+pub async fn discover( tx: mpsc::Sender<DiscoveredDeviceInfo> )
   -> Result<discovery::Server,io::Error>
 {
   discovery::Server::serve( tx ).await
@@ -37,6 +38,8 @@ pub async fn connect( device_info: impl Into<DeviceInfo> )
 
 /// Makes a `Generator` from an existing `Client` and user-provided
 /// `generator::Executable`.
-pub fn make_generator( client: Client, executor: Box<dyn generator::Executable> ) -> Generator {
+pub fn make_generator( client: Client, executor: Box<dyn generator::Executable> )
+  -> Generator
+{
   Generator::new( client, executor )
 }
