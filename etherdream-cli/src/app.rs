@@ -152,12 +152,12 @@ struct SceneData {
 }
 
 impl SceneData {
-  // Returns a read-only reference to the list of discovered devices
+  // Returns a read-only reference to the list of discovered device infos
   fn device_infos( &'_ self ) -> Ref<'_, Vec<etherdream::DeviceInfo>> {
     self.device_infos.borrow()
   }
 
-  // Returns the selected device, if one is set
+  // Returns the selected device index, if one is set
   fn device_selected_index( &self ) -> Option<usize> {
     *self.device_selected_index.borrow()
   }
@@ -181,10 +181,10 @@ struct ListScene {
 
 impl ListScene {
   fn new( data: SceneData ) -> Self {
-    let mut state = TableState::default();
-    state.select( Some( 0 ) );
-
-    Self{ data, state }
+    Self{
+      data,
+      state: TableState::new().with_selected( Some( 0 ) )
+    }
   }
 }
 
@@ -192,37 +192,23 @@ impl IsScene for ListScene {
   fn on_key_press( &mut self, key: KeyCode ) -> SceneEvent {
     match key {
       KeyCode::Down => {
-        let i =
-          if let Some( i ) = self.state.selected() {
-            i.saturating_add( 1 ) % self.data.device_infos().len()
-          } else {
-            0
-          };
-
+        let i = self.state.selected().unwrap_or( 0 ).saturating_add( 1 ) % self.data.device_infos().len();
         self.state.select( Some( i ) );
-        return SceneEvent::Handled;
+        SceneEvent::Handled
       },
       KeyCode::Up => {
-        let i =
-          if let Some( i ) = self.state.selected() {
-            i.saturating_sub( 1 ) % self.data.device_infos().len()
-          } else {
-            0
-          };
-
+        let i = self.state.selected().unwrap_or( 0 ).saturating_sub( 1 ) % self.data.device_infos().len();
         self.state.select( Some( i ) );
-        return SceneEvent::Handled;
+        SceneEvent::Handled
       },
       KeyCode::Enter => {
-        if let Some( index ) = self.state.selected() {
-          return SceneEvent::Select( index );
-        }
+        let i = self.state.selected().unwrap_or( 0 );
+        SceneEvent::Select( i )
       }
-      _ => {}
+      _ => {
+        SceneEvent::NotHandled
+      }
     }
-
-    // Bubble-up all other key events
-    SceneEvent::NotHandled
   }
 
   fn render( &mut self, area: Rect, buf: &mut Buffer ) {
@@ -250,8 +236,6 @@ impl IsScene for ListScene {
         .highlight_symbol( "> " )
         .highlight_spacing( ratatui::widgets::HighlightSpacing::Always );
 
-      // We need to disambiguate this trait method as both `Widget` and `StatefulWidget` share the
-      // same method name `render`.
       StatefulWidget::render( table, area, buf, &mut self.state );
     }
   }
