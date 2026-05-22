@@ -15,14 +15,14 @@ use tokio::sync::mpsc::Receiver;
 pub struct App {
   current_scene: Scene,
   device_infos: Rc<RefCell<Vec<etherdream::DeviceInfo>>>,
-  device_info_rx: Receiver<etherdream::DiscoveredDeviceInfo>,
   device_selected_index: Rc<RefCell<Option<usize>>>,
+  discovery_rx: Receiver<etherdream::DiscoveredDeviceInfo>,
   scenes: HashMap<Scene,Box<dyn IsScene>>,
   should_exit: bool
 }
 
 impl App {
-  pub fn new( device_info_rx: Receiver<etherdream::DiscoveredDeviceInfo> ) -> Self {
+  pub fn new( discovery_rx: Receiver<etherdream::DiscoveredDeviceInfo> ) -> Self {
     // TODO: Maybe wrap in `test` configuration option?
     let device_infos = Rc::new( RefCell::new( vec![
       etherdream::DeviceInfo::new( SocketAddr::from(( [10, 0, 0, 1], 6543 )), etherdream::protocol::Intrinsics::default() ),
@@ -43,8 +43,8 @@ impl App {
     Self{
       current_scene: Scene::List,
       device_infos,
-      device_info_rx,
       device_selected_index,
+      discovery_rx,
       scenes,
       should_exit: false
     }
@@ -58,7 +58,7 @@ impl App {
         if self.should_exit { break; }
 
         // Capture any discovered devices from the Etherdream discovery service
-        while let Ok( device_info ) = self.device_info_rx.try_recv() {
+        while let Ok( device_info ) = self.discovery_rx.try_recv() {
           self.device_infos.borrow_mut().push( device_info.info().clone() )
         }
 

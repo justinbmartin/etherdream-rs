@@ -9,7 +9,7 @@ async fn main() -> ExitCode {
   // Start the Etherdream device discovery service
   let ( discovery_tx, discovery_rx ) = tokio::sync::mpsc::channel( 16 );
 
-  let _ =
+  let discovery =
     match etherdream::discover( discovery_tx ).await {
       Ok( server ) => server,
       Err( err ) => {
@@ -18,6 +18,10 @@ async fn main() -> ExitCode {
       }
     };
 
+  // [Blocks] Create and run the app
   app::App::new( discovery_rx ).run();
+
+  // Shutdown the discovery service and terminate
+  discovery.shutdown().await;
   ExitCode::SUCCESS
 }
