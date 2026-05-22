@@ -14,8 +14,8 @@ use tokio::sync::mpsc::Receiver;
 
 pub struct App {
   current_scene: Scene,
-  device_infos: Rc<RefCell<Vec<etherdream::DeviceInfo>>>,
-  device_selected_index: Rc<RefCell<Option<usize>>>,
+  device_map: Rc<RefCell<HashMap<SocketAddr,Device>>>,
+  device_selected_id: Rc<RefCell<Option<SocketAddr>>>,
   discovery_rx: Receiver<etherdream::DiscoveredDeviceInfo>,
   scenes: HashMap<Scene,Box<dyn IsScene>>,
   should_exit: bool
@@ -23,17 +23,19 @@ pub struct App {
 
 impl App {
   pub fn new( discovery_rx: Receiver<etherdream::DiscoveredDeviceInfo> ) -> Self {
-    // TODO: Maybe wrap in `test` configuration option?
-    let device_infos = Rc::new( RefCell::new( vec![
-      etherdream::DeviceInfo::new( SocketAddr::from(( [10, 0, 0, 1], 6543 )), etherdream::protocol::Intrinsics::default() ),
-      etherdream::DeviceInfo::new( SocketAddr::from(( [10, 0, 0, 2], 6543 )), etherdream::protocol::Intrinsics::default() )
-    ] ) );
+    let device_map = Rc::new( RefCell::new( HashMap::new() ) );
+    let device_selected_id = Rc::new( RefCell::new( None::<SocketAddr> ) );
 
-    let device_selected_index = Rc::new( RefCell::new( None::<usize> ) );
+    // TODO: Maybe wrap in `test` configuration option?
+    let device_info = etherdream::DeviceInfo::new( SocketAddr::from(( [10, 0, 0, 1], 6543 )), etherdream::protocol::Intrinsics::default() );
+    device_map.borrow_mut().insert( *device_info.address(), Device::new( device_info ) );
+
+    let device_info = etherdream::DeviceInfo::new( SocketAddr::from(( [10, 0, 0, 2], 6543 )), etherdream::protocol::Intrinsics::default() );
+    device_map.borrow_mut().insert( *device_info.address(), Device::new( device_info ) );
 
     let scene_data = SceneData{
-      device_infos: device_infos.clone(),
-      device_selected_index: device_selected_index.clone()
+      device_map: device_map.clone(),
+      device_selected_id: device_selected_id.clone()
     };
 
     let mut scenes: HashMap<Scene,Box<dyn IsScene>> = HashMap::new();
@@ -42,16 +44,14 @@ impl App {
 
     Self{
       current_scene: Scene::List,
-      device_infos,
-      device_selected_index,
+      device_map,
+      device_selected_id,
       discovery_rx,
       scenes,
       should_exit: false
     }
   }
-}
 
-impl App {
   pub fn run( &mut self ) {
     ratatui::run(| terminal |{
       loop {
@@ -59,7 +59,7 @@ impl App {
 
         // Capture any discovered devices from the Etherdream discovery service
         while let Ok( device_info ) = self.discovery_rx.try_recv() {
-          self.device_infos.borrow_mut().push( device_info.info().clone() )
+          self.device_map.borrow_mut().insert( *device_info.info().address(), Device::new( device_info.info().clone() ) );
         }
 
         // Render
@@ -88,12 +88,12 @@ impl App {
         };
 
       match handled {
-        SceneEvent::Select( index ) => {
-          *self.device_selected_index.borrow_mut() = Some( index );
+        SceneEvent::Select( address ) => {
+          *self.device_selected_id.borrow_mut() = Some( address );
           self.current_scene = Scene::Info;
         },
         SceneEvent::Exit => {
-          *self.device_selected_index.borrow_mut() = None;
+          *self.device_selected_id.borrow_mut() = None;
           self.current_scene = Scene::List;
         },
         SceneEvent::NotHandled => {
@@ -124,6 +124,22 @@ impl App {
   }
 }
 
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Device
+
+struct Device {
+  info: etherdream::DeviceInfo,
+  generator: Option<etherdream::Generator>
+}
+
+impl Device {
+  fn new( info: etherdream::DeviceInfo ) -> Self {
+    Self{
+      info,
+      generator: None
+    }
+  }
+}
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
 
 // List of scenes this application contains.
@@ -136,7 +152,7 @@ enum SceneEvent {
   Exit,           // The scene should be exited
   Handled,        // The event was handled internally by the scene
   NotHandled,     // The event was not handled by the scene
-  Select( usize ) // A device was selected
+  Select( SocketAddr ) // A device was selected
 }
 
 // All scenes must implement this trait
@@ -147,27 +163,27 @@ trait IsScene {
 
 // Shared read-only scene data
 struct SceneData {
-  device_infos: Rc<RefCell<Vec<etherdream::DeviceInfo>>>,
-  device_selected_index: Rc<RefCell<Option<usize>>>
+  device_map: Rc<RefCell<HashMap<SocketAddr,Device>>>,
+  device_selected_id: Rc<RefCell<Option<SocketAddr>>>
 }
 
 impl SceneData {
   // Returns a read-only reference to the list of discovered device infos
-  fn device_infos( &'_ self ) -> Ref<'_, Vec<etherdream::DeviceInfo>> {
-    self.device_infos.borrow()
+  fn device_map( &'_ self ) -> Ref<'_, HashMap<SocketAddr,Device>> {
+    self.device_map.borrow()
   }
 
   // Returns the selected device index, if one is set
-  fn device_selected_index( &self ) -> Option<usize> {
-    *self.device_selected_index.borrow()
+  fn device_selected_id( &self ) -> Option<SocketAddr> {
+    *self.device_selected_id.borrow()
   }
 }
 
 impl Clone for SceneData {
   fn clone( &self ) -> Self {
     SceneData{
-      device_infos: self.device_infos.clone(),
-      device_selected_index: self.device_selected_index.clone()
+      device_map: self.device_map.clone(),
+      device_selected_id: self.device_selected_id.clone()
     }
   }
 }
@@ -192,18 +208,18 @@ impl IsScene for ListScene {
   fn on_key_press( &mut self, key: KeyCode ) -> SceneEvent {
     match key {
       KeyCode::Down => {
-        let i = self.state.selected().unwrap_or( 0 ).saturating_add( 1 ) % self.data.device_infos().len();
+        let i = self.state.selected().unwrap_or( 0 ).saturating_add( 1 ) % self.data.device_map().len();
         self.state.select( Some( i ) );
         SceneEvent::Handled
       },
       KeyCode::Up => {
-        let i = self.state.selected().unwrap_or( 0 ).saturating_sub( 1 ) % self.data.device_infos().len();
+        let i = self.state.selected().unwrap_or( 0 ).saturating_sub( 1 ) % self.data.device_map().len();
         self.state.select( Some( i ) );
         SceneEvent::Handled
       },
       KeyCode::Enter => {
-        let i = self.state.selected().unwrap_or( 0 );
-        SceneEvent::Select( i )
+        //let i = self.state.selected().unwrap_or( 0 );
+        SceneEvent::Select( SocketAddr::from(( [10, 0, 0, 2], 6543 )) )
       }
       _ => {
         SceneEvent::NotHandled
@@ -214,17 +230,17 @@ impl IsScene for ListScene {
   fn render( &mut self, area: Rect, buf: &mut Buffer ) {
     let block = Block::bordered().title( Line::raw( " Etherdream Devices " ).centered() );
 
-    if self.data.device_infos().is_empty() {
+    if self.data.device_map().is_empty() {
       Paragraph::new( "(no devices)" )
         .centered()
         .block( block )
         .render( area, buf )
     } else {
-      let devices: Vec<Row> = self.data.device_infos()
+      let devices: Vec<Row> = self.data.device_map()
         .iter()
-        .map(|di|{ Row::new([
-          di.address().to_string(),
-          di.mac_address().to_string(),
+        .map(|( address, device )|{ Row::new([
+          address.to_string(),
+          device.info.mac_address().to_string(),
         ]) }).collect();
 
       let constraints = [ Constraint::Length( 25 ), Constraint::Fill( 1 ) ];
@@ -262,11 +278,11 @@ impl IsScene for InfoScene {
   }
 
   fn render( &mut self, area: Rect, buf: &mut Buffer ) {
-    if let Some( index ) = self.data.device_selected_index() &&
-       let Some( device_info ) = self.data.device_infos().get( index ) {
-      let block = Block::bordered().title( Line::raw( format!( " Device: {} ", device_info.address() ) ).centered() );
+    if let Some( address ) = self.data.device_selected_id() &&
+       let Some( device ) = self.data.device_map().get( &address ) {
+      let block = Block::bordered().title( Line::raw( format!( " Device: {} ", device.info.address() ) ).centered() );
 
-      Paragraph::new( format!( "MAC Address: {}", device_info.mac_address() ) )
+      Paragraph::new( format!( "MAC Address: {}", device.info.mac_address() ) )
         .centered()
         .block( block )
         .render( area, buf )
