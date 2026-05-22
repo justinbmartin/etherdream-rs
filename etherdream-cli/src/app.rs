@@ -1,4 +1,4 @@
-use std::cell::{ Ref, RefCell };
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::rc::Rc;
@@ -9,6 +9,9 @@ use ratatui::prelude::*;
 use ratatui::style::palette::tailwind::SLATE;
 use ratatui::widgets::{ Block, Paragraph, Row, Table, TableState };
 use tokio::sync::mpsc::Receiver;
+
+use crate::device::Device;
+use crate::scene::{ IsScene, Scene, SceneData, SceneEvent };
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
 
@@ -33,10 +36,7 @@ impl App {
     let device_info = etherdream::DeviceInfo::new( SocketAddr::from(( [10, 0, 0, 2], 6543 )), etherdream::protocol::Intrinsics::default() );
     device_map.borrow_mut().insert( *device_info.address(), Device::new( device_info ) );
 
-    let scene_data = SceneData{
-      device_map: device_map.clone(),
-      device_selected_id: device_selected_id.clone()
-    };
+    let scene_data = SceneData::new( device_map.clone(), device_selected_id.clone() );
 
     let mut scenes: HashMap<Scene,Box<dyn IsScene>> = HashMap::new();
     scenes.insert( Scene::Info, Box::new( InfoScene::new( scene_data.clone() ) ) );
@@ -124,70 +124,6 @@ impl App {
   }
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Device
-
-struct Device {
-  info: etherdream::DeviceInfo,
-  generator: Option<etherdream::Generator>
-}
-
-impl Device {
-  fn new( info: etherdream::DeviceInfo ) -> Self {
-    Self{
-      info,
-      generator: None
-    }
-  }
-}
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
-
-// List of scenes this application contains.
-#[derive( Eq, Hash, PartialEq )]
-enum Scene { List, Info }
-
-// Return values from scene key events
-#[derive( PartialEq )]
-enum SceneEvent {
-  Exit,           // The scene should be exited
-  Handled,        // The event was handled internally by the scene
-  NotHandled,     // The event was not handled by the scene
-  Select( SocketAddr ) // A device was selected
-}
-
-// All scenes must implement this trait
-trait IsScene {
-  fn on_key_press( &mut self, key: KeyCode ) -> SceneEvent;
-  fn render( &mut self, area: Rect, buf: &mut Buffer );
-}
-
-// Shared read-only scene data
-struct SceneData {
-  device_map: Rc<RefCell<HashMap<SocketAddr,Device>>>,
-  device_selected_id: Rc<RefCell<Option<SocketAddr>>>
-}
-
-impl SceneData {
-  // Returns a read-only reference to the list of discovered device infos
-  fn device_map( &'_ self ) -> Ref<'_, HashMap<SocketAddr,Device>> {
-    self.device_map.borrow()
-  }
-
-  // Returns the selected device index, if one is set
-  fn device_selected_id( &self ) -> Option<SocketAddr> {
-    *self.device_selected_id.borrow()
-  }
-}
-
-impl Clone for SceneData {
-  fn clone( &self ) -> Self {
-    SceneData{
-      device_map: self.device_map.clone(),
-      device_selected_id: self.device_selected_id.clone()
-    }
-  }
-}
-
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene: List
 
 struct ListScene {
@@ -240,7 +176,7 @@ impl IsScene for ListScene {
         .iter()
         .map(|( address, device )|{ Row::new([
           address.to_string(),
-          device.info.mac_address().to_string(),
+          device.info().mac_address().to_string(),
         ]) }).collect();
 
       let constraints = [ Constraint::Length( 25 ), Constraint::Fill( 1 ) ];
@@ -280,9 +216,9 @@ impl IsScene for InfoScene {
   fn render( &mut self, area: Rect, buf: &mut Buffer ) {
     if let Some( address ) = self.data.device_selected_id() &&
        let Some( device ) = self.data.device_map().get( &address ) {
-      let block = Block::bordered().title( Line::raw( format!( " Device: {} ", device.info.address() ) ).centered() );
+      let block = Block::bordered().title( Line::raw( format!( " Device: {} ", device.info().address() ) ).centered() );
 
-      Paragraph::new( format!( "MAC Address: {}", device.info.mac_address() ) )
+      Paragraph::new( format!( "MAC Address: {}", device.info().mac_address() ) )
         .centered()
         .block( block )
         .render( area, buf )

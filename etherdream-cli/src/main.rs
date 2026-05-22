@@ -1,6 +1,8 @@
 //! CLI tool to discover, connect and test Etherdream DAC's.
 mod app;
+mod device;
 mod executors;
+mod scene;
 
 use std::process::ExitCode;
 
