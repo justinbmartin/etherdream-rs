@@ -1,7 +1,7 @@
 //! CLI tool to discover, connect and test Etherdream DAC's.
 mod executors;
 
-use std::cell::RefCell;
+use std::cell::{ Ref, RefCell };
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::rc::Rc;
@@ -36,7 +36,7 @@ async fn main() {
 
       // Capture any discovered devices from the Etherdream discovery service
       while let Ok( device_info ) = device_info_rx.try_recv() {
-        app.device_infos.borrow_mut().push( device_info.info().clone() );
+        app.add_device( device_info.info().clone() );
       }
 
       // Render
@@ -62,10 +62,10 @@ enum Scene { List, Info }
 
 #[derive( PartialEq )]
 enum OnKeyEventResult {
-  ToInfoScene( usize ),
-  ToListScene,
+  Select( usize ),
+  Back,
   Handled,
-  NotHandled,
+  NotHandled
 }
 
 trait IsScene {
@@ -73,10 +73,33 @@ trait IsScene {
   fn render( &mut self, area: Rect, buf: &mut Buffer );
 }
 
+struct SceneData {
+  device_infos: Rc<RefCell<Vec<etherdream::DeviceInfo>>>,
+  device_selected: Rc<RefCell<Option<usize>>>
+}
+
+impl SceneData {
+  fn device_infos( &'_ self ) -> Ref<'_, Vec<etherdream::DeviceInfo>> {
+    self.device_infos.borrow()
+  }
+
+  fn selected_device( &self ) -> Option<usize> {
+    *self.device_selected.borrow()
+  }
+}
+
+impl Clone for SceneData {
+  fn clone( &self ) -> Self {
+    SceneData{
+      device_infos: self.device_infos.clone(),
+      device_selected: self.device_selected.clone()
+    }
+  }
+}
+
 struct App {
   current_scene: Scene,
-  device_infos: Rc<RefCell<Vec<etherdream::DeviceInfo>>>,
-  device_selected: Rc<RefCell<Option<usize>>>,
+  scene_data: SceneData,
   scenes: HashMap<Scene,Box<dyn IsScene>>,
   should_exit: bool
 }
@@ -91,14 +114,15 @@ impl Default for App {
 
     let device_selected = Rc::new( RefCell::new( None::<usize> ) );
 
+    let scene_data = SceneData{ device_infos, device_selected };
+
     let mut scenes: HashMap<Scene,Box<dyn IsScene>> = HashMap::new();
-    scenes.insert( Scene::Info, Box::new( InfoScene::new( device_infos.clone(), device_selected.clone() ) ) );
-    scenes.insert( Scene::List, Box::new( ListScene::new( device_infos.clone() ) ) );
+    scenes.insert( Scene::Info, Box::new( InfoScene::new( scene_data.clone() ) ) );
+    scenes.insert( Scene::List, Box::new( ListScene::new( scene_data.clone() ) ) );
 
     Self{
       current_scene: Scene::List,
-      device_infos,
-      device_selected,
+      scene_data,
       scenes,
       should_exit: false
     }
@@ -106,6 +130,10 @@ impl Default for App {
 }
 
 impl App {
+  fn add_device( &mut self, device_info: etherdream::DeviceInfo ) {
+    self.scene_data.device_infos.borrow_mut().push( device_info )
+  }
+
   fn on_key_event( &mut self, key: KeyEvent ) {
     if key.kind == KeyEventKind::Press {
       let handled =
@@ -116,12 +144,12 @@ impl App {
         };
 
       match handled {
-        OnKeyEventResult::ToInfoScene( index ) => {
-          *self.device_selected.borrow_mut() = Some( index );
+        OnKeyEventResult::Select( index ) => {
+          *self.scene_data.device_selected.borrow_mut() = Some( index );
           self.current_scene = Scene::Info;
         },
-        OnKeyEventResult::ToListScene => {
-          *self.device_selected.borrow_mut() = None;
+        OnKeyEventResult::Back => {
+          *self.scene_data.device_selected.borrow_mut() = None;
           self.current_scene = Scene::List;
         },
         OnKeyEventResult::NotHandled => {
@@ -155,16 +183,16 @@ impl App {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene: List
 
 struct ListScene {
-  device_infos: Rc<RefCell<Vec<etherdream::DeviceInfo>>>,
+  data: SceneData,
   state: TableState
 }
 
 impl ListScene {
-  fn new( device_infos: Rc<RefCell<Vec<etherdream::DeviceInfo>>> ) -> Self {
+  fn new( data: SceneData ) -> Self {
     let mut state = TableState::default();
     state.select( Some( 0 ) );
 
-    Self{ device_infos, state }
+    Self{ data, state }
   }
 }
 
@@ -174,7 +202,7 @@ impl IsScene for ListScene {
       KeyCode::Down => {
         let i =
           if let Some( i ) = self.state.selected() {
-            i.saturating_add( 1 ) % self.device_infos.borrow().len()
+            i.saturating_add( 1 ) % self.data.device_infos().len()
           } else {
             0
           };
@@ -185,7 +213,7 @@ impl IsScene for ListScene {
       KeyCode::Up => {
         let i =
           if let Some( i ) = self.state.selected() {
-            i.saturating_sub( 1 ) % self.device_infos.borrow().len()
+            i.saturating_sub( 1 ) % self.data.device_infos().len()
           } else {
             0
           };
@@ -195,7 +223,7 @@ impl IsScene for ListScene {
       },
       KeyCode::Enter => {
         if let Some( index ) = self.state.selected() {
-          return OnKeyEventResult::ToInfoScene( index );
+          return OnKeyEventResult::Select( index );
         }
       }
       _ => {}
@@ -208,14 +236,13 @@ impl IsScene for ListScene {
   fn render( &mut self, area: Rect, buf: &mut Buffer ) {
     let block = Block::bordered().title( Line::raw( " Etherdream Devices " ).centered() );
 
-    if self.device_infos.borrow().is_empty() {
+    if self.data.device_infos().is_empty() {
       Paragraph::new( "(no devices)" )
         .centered()
         .block( block )
         .render( area, buf )
     } else {
-      let devices: Vec<Row> = self.device_infos
-        .borrow()
+      let devices: Vec<Row> = self.data.device_infos()
         .iter()
         .map(|di|{ Row::new([
           di.address().to_string(),
@@ -241,27 +268,26 @@ impl IsScene for ListScene {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene: Info
 
 struct InfoScene {
-  device_infos: Rc<RefCell<Vec<etherdream::DeviceInfo>>>,
-  device_selected: Rc<RefCell<Option<usize>>>
+  data: SceneData
 }
 
 impl InfoScene {
-  fn new( device_infos: Rc<RefCell<Vec<etherdream::DeviceInfo>>>, device_selected: Rc<RefCell<Option<usize>>> ) -> Self {
-    Self{ device_infos, device_selected }
+  fn new( data: SceneData ) -> Self {
+    Self{ data }
   }
 }
 
 impl IsScene for InfoScene {
   fn on_key_press( &mut self, key: KeyCode ) -> OnKeyEventResult {
     match key {
-      KeyCode::Esc | KeyCode::Char( 'q' ) => OnKeyEventResult::ToListScene,
+      KeyCode::Esc | KeyCode::Char( 'q' ) => OnKeyEventResult::Back,
       _ => OnKeyEventResult::NotHandled
     }
   }
 
   fn render( &mut self, area: Rect, buf: &mut Buffer ) {
-    if let Some( device_index ) = *self.device_selected.borrow() &&
-       let Some( device_info ) = self.device_infos.borrow().get( device_index ) {
+    if let Some( device_index ) = self.data.selected_device() &&
+       let Some( device_info ) = self.data.device_infos().get( device_index ) {
       let block = Block::bordered().title( Line::raw( format!( " Device: {} ", device_info.address() ) ).centered() );
 
       Paragraph::new( format!( "MAC Address: {}", device_info.mac_address() ) )
