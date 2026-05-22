@@ -2,6 +2,7 @@
 mod executors;
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::rc::Rc;
 use std::time::Duration;
@@ -45,7 +46,7 @@ async fn main() {
       //
       // We poll here to ensure we do not block on event `read`. This ensures
       // that we always handle any discovered devices from `device_info_rx`.
-      if let Ok( true ) = event::poll( Duration::from_secs( 0 ) ) {
+      if let Ok( true ) = event::poll( Duration::from_millis( 100 ) ) {
         if let Ok( Event::Key( key ) ) = event::read() {
           app.on_key_event( key );
         }
@@ -56,43 +57,49 @@ async fn main() {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
 
+#[derive( Eq, Hash, PartialEq )]
+enum Scene { List, Info }
+
 #[derive( PartialEq )]
-enum Scenes { List, Info }
+enum OnKeyEventResult {
+  ToInfoScene( usize ),
+  ToListScene,
+  Handled,
+  NotHandled,
+}
 
-trait Scene {
-  // ...
-  fn on_key_press( &mut self, key: KeyCode ) -> bool;
-
-  // ...
+trait IsScene {
+  fn on_key_press( &mut self, key: KeyCode ) -> OnKeyEventResult;
   fn render( &mut self, area: Rect, buf: &mut Buffer );
 }
 
 struct App {
+  current_scene: Scene,
   device_infos: Rc<RefCell<Vec<etherdream::DeviceInfo>>>,
   device_selected: Rc<RefCell<Option<usize>>>,
-  scene: Scenes,
-  scene_list: ListScene,
-  scene_info: InfoScene,
+  scenes: HashMap<Scene,Box<dyn IsScene>>,
   should_exit: bool
 }
 
 impl Default for App {
   fn default() -> Self {
+    // TODO: Maybe wrap in `test` configuration option?
     let device_infos = Rc::new( RefCell::new( vec![
       etherdream::DeviceInfo::new( SocketAddr::from(( [10, 0, 0, 1], 6543 )), etherdream::protocol::Intrinsics::default() ),
       etherdream::DeviceInfo::new( SocketAddr::from(( [10, 0, 0, 2], 6543 )), etherdream::protocol::Intrinsics::default() )
     ] ) );
 
     let device_selected = Rc::new( RefCell::new( None::<usize> ) );
-    let scene_list = ListScene::new( device_infos.clone(), device_selected.clone() );
-    let scene_info = InfoScene::new( device_infos.clone(), device_selected.clone() );
+
+    let mut scenes: HashMap<Scene,Box<dyn IsScene>> = HashMap::new();
+    scenes.insert( Scene::Info, Box::new( InfoScene::new( device_infos.clone(), device_selected.clone() ) ) );
+    scenes.insert( Scene::List, Box::new( ListScene::new( device_infos.clone() ) ) );
 
     Self{
+      current_scene: Scene::List,
       device_infos,
       device_selected,
-      scene: Scenes::List,
-      scene_info,
-      scene_list,
+      scenes,
       should_exit: false
     }
   }
@@ -102,29 +109,31 @@ impl App {
   fn on_key_event( &mut self, key: KeyEvent ) {
     if key.kind == KeyEventKind::Press {
       let handled =
-        match self.scene {
-          Scenes::Info => self.scene_info.on_key_press( key.code ),
-          Scenes::List => self.scene_list.on_key_press( key.code )
+        if let Some( scene ) = self.scenes.get_mut( &self.current_scene ) {
+          scene.on_key_press( key.code )
+        } else {
+          OnKeyEventResult::NotHandled
         };
 
-      if ! handled {
-        match key.code {
-          KeyCode::Char( 'q' ) | KeyCode::Esc => {
-            if self.device_selected.borrow().is_some() {
-              *self.device_selected.borrow_mut() = None;
-              self.scene = Scenes::List;
-            } else {
+      match handled {
+        OnKeyEventResult::ToInfoScene( index ) => {
+          *self.device_selected.borrow_mut() = Some( index );
+          self.current_scene = Scene::Info;
+        },
+        OnKeyEventResult::ToListScene => {
+          *self.device_selected.borrow_mut() = None;
+          self.current_scene = Scene::List;
+        },
+        OnKeyEventResult::NotHandled => {
+          match key.code {
+            KeyCode::Char( 'q' ) | KeyCode::Esc => {
               self.should_exit = true;
-            }
-          },
-          KeyCode::Enter => {
-            if self.scene == Scenes::List && self.device_selected.borrow().is_some() {
-              self.scene = Scenes::Info;
-            }
-          },
-          _ => {}
+            },
+            _ => {}
+          }
         }
-      }
+        OnKeyEventResult::Handled => { /* no-op */ }
+      };
     }
   }
 
@@ -132,9 +141,8 @@ impl App {
     let main_layout = Layout::vertical([ Constraint::Fill( 1 ), Constraint::Length( 1 ) ]);
     let [ content_area, footer_area ] = frame.area().layout( &main_layout );
 
-    match self.scene {
-      Scenes::Info => self.scene_info.render( content_area, frame.buffer_mut() ),
-      Scenes::List => self.scene_list.render( content_area, frame.buffer_mut() ),
+    if let Some( scene ) = self.scenes.get_mut( &self.current_scene ) {
+      scene.render( content_area, frame.buffer_mut() )
     }
 
     // Main > Footer
@@ -148,21 +156,20 @@ impl App {
 
 struct ListScene {
   device_infos: Rc<RefCell<Vec<etherdream::DeviceInfo>>>,
-  device_selected: Rc<RefCell<Option<usize>>>,
   state: TableState
 }
 
 impl ListScene {
-  fn new( device_infos: Rc<RefCell<Vec<etherdream::DeviceInfo>>>, device_selected: Rc<RefCell<Option<usize>>> ) -> Self {
+  fn new( device_infos: Rc<RefCell<Vec<etherdream::DeviceInfo>>> ) -> Self {
     let mut state = TableState::default();
     state.select( Some( 0 ) );
 
-    Self{ device_infos, device_selected, state }
+    Self{ device_infos, state }
   }
 }
 
-impl Scene for ListScene {
-  fn on_key_press( &mut self, key: KeyCode ) -> bool {
+impl IsScene for ListScene {
+  fn on_key_press( &mut self, key: KeyCode ) -> OnKeyEventResult {
     match key {
       KeyCode::Down => {
         let i =
@@ -173,7 +180,7 @@ impl Scene for ListScene {
           };
 
         self.state.select( Some( i ) );
-        return true;
+        return OnKeyEventResult::Handled;
       },
       KeyCode::Up => {
         let i =
@@ -184,18 +191,18 @@ impl Scene for ListScene {
           };
 
         self.state.select( Some( i ) );
-        return true;
+        return OnKeyEventResult::Handled;
       },
       KeyCode::Enter => {
         if let Some( index ) = self.state.selected() {
-          *self.device_selected.borrow_mut() = Some( index );
+          return OnKeyEventResult::ToInfoScene( index );
         }
       }
       _ => {}
     }
 
     // Bubble-up all other key events
-    false
+    OnKeyEventResult::NotHandled
   }
 
   fn render( &mut self, area: Rect, buf: &mut Buffer ) {
@@ -244,10 +251,12 @@ impl InfoScene {
   }
 }
 
-impl Scene for InfoScene {
-  fn on_key_press( &mut self, _key: KeyCode ) -> bool {
-    // Bubble-up all other key events
-    false
+impl IsScene for InfoScene {
+  fn on_key_press( &mut self, key: KeyCode ) -> OnKeyEventResult {
+    match key {
+      KeyCode::Esc | KeyCode::Char( 'q' ) => OnKeyEventResult::ToListScene,
+      _ => OnKeyEventResult::NotHandled
+    }
   }
 
   fn render( &mut self, area: Rect, buf: &mut Buffer ) {
