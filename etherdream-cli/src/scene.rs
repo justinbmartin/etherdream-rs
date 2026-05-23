@@ -13,11 +13,11 @@ pub enum Scene { List, Info }
 
 // Return values from scene key events
 #[derive( PartialEq )]
-pub enum SceneEvent {
+pub enum SceneEvent<'a> {
   Exit,           // The scene should be exited
   Handled,        // The event was handled internally by the scene
   NotHandled,     // The event was not handled by the scene
-  Select( SocketAddr ) // A device was selected
+  Select( &'a SocketAddr ) // A device was selected
 }
 
 // All scenes must implement this trait

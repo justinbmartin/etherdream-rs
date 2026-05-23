@@ -86,7 +86,7 @@ impl App {
 
       match handled {
         SceneEvent::Select( address ) => {
-          *self.device_selected_id.borrow_mut() = Some( address );
+          *self.device_selected_id.borrow_mut() = Some( *address );
           self.current_scene = Scene::Info;
         },
         SceneEvent::Exit => {
@@ -147,25 +147,22 @@ impl IsScene for ListScene {
       KeyCode::Down => {
         let i = self.state.selected().unwrap_or( 0 ).saturating_add( 1 ) % self.data.device_map().len();
         self.state.select( Some( i ) );
-        SceneEvent::Handled
-      },
+        return SceneEvent::Handled;
+      }
       KeyCode::Up => {
         let i = self.state.selected().unwrap_or( 0 ).saturating_sub( 1 ) % self.data.device_map().len();
         self.state.select( Some( i ) );
-        SceneEvent::Handled
-      },
+        return SceneEvent::Handled;
+      }
       KeyCode::Enter => {
-        //let i = self.state.selected().unwrap_or( 0 );
-        if let Some( index ) = self.state.selected() && let Some( addr ) = self.sorted_device_keys.get( index ) {
-          SceneEvent::Select( *addr )
-        } else {
-          SceneEvent::NotHandled
+        if let Some( addr ) = self.state.selected().and_then( |i|{ self.sorted_device_keys.get( i ) } ) {
+          return SceneEvent::Select( addr );
         }
       }
-      _ => {
-        SceneEvent::NotHandled
-      }
+      _ => {}
     }
+
+    SceneEvent::NotHandled
   }
 
   fn render( &mut self, area: Rect, buf: &mut Buffer ) {
