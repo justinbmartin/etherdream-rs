@@ -10,14 +10,14 @@ use ratatui::style::palette::tailwind::SLATE;
 use ratatui::widgets::{ Block, Paragraph, Row, Table, TableState };
 use tokio::sync::mpsc::Receiver;
 
-use crate::device::Device;
+use crate::device::DeviceMap;
 use crate::scene::{ IsScene, Scene, SceneData, SceneEvent };
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
 
 pub struct App {
   current_scene: Scene,
-  device_map: Rc<RefCell<HashMap<SocketAddr,Device>>>,
+  device_map: Rc<RefCell<DeviceMap>>,
   device_selected_id: Rc<RefCell<Option<SocketAddr>>>,
   discovery_rx: Receiver<etherdream::DiscoveredDeviceInfo>,
   scenes: HashMap<Scene,Box<dyn IsScene>>,
@@ -26,15 +26,15 @@ pub struct App {
 
 impl App {
   pub fn new( discovery_rx: Receiver<etherdream::DiscoveredDeviceInfo> ) -> Self {
-    let device_map = Rc::new( RefCell::new( HashMap::new() ) );
+    let device_map = Rc::new( RefCell::new( DeviceMap::default() ) );
     let device_selected_id = Rc::new( RefCell::new( None::<SocketAddr> ) );
 
     // TODO: Maybe wrap in `test` configuration option?
     let device_info = etherdream::DeviceInfo::new( SocketAddr::from(( [10, 0, 0, 1], 6543 )), etherdream::protocol::Intrinsics::default() );
-    device_map.borrow_mut().insert( *device_info.address(), Device::new( device_info ) );
+    device_map.borrow_mut().insert( device_info );
 
     let device_info = etherdream::DeviceInfo::new( SocketAddr::from(( [10, 0, 0, 2], 6543 )), etherdream::protocol::Intrinsics::default() );
-    device_map.borrow_mut().insert( *device_info.address(), Device::new( device_info ) );
+    device_map.borrow_mut().insert( device_info );
 
     let scene_data = SceneData::new( device_map.clone(), device_selected_id.clone() );
 
@@ -59,7 +59,7 @@ impl App {
 
         // Capture any discovered devices from the Etherdream discovery service
         while let Ok( device_info ) = self.discovery_rx.try_recv() {
-          self.device_map.borrow_mut().insert( *device_info.info().address(), Device::new( device_info.info().clone() ) );
+          self.device_map.borrow_mut().insert( device_info.info().clone() );
         }
 
         // Render
@@ -128,6 +128,8 @@ impl App {
 
 struct ListScene {
   data: SceneData,
+  device_map_version: usize,
+  sorted_device_keys: Vec<SocketAddr>, // Scene cache of sorted device keys
   state: TableState
 }
 
@@ -135,6 +137,8 @@ impl ListScene {
   fn new( data: SceneData ) -> Self {
     Self{
       data,
+      device_map_version: 0,
+      sorted_device_keys: Vec::new(),
       state: TableState::new().with_selected( Some( 0 ) )
     }
   }
@@ -172,12 +176,28 @@ impl IsScene for ListScene {
         .block( block )
         .render( area, buf )
     } else {
-      let devices: Vec<Row> = self.data.device_map()
+      // Refresh our local sorted device cache if the remote device map has changed
+      if self.data.device_map().version() != self.device_map_version {
+        self.sorted_device_keys = self.data.device_map()
+          .iter()
+          .map( |(&addr,_)|{ addr } )
+          .collect();
+        self.sorted_device_keys.sort();
+      }
+
+      let devices: Vec<Row> = self.sorted_device_keys
         .iter()
-        .map(|( address, device )|{ Row::new([
-          address.to_string(),
-          device.info().mac_address().to_string(),
-        ]) }).collect();
+        .filter_map(| addr |{
+          if let Some( device ) = self.data.device_map().get( addr ) {
+            Some( Row::new([
+              addr.to_string(),
+              device.info().mac_address().to_string(),
+            ]) )
+          } else {
+            None
+          }
+        })
+        .collect();
 
       let constraints = [ Constraint::Length( 25 ), Constraint::Fill( 1 ) ];
 

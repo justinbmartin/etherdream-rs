@@ -1,12 +1,11 @@
-use std::net::SocketAddr;
 use std::cell::{ Ref, RefCell };
-use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::rc::Rc;
 
 use crossterm::event::{ KeyCode };
 use ratatui::prelude::*;
 
-use crate::device::Device;
+use crate::device::{ Device, DeviceMap };
 
 // List of scenes this application contains.
 #[derive( Eq, Hash, PartialEq )]
@@ -29,17 +28,17 @@ pub trait IsScene {
 
 // Shared read-only scene data
 pub struct SceneData {
-  device_map: Rc<RefCell<HashMap<SocketAddr,Device>>>,
+  device_map: Rc<RefCell<DeviceMap>>,
   device_selected_id: Rc<RefCell<Option<SocketAddr>>>
 }
 
 impl SceneData {
-  pub fn new( device_map: Rc<RefCell<HashMap<SocketAddr,Device>>>, device_selected_id: Rc<RefCell<Option<SocketAddr>>> ) -> Self {
+  pub fn new( device_map: Rc<RefCell<DeviceMap>>, device_selected_id: Rc<RefCell<Option<SocketAddr>>> ) -> Self {
     Self{ device_map, device_selected_id }
   }
 
   // Returns a read-only reference to the list of discovered device infos
-  pub fn device_map( &'_ self ) -> Ref<'_, HashMap<SocketAddr,Device>> {
+  pub fn device_map( &'_ self ) -> Ref<'_, DeviceMap> {
     self.device_map.borrow()
   }
 
