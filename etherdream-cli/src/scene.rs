@@ -43,9 +43,18 @@ impl SceneData {
     self.device_map.borrow()
   }
 
-  // Returns the selected device index, if one is set
-  pub fn device_selected_id( &self ) -> Option<SocketAddr> {
+  // Returns the selected device id, if one is set
+  pub fn selected_device_id( &self ) -> Option<SocketAddr> {
     *self.device_selected_id.borrow()
+  }
+
+  // Returns the selected device, if one is set
+  pub fn selected_device( &'_ self ) -> Option<Ref<'_, Device>> {
+    if let Some( id ) = *self.device_selected_id.borrow() {
+      Ref::filter_map( self.device_map.borrow(), |dm|{ dm.get( &id ) } ).ok()
+    } else {
+      None
+    }
   }
 }
 

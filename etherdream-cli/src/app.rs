@@ -214,8 +214,7 @@ impl IsScene for InfoScene {
   }
 
   fn render( &mut self, area: Rect, buf: &mut Buffer ) {
-    if let Some( address ) = self.data.device_selected_id() &&
-       let Some( device ) = self.data.device_map().get( &address ) {
+    if let Some( device ) = self.data.selected_device() {
       let block = Block::bordered().title( Line::raw( format!( " Device: {} ", device.info().address() ) ).centered() );
 
       Paragraph::new( format!( "MAC Address: {}", device.info().mac_address() ) )
