@@ -2,7 +2,7 @@
 mod app;
 mod device;
 mod executors;
-mod scene;
+mod scenes;
 
 use std::process::ExitCode;
 

@@ -1,3 +1,6 @@
+mod info;
+mod list;
+
 use std::cell::{ Ref, RefCell };
 use std::net::SocketAddr;
 use std::rc::Rc;
@@ -7,7 +10,10 @@ use ratatui::prelude::*;
 
 use crate::device::{ Device, DeviceMap };
 
-// List of scenes this application contains.
+// Export our scenes
+pub use info::InfoScene;
+pub use list::ListScene;
+
 #[derive( Eq, Hash, PartialEq )]
 pub enum Scene { List, Info }
 

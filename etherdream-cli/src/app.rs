@@ -5,13 +5,13 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use crossterm::event::{ self, Event, KeyCode, KeyEvent, KeyEventKind };
-use ratatui::prelude::*;
-use ratatui::style::palette::tailwind::SLATE;
-use ratatui::widgets::{ Block, Paragraph, Row, Table, TableState };
+use ratatui::Frame;
+use ratatui::layout::{ Constraint, Layout };
+use ratatui::widgets::{ Paragraph, Widget };
 use tokio::sync::mpsc::Receiver;
 
 use crate::device::DeviceMap;
-use crate::scene::{ IsScene, Scene, SceneData, SceneEvent };
+use crate::scenes::{ self, IsScene, Scene, SceneData, SceneEvent };
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
 
@@ -29,7 +29,7 @@ impl App {
     let device_map = Rc::new( RefCell::new( DeviceMap::default() ) );
     let device_selected_id = Rc::new( RefCell::new( None::<SocketAddr> ) );
 
-    // TODO: Maybe wrap in `test` configuration option?
+    // TODO: Maybe wrap in `test` configuration attribute?
     let device_info = etherdream::DeviceInfo::new( SocketAddr::from(( [10, 0, 0, 1], 6543 )), etherdream::protocol::Intrinsics::default() );
     device_map.borrow_mut().insert( device_info );
 
@@ -39,8 +39,8 @@ impl App {
     let scene_data = SceneData::new( device_map.clone(), device_selected_id.clone() );
 
     let mut scenes: HashMap<Scene,Box<dyn IsScene>> = HashMap::new();
-    scenes.insert( Scene::Info, Box::new( InfoScene::new( scene_data.clone() ) ) );
-    scenes.insert( Scene::List, Box::new( ListScene::new( scene_data ) ) );
+    scenes.insert( Scene::Info, Box::new( scenes::InfoScene::new( scene_data.clone() ) ) );
+    scenes.insert( Scene::List, Box::new( scenes::ListScene::new( scene_data ) ) );
 
     Self{
       current_scene: Scene::List,
@@ -57,15 +57,15 @@ impl App {
       loop {
         if self.should_exit { break; }
 
-        // Capture any discovered devices from the Etherdream discovery service
+        // Persist any discovered devices from the Etherdream discovery service
         while let Ok( device_info ) = self.discovery_rx.try_recv() {
           self.device_map.borrow_mut().insert( device_info.info().clone() );
         }
 
-        // Render
+        // Render the terminal
         let _ = terminal.draw(| frame |{ self.render( frame ); });
 
-        // Handle user-input
+        // Handle any user-input
         if let Ok( true ) = event::poll( Duration::from_millis( 100 ) ) {
           if let Ok( Event::Key( key ) ) = event::read() {
             self.on_key_event( key );
@@ -118,129 +118,5 @@ impl App {
     Paragraph::new( "Use ↓↑ to move, <Enter> to select a device, 'q' to quit." )
       .centered()
       .render( footer_area, frame.buffer_mut() );
-  }
-}
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene: List
-
-struct ListScene {
-  data: SceneData,
-  device_map_version: usize,
-  sorted_device_keys: Vec<SocketAddr>, // Scene cache of sorted device keys
-  state: TableState
-}
-
-impl ListScene {
-  fn new( data: SceneData ) -> Self {
-    Self{
-      data,
-      device_map_version: 0,
-      sorted_device_keys: Vec::new(),
-      state: TableState::new().with_selected( Some( 0 ) )
-    }
-  }
-}
-
-impl IsScene for ListScene {
-  fn on_key_press( &'_ mut self, key: KeyCode ) -> SceneEvent<'_> {
-    match key {
-      KeyCode::Down => {
-        let i = self.state.selected().unwrap_or( 0 ).saturating_add( 1 ) % self.data.device_map().len();
-        self.state.select( Some( i ) );
-        return SceneEvent::Handled;
-      }
-      KeyCode::Up => {
-        let i = self.state.selected().unwrap_or( 0 ).saturating_sub( 1 ) % self.data.device_map().len();
-        self.state.select( Some( i ) );
-        return SceneEvent::Handled;
-      }
-      KeyCode::Enter => {
-        if let Some( addr ) = self.state.selected().and_then( |i|{ self.sorted_device_keys.get( i ) } ) {
-          return SceneEvent::Select( addr );
-        }
-      }
-      _ => {}
-    }
-
-    SceneEvent::NotHandled
-  }
-
-  fn render( &mut self, area: Rect, buf: &mut Buffer ) {
-    let block = Block::bordered().title( Line::raw( " Etherdream Devices " ).centered() );
-
-    // Refresh our local sorted device cache if the remote device map has changed
-    if self.data.device_map().version() != self.device_map_version {
-      self.sorted_device_keys = self.data.device_map()
-        .iter()
-        .map( |( &addr, _ )|{ addr } )
-        .collect();
-
-      self.sorted_device_keys.sort();
-      self.device_map_version = self.data.device_map().version();
-    }
-
-    // If there are no devices, render a message saying as such
-    if self.sorted_device_keys.is_empty() {
-      Paragraph::new( "(no devices)" ).centered().block( block ).render( area, buf );
-      return;
-    }
-
-    // Render our table
-    let constraints = [ Constraint::Length( 25 ), Constraint::Fill( 1 ) ];
-
-    let rows: Vec<Row> = self.sorted_device_keys
-      .iter()
-      .filter_map(| addr |{
-        if let Some( device ) = self.data.device_map().get( addr ) {
-          Some( Row::new([
-            addr.to_string(),
-            device.info().mac_address().to_string(),
-          ]) )
-        } else {
-          None
-        }
-      })
-      .collect();
-
-    let table = Table::new( rows, constraints )
-      .block( block )
-      .header( Row::new(vec![ "Address", "MAC" ]).style( Style::new().bold() ) )
-      .highlight_spacing( ratatui::widgets::HighlightSpacing::Always )
-      .highlight_symbol( "> " )
-      .row_highlight_style( Style::new().bg( SLATE.c800 ).add_modifier( Modifier::BOLD ) );
-
-    StatefulWidget::render( table, area, buf, &mut self.state );
-  }
-}
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene: Info
-
-struct InfoScene {
-  data: SceneData
-}
-
-impl InfoScene {
-  fn new( data: SceneData ) -> Self {
-    Self{ data }
-  }
-}
-
-impl IsScene for InfoScene {
-  fn on_key_press( &'_ mut self, key: KeyCode ) -> SceneEvent<'_> {
-    match key {
-      KeyCode::Esc | KeyCode::Char( 'q' ) => SceneEvent::Exit,
-      _ => SceneEvent::NotHandled
-    }
-  }
-
-  fn render( &mut self, area: Rect, buf: &mut Buffer ) {
-    if let Some( device ) = self.data.selected_device() {
-      let block = Block::bordered().title( Line::raw( format!( " Device: {} ", device.info().address() ) ).centered() );
-
-      Paragraph::new( format!( "MAC Address: {}", device.info().mac_address() ) )
-        .centered()
-        .block( block )
-        .render( area, buf )
-    }
   }
 }
