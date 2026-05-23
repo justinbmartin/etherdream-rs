@@ -142,7 +142,7 @@ impl ListScene {
 }
 
 impl IsScene for ListScene {
-  fn on_key_press( &mut self, key: KeyCode ) -> SceneEvent {
+  fn on_key_press( &'_ mut self, key: KeyCode ) -> SceneEvent<'_> {
     match key {
       KeyCode::Down => {
         let i = self.state.selected().unwrap_or( 0 ).saturating_add( 1 ) % self.data.device_map().len();
@@ -172,15 +172,21 @@ impl IsScene for ListScene {
     if self.data.device_map().version() != self.device_map_version {
       self.sorted_device_keys = self.data.device_map()
         .iter()
-        .map( |(&addr,_)|{ addr } )
+        .map( |( &addr, _ )|{ addr } )
         .collect();
+
       self.sorted_device_keys.sort();
+      self.device_map_version = self.data.device_map().version();
     }
 
+    // If there are no devices, render a message saying as such
     if self.sorted_device_keys.is_empty() {
       Paragraph::new( "(no devices)" ).centered().block( block ).render( area, buf );
       return;
     }
+
+    // Render our table
+    let constraints = [ Constraint::Length( 25 ), Constraint::Fill( 1 ) ];
 
     let rows: Vec<Row> = self.sorted_device_keys
       .iter()
@@ -195,8 +201,6 @@ impl IsScene for ListScene {
         }
       })
       .collect();
-
-    let constraints = [ Constraint::Length( 25 ), Constraint::Fill( 1 ) ];
 
     let table = Table::new( rows, constraints )
       .block( block )
@@ -222,7 +226,7 @@ impl InfoScene {
 }
 
 impl IsScene for InfoScene {
-  fn on_key_press( &mut self, key: KeyCode ) -> SceneEvent {
+  fn on_key_press( &'_ mut self, key: KeyCode ) -> SceneEvent<'_> {
     match key {
       KeyCode::Esc | KeyCode::Char( 'q' ) => SceneEvent::Exit,
       _ => SceneEvent::NotHandled

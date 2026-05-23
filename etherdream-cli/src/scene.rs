@@ -2,7 +2,7 @@ use std::cell::{ Ref, RefCell };
 use std::net::SocketAddr;
 use std::rc::Rc;
 
-use crossterm::event::{ KeyCode };
+use crossterm::event::KeyCode;
 use ratatui::prelude::*;
 
 use crate::device::{ Device, DeviceMap };
@@ -22,7 +22,7 @@ pub enum SceneEvent<'a> {
 
 // All scenes must implement this trait
 pub trait IsScene {
-  fn on_key_press( &mut self, key: KeyCode ) -> SceneEvent;
+  fn on_key_press( &'_ mut self, key: KeyCode ) -> SceneEvent<'_>;
   fn render( &mut self, area: Rect, buf: &mut Buffer );
 }
 
@@ -40,11 +40,6 @@ impl SceneData {
   // Returns a read-only reference to the list of discovered device infos
   pub fn device_map( &'_ self ) -> Ref<'_, DeviceMap> {
     self.device_map.borrow()
-  }
-
-  // Returns the selected device id, if one is set
-  pub fn selected_device_id( &self ) -> Option<SocketAddr> {
-    *self.device_selected_id.borrow()
   }
 
   // Returns the selected device, if one is set

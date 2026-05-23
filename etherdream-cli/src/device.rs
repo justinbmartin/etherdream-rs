@@ -5,14 +5,14 @@ use std::net::SocketAddr;
 
 pub struct Device {
   info: etherdream::DeviceInfo,
-  generator: Option<etherdream::Generator>
+  _generator: Option<etherdream::Generator>
 }
 
 impl Device {
   fn new( info: etherdream::DeviceInfo ) -> Self {
     Self{
       info,
-      generator: None
+      _generator: None
     }
   }
 
@@ -53,10 +53,6 @@ impl DeviceMap{
 
   pub fn len( &self ) -> usize {
     self.data.len()
-  }
-
-  pub fn is_empty( &self ) -> bool {
-    self.data.is_empty()
   }
 
   pub fn version( &self ) -> usize {
