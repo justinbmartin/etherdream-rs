@@ -65,10 +65,7 @@ impl App {
         // Render
         let _ = terminal.draw(| frame |{ self.render( frame ); });
 
-        // Handle any user-input
-        //
-        // We poll here to ensure we do not block on event `read`. This ensures
-        // that we always handle any discovered devices from `device_info_rx`.
+        // Handle user-input
         if let Ok( true ) = event::poll( Duration::from_millis( 100 ) ) {
           if let Ok( Event::Key( key ) ) = event::read() {
             self.on_key_event( key );
@@ -159,7 +156,11 @@ impl IsScene for ListScene {
       },
       KeyCode::Enter => {
         //let i = self.state.selected().unwrap_or( 0 );
-        SceneEvent::Select( SocketAddr::from(( [10, 0, 0, 2], 6543 )) )
+        if let Some( index ) = self.state.selected() && let Some( addr ) = self.sorted_device_keys.get( index ) {
+          SceneEvent::Select( *addr )
+        } else {
+          SceneEvent::NotHandled
+        }
       }
       _ => {
         SceneEvent::NotHandled
@@ -170,46 +171,44 @@ impl IsScene for ListScene {
   fn render( &mut self, area: Rect, buf: &mut Buffer ) {
     let block = Block::bordered().title( Line::raw( " Etherdream Devices " ).centered() );
 
-    if self.data.device_map().is_empty() {
-      Paragraph::new( "(no devices)" )
-        .centered()
-        .block( block )
-        .render( area, buf )
-    } else {
-      // Refresh our local sorted device cache if the remote device map has changed
-      if self.data.device_map().version() != self.device_map_version {
-        self.sorted_device_keys = self.data.device_map()
-          .iter()
-          .map( |(&addr,_)|{ addr } )
-          .collect();
-        self.sorted_device_keys.sort();
-      }
-
-      let devices: Vec<Row> = self.sorted_device_keys
+    // Refresh our local sorted device cache if the remote device map has changed
+    if self.data.device_map().version() != self.device_map_version {
+      self.sorted_device_keys = self.data.device_map()
         .iter()
-        .filter_map(| addr |{
-          if let Some( device ) = self.data.device_map().get( addr ) {
-            Some( Row::new([
-              addr.to_string(),
-              device.info().mac_address().to_string(),
-            ]) )
-          } else {
-            None
-          }
-        })
+        .map( |(&addr,_)|{ addr } )
         .collect();
-
-      let constraints = [ Constraint::Length( 25 ), Constraint::Fill( 1 ) ];
-
-      let table = Table::new( devices, constraints )
-        .block( block )
-        .header( Row::new(vec![ "Address", "MAC" ]).style( Style::new().bold() ) )
-        .row_highlight_style( Style::new().bg( SLATE.c800 ).add_modifier( Modifier::BOLD ) )
-        .highlight_symbol( "> " )
-        .highlight_spacing( ratatui::widgets::HighlightSpacing::Always );
-
-      StatefulWidget::render( table, area, buf, &mut self.state );
+      self.sorted_device_keys.sort();
     }
+
+    if self.sorted_device_keys.is_empty() {
+      Paragraph::new( "(no devices)" ).centered().block( block ).render( area, buf );
+      return;
+    }
+
+    let rows: Vec<Row> = self.sorted_device_keys
+      .iter()
+      .filter_map(| addr |{
+        if let Some( device ) = self.data.device_map().get( addr ) {
+          Some( Row::new([
+            addr.to_string(),
+            device.info().mac_address().to_string(),
+          ]) )
+        } else {
+          None
+        }
+      })
+      .collect();
+
+    let constraints = [ Constraint::Length( 25 ), Constraint::Fill( 1 ) ];
+
+    let table = Table::new( rows, constraints )
+      .block( block )
+      .header( Row::new(vec![ "Address", "MAC" ]).style( Style::new().bold() ) )
+      .highlight_spacing( ratatui::widgets::HighlightSpacing::Always )
+      .highlight_symbol( "> " )
+      .row_highlight_style( Style::new().bg( SLATE.c800 ).add_modifier( Modifier::BOLD ) );
+
+    StatefulWidget::render( table, area, buf, &mut self.state );
   }
 }
 
