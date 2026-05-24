@@ -1,8 +1,9 @@
 //! CLI tool to discover, connect and test Etherdream DAC's.
 mod app;
 mod device;
+mod event;
 mod executors;
-mod scenes;
+mod scene;
 
 use std::process::ExitCode;
 
@@ -21,7 +22,8 @@ async fn main() -> ExitCode {
     };
 
   // [Blocks] Create and run the app
-  app::App::new( discovery_rx ).run();
+  let terminal = ratatui::init();
+  app::App::new().run( terminal, discovery_rx ).await;
 
   // Shutdown the discovery service and terminate
   discovery.shutdown().await;

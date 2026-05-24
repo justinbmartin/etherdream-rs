@@ -5,15 +5,19 @@ use std::net::SocketAddr;
 
 pub struct Device {
   info: etherdream::DeviceInfo,
-  _generator: Option<etherdream::Generator>
+  generator: Option<etherdream::Generator>
 }
 
 impl Device {
   fn new( info: etherdream::DeviceInfo ) -> Self {
     Self{
       info,
-      _generator: None
+      generator: None
     }
+  }
+
+  pub fn generator( &self ) -> &Option<etherdream::Generator> {
+    &self.generator
   }
 
   pub fn info( &self ) -> &etherdream::DeviceInfo {

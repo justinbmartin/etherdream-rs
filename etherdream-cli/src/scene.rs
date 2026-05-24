@@ -28,17 +28,17 @@ pub enum SceneEvent<'a> {
 
 // All scenes must implement this trait
 pub trait IsScene {
-  fn on_key_press( &'_ mut self, key: KeyCode ) -> SceneEvent<'_>;
-  fn render( &mut self, area: Rect, buf: &mut Buffer );
+  fn on_key_press( &'_ mut self, ctx: &mut Context, key: KeyCode ) -> SceneEvent<'_>;
+  fn render( &mut self, ctx: &Context, area: Rect, buf: &mut Buffer );
 }
 
 // Shared read-only scene data
-pub struct SceneData {
+pub struct Context {
   device_map: Rc<RefCell<DeviceMap>>,
   device_selected_id: Rc<RefCell<Option<SocketAddr>>>
 }
 
-impl SceneData {
+impl Context {
   pub fn new( device_map: Rc<RefCell<DeviceMap>>, device_selected_id: Rc<RefCell<Option<SocketAddr>>> ) -> Self {
     Self{ device_map, device_selected_id }
   }
@@ -54,15 +54,6 @@ impl SceneData {
       Ref::filter_map( self.device_map.borrow(), |dm|{ dm.get( &id ) } ).ok()
     } else {
       None
-    }
-  }
-}
-
-impl Clone for SceneData {
-  fn clone( &self ) -> Self {
-    SceneData{
-      device_map: self.device_map.clone(),
-      device_selected_id: self.device_selected_id.clone()
     }
   }
 }

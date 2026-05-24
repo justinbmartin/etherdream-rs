@@ -320,7 +320,12 @@ impl Default for MacAddress {
 
 impl fmt::Display for MacAddress {
   fn fmt( &self, f: &mut fmt::Formatter ) -> fmt::Result {
-    write!( f, "{:02X?}", self.inner )
+    let formatted = self.inner.iter()
+      .map(|octet|{ format!( "{:02X?}", octet ) })
+      .collect::<Vec<String>>()
+      .join("::");
+    
+    write!( f, "{formatted}" )
   }
 }
 

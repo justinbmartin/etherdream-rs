@@ -2,16 +2,16 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::rc::Rc;
-use std::time::Duration;
 
-use crossterm::event::{ self, Event, KeyCode, KeyEvent, KeyEventKind };
-use ratatui::Frame;
+use crossterm::event::{ KeyCode, KeyEvent, KeyEventKind };
+use ratatui::{ DefaultTerminal, Frame };
 use ratatui::layout::{ Constraint, Layout };
 use ratatui::widgets::{ Paragraph, Widget };
 use tokio::sync::mpsc::Receiver;
 
 use crate::device::DeviceMap;
-use crate::scenes::{ self, IsScene, Scene, SceneData, SceneEvent };
+use crate::event::{ Event, EventHandler };
+use crate::scene::{ self, Context, IsScene, Scene, SceneEvent };
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
 
@@ -19,67 +19,68 @@ pub struct App {
   current_scene: Scene,
   device_map: Rc<RefCell<DeviceMap>>,
   device_selected_id: Rc<RefCell<Option<SocketAddr>>>,
-  discovery_rx: Receiver<etherdream::DiscoveredDeviceInfo>,
-  scenes: HashMap<Scene,Box<dyn IsScene>>,
-  should_exit: bool
+  is_running: bool,
+  scenes: HashMap<Scene,Box<dyn IsScene>>
 }
 
 impl App {
-  pub fn new( discovery_rx: Receiver<etherdream::DiscoveredDeviceInfo> ) -> Self {
+  pub fn new() -> Self {
     let device_map = Rc::new( RefCell::new( DeviceMap::default() ) );
     let device_selected_id = Rc::new( RefCell::new( None::<SocketAddr> ) );
 
-    // TODO: Maybe wrap in `test` configuration attribute?
+    // >>> BEGIN device hack
     let device_info = etherdream::DeviceInfo::new( SocketAddr::from(( [10, 0, 0, 1], 6543 )), etherdream::protocol::Intrinsics::default() );
     device_map.borrow_mut().insert( device_info );
 
     let device_info = etherdream::DeviceInfo::new( SocketAddr::from(( [10, 0, 0, 2], 6543 )), etherdream::protocol::Intrinsics::default() );
     device_map.borrow_mut().insert( device_info );
-
-    let scene_data = SceneData::new( device_map.clone(), device_selected_id.clone() );
+    // <<< END device hack
 
     let mut scenes: HashMap<Scene,Box<dyn IsScene>> = HashMap::new();
-    scenes.insert( Scene::Info, Box::new( scenes::InfoScene::new( scene_data.clone() ) ) );
-    scenes.insert( Scene::List, Box::new( scenes::ListScene::new( scene_data ) ) );
+    scenes.insert( Scene::Info, Box::new( scene::InfoScene::new() ) );
+    scenes.insert( Scene::List, Box::new( scene::ListScene::new() ) );
 
     Self{
       current_scene: Scene::List,
       device_map,
       device_selected_id,
-      discovery_rx,
-      scenes,
-      should_exit: false
+      is_running: false,
+      scenes
     }
   }
 
-  pub fn run( &mut self ) {
-    ratatui::run(| terminal |{
-      loop {
-        if self.should_exit { break; }
+  pub async fn run( &mut self, mut terminal: DefaultTerminal, mut discovery_rx: Receiver<etherdream::DiscoveredDeviceInfo> ) {
+    self.is_running = true;
 
-        // Persist any discovered devices from the Etherdream discovery service
-        while let Ok( device_info ) = self.discovery_rx.try_recv() {
-          self.device_map.borrow_mut().insert( device_info.info().clone() );
-        }
+    let mut ctx = Context::new( self.device_map.clone(), self.device_selected_id.clone() );
 
-        // Render the terminal
-        let _ = terminal.draw(| frame |{ self.render( frame ); });
+    let ( events, mut events_rx ) = EventHandler::new();
+    tokio::spawn( async move{ events.run().await } );
 
-        // Handle any user-input
-        if let Ok( true ) = event::poll( Duration::from_millis( 100 ) ) {
-          if let Ok( Event::Key( key ) ) = event::read() {
-            self.on_key_event( key );
-          }
-        }
+    while self.is_running {
+      // Persist any discovered devices from the Etherdream discovery service
+      while let Ok( device_info ) = discovery_rx.try_recv() {
+        self.device_map.borrow_mut().insert( device_info.info().clone() );
       }
-    });
+
+      // Render the terminal
+      let _ = terminal.draw( | frame | self.render( &ctx, frame ) );
+
+      // Handle any user-input
+      match events_rx.recv().await {
+        Some( Event::AppEvent( _evt ) ) => (),
+        Some( Event::KeyEvent( key ) ) => self.on_key_event( &mut ctx, key ),
+        Some( Event::Tick ) => (),
+        _ => ()
+      }
+    }
   }
 
-  fn on_key_event( &mut self, key: KeyEvent ) {
+  fn on_key_event( &mut self, ctx: &mut Context, key: KeyEvent ) {
     if key.kind == KeyEventKind::Press {
       let handled =
         if let Some( scene ) = self.scenes.get_mut( &self.current_scene ) {
-          scene.on_key_press( key.code )
+          scene.on_key_press( ctx, key.code )
         } else {
           SceneEvent::NotHandled
         };
@@ -96,7 +97,7 @@ impl App {
         SceneEvent::NotHandled => {
           match key.code {
             KeyCode::Char( 'q' ) | KeyCode::Esc => {
-              self.should_exit = true;
+              self.is_running = false;
             },
             _ => {}
           }
@@ -106,12 +107,12 @@ impl App {
     }
   }
 
-  fn render( &mut self, frame: &mut Frame ) {
+  fn render( &mut self, ctx: &Context, frame: &mut Frame ) {
     let main_layout = Layout::vertical([ Constraint::Fill( 1 ), Constraint::Length( 1 ) ]);
     let [ content_area, footer_area ] = frame.area().layout( &main_layout );
 
     if let Some( scene ) = self.scenes.get_mut( &self.current_scene ) {
-      scene.render( content_area, frame.buffer_mut() )
+      scene.render( ctx, content_area, frame.buffer_mut() )
     }
 
     // Main > Footer
