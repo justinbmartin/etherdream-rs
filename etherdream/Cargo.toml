@@ -13,5 +13,5 @@ tokio = { workspace = true }
 tokio-util = { version = "0.7.18", features = [ "codec", "net" ] }
 
 [dev-dependencies]
-etherdream-test = { path = "../etherdream-test" }
+etherdream-simulator = { path = "../etherdream-simulator" }
 tokio = { workspace = true }

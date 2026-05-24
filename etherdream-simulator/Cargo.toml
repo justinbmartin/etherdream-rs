@@ -1,12 +1,12 @@
 [package]
 authors = [ "Justin Martin <hello@justinmart.in>" ]
-description = "Testing utilities for Etherdream code."
+description = "Etherdream device simulator."
 edition = "2024"
 license = "MIT"
-name = "etherdream-test"
+name = "etherdream-simulator"
 repository = "https://github.com/justinbmartin/etherdream-rs"
 version = "0.1.0"
 
 [dependencies]
 etherdream = { path = "../etherdream" }
-tokio = { workspace = true }
+tokio = { workspace = true, features = [ "rt-multi-thread" ] }

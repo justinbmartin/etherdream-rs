@@ -1,20 +1,20 @@
 use tokio::time::{ sleep, Duration };
 
-use etherdream_test::emulator::Emulator;
+use etherdream_simulator::Simulator;
 
 use etherdream::client::Client;
+use etherdream::DeviceInfo;
 use etherdream::protocol;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Tests
 
 #[tokio::test]
 async fn will_return_device_properties() {
-  let ( emulator, client ) = setup().await;
+  let ( simulator, client ) = setup().await;
 
-  let device_info = emulator.get_device_info();
-  assert_eq!( client.mac_address(), device_info.mac_address() );
-  assert_eq!( client.max_points_per_second(), device_info.max_points_per_second() );
-  assert_eq!( client.peer_addr(), device_info.address() );
+  assert_eq!( client.mac_address(), &simulator.intrinsics().mac_address );
+  assert_eq!( client.max_points_per_second(), simulator.intrinsics().max_points_per_second as usize );
+  assert_eq!( client.peer_addr(), simulator.address() );
 
   let state = client.state().await;
   assert_eq!( state.is_ready(), true );
@@ -49,7 +49,7 @@ async fn can_push_and_flush_points() {
 
 #[tokio::test]
 async fn can_push_and_flush_points_within_the_limits_of_the_devices_capacity() {
-  let ( _, mut client ) = setup_with_emulator_capacity( 2 ).await;
+  let ( _, mut client ) = setup_with_capacity( 2 ).await;
 
   // Push four points (two more than the device's capacity)
   client.push_point( 0, 0, 0, 0, 0 );
@@ -67,7 +67,7 @@ async fn can_push_and_flush_points_within_the_limits_of_the_devices_capacity() {
 
 #[tokio::test]
 async fn can_start_the_client() {
-  let ( mut emulator, mut client ) = setup_with_emulator_capacity( 2 ).await;
+  let ( mut simulator, mut client ) = setup_with_capacity( 2 ).await;
 
   // Push four points (two more than the device's capacity)
   client.push_point( 0, 0, 0, 0, 0 );
@@ -86,7 +86,7 @@ async fn can_start_the_client() {
   // (1) The client writer will auto-ping
   // (2) The client writer will realize point capacity is available
   // (3) The client writer will flush the remaining points
-  emulator.consume_points( 2 );
+  simulator.consume_points( 2 );
   sleep( Duration::from_secs( 1 ) ).await;
 
   // Verify that all remaining points have been flushed
@@ -114,19 +114,20 @@ async fn can_disconnect_the_client() {
 }
 
 // Creates a default Etherdream emulator and a client.
-async fn setup() -> ( Emulator, Client ) {
-  setup_with_emulator_capacity( 16 ).await
+async fn setup() -> ( Simulator, Client ) {
+  setup_with_capacity( 16 ).await
 }
 
-// Creates an Etherdream emulator and client using a provided emulator point
-// buffer `capacity`.
-async fn setup_with_emulator_capacity( capacity: u16 ) -> ( Emulator, Client  ) {
-  let emulator = Emulator::start_with_capacity( capacity ).await.unwrap();
+// Creates an Etherdream simulator and client using a provided a point buffer
+// `capacity`.
+async fn setup_with_capacity( capacity: u16 ) -> ( Simulator, Client  ) {
+  let simulator = Simulator::start_with_capacity( capacity ).await.unwrap();
+  let device_info = DeviceInfo::new( *simulator.address(), *simulator.intrinsics() );
 
   let client =
-    etherdream::client::Builder::new( emulator.get_device_info() )
+    etherdream::client::Builder::new( device_info )
       .connect().await
       .expect( "Failed to create a client from Etherdream connection" );
 
-  ( emulator, client )
+  ( simulator, client )
 }

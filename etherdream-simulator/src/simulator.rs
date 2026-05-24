@@ -1,5 +1,5 @@
-//! Emulator: A tokio TCP server the emulates a running Etherdream DAC. Useful
-//! for local software development.
+//! Simulator: A tokio TCP server that simulates a running Etherdream DAC.
+//! Useful for local software development.
 //!
 //! Developer Note: The complete Etherdream protocol is not fully implemented.
 //! Be sure to read and understand this module to understand protocol
@@ -12,30 +12,29 @@ use tokio::io::{ AsyncReadExt, AsyncWriteExt };
 use tokio::net::TcpListener;
 use tokio::task;
 
-use etherdream::DeviceInfo;
 use etherdream::protocol;
 
 const DEFAULT_POINT_BUFFER_CAPACITY: u16 = 1024;
 
 /// A tokio TCP server that implements the Etherdream protocol.
-pub struct Emulator {
-  // The local socket address that the emulator is running on.
+pub struct Simulator {
+  // The local socket address that the simulator is communicating on.
   address: SocketAddr,
-  // The intrinsic properties of the device associated with this emulator.
+  // The intrinsic properties of the device associated with this simulator.
   intrinsics: protocol::Intrinsics,
-  // The real-time device state associated with this emulator.
+  // The real-time device state associated with this simulator.
   state: Arc<RwLock<protocol::State>>,
   // The join handle that owns the asynchronous server task.
   _handle: task::JoinHandle<io::Result<()>>
 }
 
-impl Emulator {
-  /// Starts an Etherdream emulation server with the default capacity.
+impl Simulator {
+  /// Starts an Etherdream simulator with the default capacity.
   pub async fn start() -> io::Result<Self> {
     Self::start_with_capacity( DEFAULT_POINT_BUFFER_CAPACITY ).await
   }
 
-  /// Starts an Etherdream emulation server using the provided point buffer
+  /// Starts an Etherdream simulator using the provided point buffer
   /// `capacity`. Will bind locally to `127.0.0.1:*` (any available port).
   pub async fn start_with_capacity( capacity: u16 ) -> io::Result<Self> {
     let intrinsics = protocol::Intrinsics{
@@ -164,13 +163,17 @@ impl Emulator {
     })
   }
 
-  /// Returns an `etherdream::DeviceInfo` configured to connect to this
-  /// emulator.
-  pub fn get_device_info( &self ) -> DeviceInfo {
-    DeviceInfo::new( self.address, self.intrinsics )
+  /// Returns the address that this simulator is running on.
+  pub fn address( &self ) -> &SocketAddr {
+    &self.address
   }
 
-  /// Returns the point count currently buffered in the emulator.
+  /// Returns the intrinsic device properties of this simulator.
+  pub fn intrinsics( &self ) -> &protocol::Intrinsics {
+    &self.intrinsics
+  }
+
+  /// Returns the point count currently buffered in the simulator.
   pub fn point_count( &self ) -> usize {
     if let Ok( state ) = self.state.read() {
       state.points_buffered as usize
@@ -179,7 +182,7 @@ impl Emulator {
     }
   }
 
-  /// Consumes `count` points from emulator's point buffer.
+  /// Consumes `count` points from simulator's point buffer.
   pub fn consume_points( &mut self, count: u16 ) {
     if let Ok( mut state ) = self.state.write() {
       state.points_buffered = state.points_buffered.saturating_sub( count );

@@ -354,7 +354,7 @@ dependencies = [
 name = "etherdream"
 version = "0.1.0"
 dependencies = [
- "etherdream-test",
+ "etherdream-simulator",
  "futures",
  "tokio",
  "tokio-util",
@@ -373,7 +373,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "etherdream-test"
+name = "etherdream-simulator"
 version = "0.1.0"
 dependencies = [
  "etherdream",

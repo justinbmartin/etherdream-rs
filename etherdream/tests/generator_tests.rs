@@ -1,9 +1,8 @@
 use tokio::sync::mpsc;
 use tokio::time::{ Duration, sleep, timeout };
 
-use etherdream::client;
-use etherdream::generator;
-use etherdream_test::emulator::Emulator;
+use etherdream::{ client, DeviceInfo, generator };
+use etherdream_simulator::Simulator;
 
 struct TestExecutor{
   invoked: mpsc::Sender<usize>,
@@ -32,9 +31,10 @@ impl generator::Executable for TestExecutor {
 
 #[tokio::test]
 async fn a_generator_will_publish_point_data() {
-  let mut emulator = Emulator::start_with_capacity( 10 ).await.unwrap();
+  let mut simulator = Simulator::start_with_capacity( 10 ).await.unwrap();
+  let device_info = DeviceInfo::new( *simulator.address(), *simulator.intrinsics() );
 
-  let client = client::Builder::new( emulator.get_device_info() )
+  let client = client::Builder::new( device_info )
     .capacity( 10 )
     .connect().await
     .unwrap();
@@ -46,29 +46,29 @@ async fn a_generator_will_publish_point_data() {
 
   // The executor will be invoked twice to saturate both the device and client
   // buffers (20 points, together).
-  assert_eq!( wait_for_executor_invocation( &mut invoked_rx ).await, 10 );
-  assert_eq!( wait_for_executor_invocation( &mut invoked_rx ).await, 10 );
+  assert_eq!( wait_for_simulator_invocation( &mut invoked_rx ).await, 10 );
+  assert_eq!( wait_for_simulator_invocation( &mut invoked_rx ).await, 10 );
 
-  // Validate that the emulator is at capacity
-  assert!( wait_for_emulator_count( &emulator, 10 ).await );
+  // Validate that the simulator is at capacity
+  assert!( wait_for_simulator_count( &simulator, 10 ).await );
 
-  // Consume 1 point from the emulator.
+  // Consume 1 point from the simulator.
   //
   // The executor will not be invoked since the client's point count has not
   // descended below the default 70% threshold. After `consume_points( 1 )`,
-  // the client will have 9 points in its buffer, the emulator device will
+  // the client will have 9 points in its buffer, the simulator device will
   // still have 10 points.
-  emulator.consume_points( 1 );
-  assert!( wait_for_emulator_count( &emulator, 10 ).await );
+  simulator.consume_points( 1 );
+  assert!( wait_for_simulator_count( &simulator, 10 ).await );
 
-  // Consume 3 points from the emulator.
+  // Consume 3 points from the simulator.
   //
   // This will invoke the executor since the client's point count will descend
   // below the default 70% threshold. After `consume_points( 3 )`, the client
   // will have 6 points in its buffer.
-  emulator.consume_points( 3 );
-  assert_eq!( wait_for_executor_invocation( &mut invoked_rx ).await, 4 );
-  assert!( wait_for_emulator_count( &emulator, 10 ).await );
+  simulator.consume_points( 3 );
+  assert_eq!( wait_for_simulator_invocation( &mut invoked_rx ).await, 4 );
+  assert!( wait_for_simulator_count( &simulator, 10 ).await );
 
   // Stop the generator
   let client = generator.into_client().await.unwrap();
@@ -77,9 +77,10 @@ async fn a_generator_will_publish_point_data() {
 
 #[tokio::test]
 async fn a_generator_can_be_configured_with_a_custom_low_watermark() {
-  let mut emulator = Emulator::start_with_capacity( 10 ).await.unwrap();
+  let mut simulator = Simulator::start_with_capacity( 10 ).await.unwrap();
+  let device_info = DeviceInfo::new( *simulator.address(), *simulator.intrinsics() );
 
-  let client = client::Builder::new( emulator.get_device_info() )
+  let client = client::Builder::new( device_info )
     .capacity( 10 )
     .connect().await
     .unwrap();
@@ -91,29 +92,30 @@ async fn a_generator_can_be_configured_with_a_custom_low_watermark() {
   generator.start().await;
 
   // The executor will be invoked twice
-  assert_eq!( wait_for_executor_invocation( &mut invoked_rx ).await, 10 );
-  assert_eq!( wait_for_executor_invocation( &mut invoked_rx ).await, 10 );
+  assert_eq!( wait_for_simulator_invocation( &mut invoked_rx ).await, 10 );
+  assert_eq!( wait_for_simulator_invocation( &mut invoked_rx ).await, 10 );
 
-  // Validate that the emulator is at capacity
-  assert!( wait_for_emulator_count( &emulator, 10 ).await );
+  // Validate that the simulator is at capacity
+  assert!( wait_for_simulator_count( &simulator, 10 ).await );
 
-  // Consume 5 points from the emulator. The low watermark threshold (at 4
+  // Consume 5 points from the simulator. The low watermark threshold (at 4
   // points) will not be triggered.
-  emulator.consume_points( 5 );
-  assert!( wait_for_emulator_count( &emulator, 10 ).await );
+  simulator.consume_points( 5 );
+  assert!( wait_for_simulator_count( &simulator, 10 ).await );
 
-  // Consume 1 point from the emulator. This will trigger the low watermark
+  // Consume 1 point from the simulator. This will trigger the low watermark
   // threshold (at 4 points) and generate 6 points to saturate the client's
   // point buffer.
-  emulator.consume_points( 1 );
-  assert_eq!( wait_for_executor_invocation( &mut invoked_rx ).await, 6 );
+  simulator.consume_points( 1 );
+  assert_eq!( wait_for_simulator_invocation( &mut invoked_rx ).await, 6 );
 }
 
 #[tokio::test]
 async fn a_generator_can_ping_the_device() {
-  let emulator = Emulator::start_with_capacity( 10 ).await.unwrap();
+  let simulator = Simulator::start_with_capacity( 10 ).await.unwrap();
+  let device_info = DeviceInfo::new( *simulator.address(), *simulator.intrinsics() );
 
-  let client = client::Builder::new( emulator.get_device_info() )
+  let client = client::Builder::new( device_info )
     .capacity( 10 )
     .connect().await
     .unwrap();
@@ -127,11 +129,11 @@ async fn a_generator_can_ping_the_device() {
   assert_eq!( state.points_buffered(), 0 );
 }
 
-// Waits for emulator to report `count` points, or terminates in 1sec.
-async fn wait_for_emulator_count( emulator: &Emulator, count: usize ) -> bool {
+// Waits for simulator to report `count` points, or terminates in 1sec.
+async fn wait_for_simulator_count( simulator: &Simulator, count: usize ) -> bool {
   timeout( Duration::from_secs( 1 ), async move {
     loop {
-      if emulator.point_count() == count {
+      if simulator.point_count() == count {
         return ();
       }
 
@@ -140,7 +142,7 @@ async fn wait_for_emulator_count( emulator: &Emulator, count: usize ) -> bool {
   }).await.is_ok()
 }
 
-async fn wait_for_executor_invocation( invoked_rx: &mut mpsc::Receiver<usize> ) -> usize {
+async fn wait_for_simulator_invocation( invoked_rx: &mut mpsc::Receiver<usize> ) -> usize {
   match timeout( Duration::from_secs( 1 ), invoked_rx.recv() ).await {
     Ok( Some( count ) ) => count,
     Ok( None ) => 0,
