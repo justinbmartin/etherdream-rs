@@ -20,8 +20,8 @@ pub struct ListScene {
   state: TableState
 }
 
-impl ListScene {
-  pub fn new() -> Self {
+impl Default for ListScene {
+  fn default() -> Self {
     Self{
       device_map_version: 0,
       sorted_device_keys: Vec::new(),
@@ -31,7 +31,7 @@ impl ListScene {
 }
 
 impl IsScene for ListScene {
-  fn on_key_press( &'_ mut self, ctx: &mut Context, key: KeyCode ) -> SceneEvent<'_> {
+  fn on_key_down( &mut self, ctx: &mut Context, key: KeyCode ) -> SceneEvent {
     match key {
       KeyCode::Down => {
         let i = self.state.selected().unwrap_or( 0 ).saturating_add( 1 ) % ctx.device_map().len();
@@ -45,7 +45,7 @@ impl IsScene for ListScene {
       }
       KeyCode::Enter => {
         if let Some( addr ) = self.state.selected().and_then( |i|{ self.sorted_device_keys.get( i ) } ) {
-          return SceneEvent::Select( addr );
+          return SceneEvent::Select( *addr );
         }
       }
       _ => {}

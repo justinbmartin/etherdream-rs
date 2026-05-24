@@ -19,16 +19,16 @@ pub enum Scene { List, Info }
 
 // Return values from scene key events
 #[derive( PartialEq )]
-pub enum SceneEvent<'a> {
+pub enum SceneEvent {
   Exit,           // The scene should be exited
   Handled,        // The event was handled internally by the scene
   NotHandled,     // The event was not handled by the scene
-  Select( &'a SocketAddr ) // A device was selected
+  Select( SocketAddr ) // A device was selected
 }
 
 // All scenes must implement this trait
 pub trait IsScene {
-  fn on_key_press( &'_ mut self, ctx: &mut Context, key: KeyCode ) -> SceneEvent<'_>;
+  fn on_key_down( &mut self, ctx: &mut Context, key: KeyCode ) -> SceneEvent;
   fn render( &mut self, ctx: &Context, area: Rect, buf: &mut Buffer );
 }
 

@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use crossterm::event::KeyEvent;
+use crossterm::event::{ self, EventStream, KeyEvent, KeyEventKind };
 use futures::{ FutureExt, StreamExt };
 use tokio::sync::mpsc;
 
@@ -28,20 +28,26 @@ impl<'a> EventHandler<'a> {
   }
 
   pub async fn run( &self ) {
+    let mut crossterm_events = EventStream::new();
     let tick_rate = Duration::from_secs_f64( 1.0 / FPS );
     let mut tick = tokio::time::interval( tick_rate );
 
-    let mut reader = crossterm::event::EventStream::new();
-
     loop {
-      let tick_delay = tick.tick();
-
       tokio::select! {
-        _ = self.tx.closed() => break,
-        _ = tick_delay => self.send( Event::Tick ).await,
-        Some( Ok( evt ) ) = reader.next().fuse() => {
-          if evt.is_key_press() {
-            self.send( Event::KeyEvent( evt.as_key_event().unwrap() ) ).await;
+        _ = self.tx.closed() => {
+          break
+        }
+        _ = tick.tick() => {
+          self.send( Event::Tick ).await
+        }
+        Some( Ok( crossterm_event ) ) = crossterm_events.next().fuse() => {
+          match crossterm_event {
+            event::Event::Key( key ) => {
+              if key.kind == KeyEventKind::Press {
+                self.send( Event::KeyEvent( key ) ).await;
+              }
+            }
+            _ => {}
           }
         }
       }

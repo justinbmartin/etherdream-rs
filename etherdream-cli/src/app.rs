@@ -37,8 +37,8 @@ impl App {
     // <<< END device hack
 
     let mut scenes: HashMap<Scene,Box<dyn IsScene>> = HashMap::new();
-    scenes.insert( Scene::Info, Box::new( scene::InfoScene::new() ) );
-    scenes.insert( Scene::List, Box::new( scene::ListScene::new() ) );
+    scenes.insert( Scene::Info, Box::new( scene::InfoScene::default() ) );
+    scenes.insert( Scene::List, Box::new( scene::ListScene::default() ) );
 
     Self{
       current_scene: Scene::List,
@@ -66,7 +66,7 @@ impl App {
       // Render the terminal
       let _ = terminal.draw( | frame | self.render( &ctx, frame ) );
 
-      // Handle any user-input
+      // Handle any events
       match events_rx.recv().await {
         Some( Event::AppEvent( _evt ) ) => (),
         Some( Event::KeyEvent( key ) ) => self.on_key_event( &mut ctx, key ),
@@ -80,14 +80,14 @@ impl App {
     if key.kind == KeyEventKind::Press {
       let handled =
         if let Some( scene ) = self.scenes.get_mut( &self.current_scene ) {
-          scene.on_key_press( ctx, key.code )
+          scene.on_key_down( ctx, key.code )
         } else {
           SceneEvent::NotHandled
         };
 
       match handled {
         SceneEvent::Select( address ) => {
-          *self.device_selected_id.borrow_mut() = Some( *address );
+          *self.device_selected_id.borrow_mut() = Some( address );
           self.current_scene = Scene::Info;
         },
         SceneEvent::Exit => {
