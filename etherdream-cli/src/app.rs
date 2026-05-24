@@ -69,14 +69,14 @@ impl App {
       // Handle any events
       match events_rx.recv().await {
         Some( Event::AppEvent( _evt ) ) => (),
-        Some( Event::KeyEvent( key ) ) => self.on_key_event( &mut ctx, key ),
+        Some( Event::KeyEvent( key ) ) => self.on_key_event( &mut ctx, key ).await,
         Some( Event::Tick ) => (),
         _ => ()
       }
     }
   }
 
-  fn on_key_event( &mut self, ctx: &mut Context, key: KeyEvent ) {
+  async fn on_key_event( &mut self, ctx: &mut Context, key: KeyEvent ) {
     if key.kind == KeyEventKind::Press {
       let handled =
         if let Some( scene ) = self.scenes.get_mut( &self.current_scene ) {
@@ -86,14 +86,19 @@ impl App {
         };
 
       match handled {
+        SceneEvent::Connect( address ) => {
+          if let Some( device ) = self.device_map.borrow().get( &address ) {
+            let _ = etherdream::connect( *device.info() ).await;
+          }
+        }
         SceneEvent::Select( address ) => {
           *self.device_selected_id.borrow_mut() = Some( address );
           self.current_scene = Scene::Info;
-        },
+        }
         SceneEvent::Exit => {
           *self.device_selected_id.borrow_mut() = None;
           self.current_scene = Scene::List;
-        },
+        }
         SceneEvent::NotHandled => {
           match key.code {
             KeyCode::Char( 'q' ) | KeyCode::Esc => {

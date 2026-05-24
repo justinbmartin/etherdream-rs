@@ -19,11 +19,11 @@ impl IsScene for InfoScene {
     match key {
       KeyCode::Esc | KeyCode::Char( 'q' ) => SceneEvent::Exit,
       KeyCode::Char( 'c' ) => {
-        if let Some( _device ) = ctx.selected_device() {
-          // ...
+        if let Some( device ) = ctx.selected_device() {
+          SceneEvent::Connect( *device.info().address() )
+        } else {
+          SceneEvent::Handled
         }
-
-        SceneEvent::Handled
       }
       _ => SceneEvent::NotHandled
     }
