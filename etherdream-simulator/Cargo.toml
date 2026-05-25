@@ -10,5 +10,5 @@ version = "0.1.0"
 [dependencies]
 clap = { version = "4.6.1", features = [ "cargo", "string" ] }
 etherdream = { path = "../etherdream" }
-tokio = { workspace = true, features = [ "rt-multi-thread" ] }
+tokio = { workspace = true, features = [ "rt-multi-thread", "signal" ] }
 tokio-util = { workspace = true }

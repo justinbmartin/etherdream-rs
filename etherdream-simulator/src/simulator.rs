@@ -5,15 +5,14 @@ use std::net::{ IpAddr, Ipv4Addr, SocketAddr };
 use std::sync::{ Arc, RwLock };
 use std::time::Duration;
 
+use etherdream::protocol;
 use tokio::io::{ AsyncReadExt, AsyncWriteExt };
 use tokio::net::{ TcpListener, UdpSocket };
 use tokio::task;
 use tokio::time;
 use tokio_util::sync::CancellationToken;
 
-use etherdream::protocol;
-
-const DEFAULT_POINT_BUFFER_CAPACITY: u16 = 1024;
+pub const DEFAULT_POINT_BUFFER_CAPACITY: u16 = 1024;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Builder
 

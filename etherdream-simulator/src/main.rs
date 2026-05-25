@@ -1,47 +1,56 @@
-/// ...
+//! Simulator command-line application.
 use std::env;
 use std::net::{ IpAddr, Ipv4Addr, SocketAddr };
-use std::process::ExitCode;
 
 use clap::{ Arg, Command };
 use etherdream::protocol;
 use etherdream_simulator as simulator;
+use tokio::signal;
 
 #[tokio::main]
-async fn main() -> ExitCode {
+async fn main() -> Result<(),String> {
   let matches = Command::new( clap::crate_name!() )
     .version( clap::crate_version!() )
     .author( clap::crate_authors!() )
     .about( clap::crate_description!() )
     .args([
-      Arg::new( "ip" )
-        .help("The IP address to run the simulator with.")
+      Arg::new( "host" )
         .default_value( Ipv4Addr::LOCALHOST.to_string() )
+        .help( "The IPv4 address the simulator will communicate on." )
+        .long( "host" )
         .value_parser( clap::value_parser!( Ipv4Addr ) ),
       Arg::new( "port" )
-        .help("The port to run the simulator with.")
         .default_value( protocol::CLIENT_PORT.to_string() )
+        .help( "The port that the simulator will communicate on." )
+        .long( "port" )
         .value_parser( clap::value_parser!( u16 ) ),
       Arg::new( "capacity" )
-        .help("The capacity of the point buffer.")
-        .default_value( 1024.to_string() )
+        .default_value( simulator::DEFAULT_POINT_BUFFER_CAPACITY.to_string() )
+        .help( "The capacity of the simulator's point buffer." )
+        .long( "capacity" )
         .value_parser( clap::value_parser!( u16 ) )
     ])
     .get_matches();
 
   let builder = simulator::Builder::new()
     .address( SocketAddr::new(
-      IpAddr::V4( *matches.get_one::<Ipv4Addr>( "ip" ).unwrap() ),
+      IpAddr::V4( *matches.get_one::<Ipv4Addr>( "host" ).unwrap() ),
       *matches.get_one::<u16>( "port" ).unwrap() ) )
     .capacity( *matches.get_one::<u16>( "capacity" ).unwrap() );
 
   match builder.start().await {
     Ok( simulator ) => {
-      println!( "Listening on: {}", simulator.address() );
-      simulator.stop().await;
+      println!( "> Etherdream simulator address: {}", simulator.address() );
+      println!( "> Use Ctrl+C to exit." );
+
+      if let Err( _ ) = signal::ctrl_c().await {
+        return Err( "Failed to setup ctrl+c handling, aborting...".to_owned() );
+      }
     },
-    Err( err ) => eprintln!( "Failed to start simulator: {}", err )
+    Err( err ) => {
+      return Err( format!( "Failed to start simulator: {}", err ) );
+    }
   }
 
-  ExitCode::SUCCESS
+  Ok( () )
 }

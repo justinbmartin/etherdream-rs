@@ -1,3 +1,3 @@
 mod simulator;
 
-pub use simulator::{ Builder, Simulator };
+pub use simulator::{ Builder, DEFAULT_POINT_BUFFER_CAPACITY, Simulator };
