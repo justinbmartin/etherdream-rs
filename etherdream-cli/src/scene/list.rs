@@ -10,9 +10,9 @@ use ratatui::widgets::{ Block, Cell, Paragraph, Row, StatefulWidget, Table, Tabl
 use crate::device::Device;
 use super::{ IsScene, Context, SceneEvent };
 
-const CONNECTED: &str = "Connected";
+const CONNECTED: &str = " Connected ";
 const DISCONNECTED: &str = "Disconnected";
-//const PLAYING: &str = "Playing";
+const PLAYING: &str = " Playing ";
 
 const HIGHLIGHT_STYLE: Style = Style::new().bg( SLATE.c800 );
 
@@ -58,6 +58,11 @@ impl IsScene for ListScene {
       KeyCode::Char( 'd' ) => {
         if let Some( addr ) = self.get_selected_device_addr() {
           return SceneEvent::Disconnect( *addr );
+        }
+      }
+      KeyCode::Char( 'p' ) => {
+        if let Some( addr ) = self.get_selected_device_addr() {
+          return SceneEvent::Play( *addr );
         }
       }
       _ => {}
@@ -125,8 +130,12 @@ impl ListScene {
 }
 
 fn render_device_status<'a>( device: &Device, selected: bool ) -> Cell<'a> {
-  if let Some( _generator ) = device.generator() {
-    Cell::new( CONNECTED ).style( Style::new().bg( Color::Yellow ) )
+  if let Some( generator ) = device.generator() {
+    if generator.is_running() {
+      Cell::new( PLAYING ).style( Style::new().bg( Color::Green ) )
+    } else {
+      Cell::new( CONNECTED ).style( Style::new().bg( Color::Yellow ) )
+    }
   } else {
     let cell = Cell::new( DISCONNECTED );
     if selected { cell.style( HIGHLIGHT_STYLE ) } else { cell }

@@ -24,12 +24,24 @@ impl Device {
     &self.generator
   }
 
+  pub fn generator_mut( &mut self ) -> &mut Option<etherdream::Generator> {
+    &mut self.generator
+  }
+
   pub fn set_generator( &mut self, generator: etherdream::Generator ) {
     self.generator = Some( generator );
   }
 
   pub fn disconnect( &mut self ) {
     self.generator = None
+  }
+
+  pub fn is_playing( &self ) -> bool {
+    if let Some( generator ) = &self.generator {
+      generator.is_running()
+    } else {
+      false
+    }
   }
 
   pub fn info( &self ) -> &etherdream::DeviceInfo {

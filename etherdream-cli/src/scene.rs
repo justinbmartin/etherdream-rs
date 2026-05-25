@@ -22,6 +22,7 @@ pub enum Scene { List, Info }
 pub enum SceneEvent {
   Connect( SocketAddr ),    // Connect to a device
   Disconnect( SocketAddr ), // Disconnect from a device
+  Play( SocketAddr ),       // Start playing point data for a device
   Exit,                     // The scene should be exited
   Handled,                  // The event was handled internally by the scene
   NotHandled,               // The event was not handled by the scene

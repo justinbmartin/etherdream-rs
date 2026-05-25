@@ -56,7 +56,7 @@ impl Builder {
       playback_state: protocol::PlaybackState::Prepared,
       ..Default::default()
     } ) );
-    
+
     let listener = TcpListener::bind( self.address ).await?;
     let address = listener.local_addr()?;
 
@@ -157,7 +157,7 @@ impl ApiService {
       match self.do_listen().await {
         Ok( _ ) => {
           return Ok( () )
-        },
+        }
         Err( err ) if err.kind() == io::ErrorKind::UnexpectedEof => {
           println!( "disconnected..." )
         }

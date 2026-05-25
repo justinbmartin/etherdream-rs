@@ -79,24 +79,34 @@ impl App {
         };
 
       match handled {
-        SceneEvent::Connect( address ) => {
-          if let Some( device ) = self.device_map.borrow_mut().get_mut( &address ) {
+        SceneEvent::Connect( addr ) => {
+          if let Some( device ) = self.device_map.borrow_mut().get_mut( &addr ) {
             match etherdream::connect( *device.info() ).await {
               Ok( client ) => {
                 let generator = etherdream::make_generator( client, Box::new( executors::Noop::new() ) );
                 device.set_generator( generator );
               },
-              Err( _ ) => println!( "FAILED to connect..." )
+              Err( _ ) => {
+                // TODO: Error block...
+                println!( "FAILED to connect..." )
+              }
             }
           }
         }
-        SceneEvent::Disconnect( address ) => {
-          if let Some( device ) = self.device_map.borrow_mut().get_mut( &address ) {
+        SceneEvent::Disconnect( addr ) => {
+          if let Some( device ) = self.device_map.borrow_mut().get_mut( &addr ) {
             device.disconnect()
           }
         }
-        SceneEvent::Select( address ) => {
-          *self.device_selected_id.borrow_mut() = Some( address );
+        SceneEvent::Play( addr ) => {
+          if let Some( device ) = self.device_map.borrow_mut().get_mut( &addr ) {
+            if let Some( generator ) = device.generator_mut() {
+              generator.start().await;
+            }
+          }
+        }
+        SceneEvent::Select( addr ) => {
+          *self.device_selected_id.borrow_mut() = Some( addr );
           self.current_scene = Scene::Info;
         }
         SceneEvent::Exit => {
