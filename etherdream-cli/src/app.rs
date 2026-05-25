@@ -61,7 +61,6 @@ impl App {
 
       // Handle any events
       match events_rx.recv().await {
-        Some( Event::AppEvent( _evt ) ) => (),
         Some( Event::KeyEvent( key ) ) => self.on_key_event( &mut ctx, key ).await,
         Some( Event::Tick ) => (),
         _ => ()
@@ -100,8 +99,11 @@ impl App {
         }
         SceneEvent::Play( addr ) => {
           if let Some( device ) = self.device_map.borrow_mut().get_mut( &addr ) {
-            if let Some( generator ) = device.generator_mut() {
+            if let Some( client ) = device.into_client().await {
+              let mut generator = etherdream::make_generator( client, Box::new( executors::Demo::new() ) );
               generator.start().await;
+
+              device.set_generator( generator )
             }
           }
         }

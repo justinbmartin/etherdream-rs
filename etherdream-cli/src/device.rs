@@ -32,6 +32,18 @@ impl Device {
     self.generator = Some( generator );
   }
 
+  pub async fn into_client( &mut self ) -> Option<etherdream::Client> {
+    if let Some( generator ) = self.generator.take() {
+      if let Ok( client ) = generator.into_client().await {
+        Some( client )
+      } else {
+        None
+      }
+    } else {
+      None
+    }
+  }
+
   pub fn disconnect( &mut self ) {
     self.generator = None
   }

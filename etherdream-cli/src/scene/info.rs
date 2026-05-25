@@ -1,5 +1,3 @@
-use std::net::SocketAddr;
-
 use crossterm::event::KeyCode;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;

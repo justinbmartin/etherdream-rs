@@ -1,4 +1,3 @@
-use std::net::SocketAddr;
 use std::time::Duration;
 
 use crossterm::event::{ self, EventStream, KeyEvent, KeyEventKind };
@@ -7,22 +6,17 @@ use tokio::sync::mpsc;
 
 const FPS: f64 = 30.0;
 
-pub enum Event<'a> {
-  AppEvent( AppEvent<'a> ),
+pub enum Event {
   KeyEvent( KeyEvent ),
   Tick
 }
 
-pub enum AppEvent<'a> {
-  Connect( &'a SocketAddr )
+pub struct EventHandler {
+  tx: mpsc::Sender<Event>
 }
 
-pub struct EventHandler<'a> {
-  tx: mpsc::Sender<Event<'a>>
-}
-
-impl<'a> EventHandler<'a> {
-  pub fn new() -> ( Self, mpsc::Receiver<Event<'a>> ) {
+impl EventHandler {
+  pub fn new() -> ( Self, mpsc::Receiver<Event> ) {
     let ( tx, rx ) = mpsc::channel( 16 );
     ( Self{ tx }, rx )
   }
@@ -54,7 +48,7 @@ impl<'a> EventHandler<'a> {
     }
   }
 
-  async fn send( &self, event: Event<'a> ) {
+  async fn send( &self, event: Event ) {
     let _ = self.tx.send( event ).await;
   }
 }
