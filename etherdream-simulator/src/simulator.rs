@@ -18,9 +18,8 @@ const DEFAULT_POINT_BUFFER_CAPACITY: u16 = 1024;
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Builder
 
 pub struct Builder {
-  capacity: u16,
-  ip_addr: IpAddr,
-  port: u16
+  address: SocketAddr,
+  capacity: u16
 }
 
 impl Builder {
@@ -28,23 +27,17 @@ impl Builder {
   pub fn new() -> Self {
     Self{
       capacity: DEFAULT_POINT_BUFFER_CAPACITY,
-      ip_addr: IpAddr::V4( Ipv4Addr::LOCALHOST ),
-      port: protocol::CLIENT_PORT
+      address: SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), 0 )
     }
+  }
+
+  pub fn address( mut self, address: SocketAddr ) -> Self {
+    self.address = address;
+    self
   }
 
   pub fn capacity( mut self, capacity: u16 ) -> Self {
     self.capacity = capacity;
-    self
-  }
-
-  pub fn ip_addr( mut self, ip_addr: IpAddr ) -> Self {
-    self.ip_addr = ip_addr;
-    self
-  }
-
-  pub fn port( mut self, port: u16 ) -> Self {
-    self.port = port;
     self
   }
 
@@ -64,10 +57,7 @@ impl Builder {
     } ) );
 
     // ...
-    let broadcast_socket = UdpSocket::bind( SocketAddr::new( self.ip_addr, 0 ) ).await?;
-    broadcast_socket.set_broadcast( true )?;
-
-    let api_listener = TcpListener::bind( SocketAddr::new( self.ip_addr, 0 ) ).await?;
+    let api_listener = TcpListener::bind( self.address ).await?;
     let address = api_listener.local_addr()?;
 
     let handle = tokio::spawn({
@@ -80,7 +70,7 @@ impl Builder {
       };
 
       let broadcast_service = BroadcastService{
-        ip_addr: self.ip_addr,
+        ip_addr: self.address.ip(),
         intrinsics: intrinsics.clone(),
         state: state.clone()
       };
