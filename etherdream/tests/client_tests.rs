@@ -1,6 +1,6 @@
 use tokio::time::{ sleep, Duration };
 
-use etherdream_simulator::{ Simulator, SimulatorBuilder };
+use etherdream_simulator::{ self as simulator, Simulator };
 
 use etherdream::client::Client;
 use etherdream::DeviceInfo;
@@ -121,7 +121,7 @@ async fn setup() -> ( Simulator, Client ) {
 // Creates an Etherdream simulator and client using a provided a point buffer
 // `capacity`.
 async fn setup_with_capacity( capacity: u16 ) -> ( Simulator, Client  ) {
-  let simulator = SimulatorBuilder::new().capacity( capacity ).start().await.unwrap();
+  let simulator = simulator::Builder::new().capacity( capacity ).start().await.unwrap();
   let device_info = DeviceInfo::new( *simulator.address(), *simulator.intrinsics() );
 
   let client =

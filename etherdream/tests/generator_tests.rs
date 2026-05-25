@@ -2,7 +2,7 @@ use tokio::sync::mpsc;
 use tokio::time::{ Duration, sleep, timeout };
 
 use etherdream::{ client, DeviceInfo, generator };
-use etherdream_simulator::{ Simulator, SimulatorBuilder };
+use etherdream_simulator::{ self as simulator, Simulator };
 
 struct TestExecutor{
   invoked: mpsc::Sender<usize>,
@@ -31,7 +31,7 @@ impl generator::Executable for TestExecutor {
 
 #[tokio::test]
 async fn a_generator_will_publish_point_data() {
-  let mut simulator = SimulatorBuilder::new().capacity( 10 ).start().await.unwrap();
+  let mut simulator = simulator::Builder::new().capacity( 10 ).start().await.unwrap();
   let device_info = DeviceInfo::new( *simulator.address(), *simulator.intrinsics() );
 
   let client = client::Builder::new( device_info )
@@ -77,7 +77,7 @@ async fn a_generator_will_publish_point_data() {
 
 #[tokio::test]
 async fn a_generator_can_be_configured_with_a_custom_low_watermark() {
-  let mut simulator = SimulatorBuilder::new().capacity( 10 ).start().await.unwrap();
+  let mut simulator = simulator::Builder::new().capacity( 10 ).start().await.unwrap();
   let device_info = DeviceInfo::new( *simulator.address(), *simulator.intrinsics() );
 
   let client = client::Builder::new( device_info )
@@ -112,7 +112,7 @@ async fn a_generator_can_be_configured_with_a_custom_low_watermark() {
 
 #[tokio::test]
 async fn a_generator_can_ping_the_device() {
-  let simulator = SimulatorBuilder::new().capacity( 10 ).start().await.unwrap();
+  let simulator = simulator::Builder::new().capacity( 10 ).start().await.unwrap();
   let device_info = DeviceInfo::new( *simulator.address(), *simulator.intrinsics() );
 
   let client = client::Builder::new( device_info )

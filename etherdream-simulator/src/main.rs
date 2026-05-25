@@ -5,7 +5,7 @@ use std::process::ExitCode;
 
 use clap::{ Arg, Command };
 use etherdream::protocol;
-use etherdream_simulator::SimulatorBuilder;
+use etherdream_simulator as simulator;
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -25,14 +25,11 @@ async fn main() -> ExitCode {
     ])
     .get_matches();
 
-  let ip_addr = matches.get_one::<Ipv4Addr>( "ip" ).unwrap();
-  let port = matches.get_one::<u16>( "port" ).unwrap();
+  let builder = simulator::Builder::new()
+    .ip_addr( IpAddr::V4( *matches.get_one::<Ipv4Addr>( "ip" ).unwrap() ) )
+    .port( *matches.get_one::<u16>( "port" ).unwrap() );
 
-  let simulator_builder = SimulatorBuilder::new()
-    .ip_addr( IpAddr::V4( *ip_addr ) )
-    .port( *port );
-
-  match simulator_builder.start().await {
+  match builder.start().await {
     Ok( simulator ) => {
       println!( "Listening on: {}", simulator.address() );
       simulator.stop().await;

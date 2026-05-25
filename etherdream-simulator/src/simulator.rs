@@ -15,15 +15,15 @@ use etherdream::protocol;
 
 const DEFAULT_POINT_BUFFER_CAPACITY: u16 = 1024;
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Simulator Builder
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Builder
 
-pub struct SimulatorBuilder {
+pub struct Builder {
   capacity: u16,
   ip_addr: IpAddr,
   port: u16
 }
 
-impl SimulatorBuilder {
+impl Builder {
   /// Starts an Etherdream simulator with the default capacity.
   pub fn new() -> Self {
     Self{
