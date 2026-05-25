@@ -1,3 +1,3 @@
 mod simulator;
 
-pub use simulator::Simulator;
+pub use simulator::{ Simulator, SimulatorBuilder };

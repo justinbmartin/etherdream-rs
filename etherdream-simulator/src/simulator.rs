@@ -15,33 +15,46 @@ use etherdream::protocol;
 
 const DEFAULT_POINT_BUFFER_CAPACITY: u16 = 1024;
 
-/// A tokio TCP server that implements the Etherdream protocol.
-pub struct Simulator {
-  // The local socket address that the simulator is communicating on.
-  address: SocketAddr,
-  // ...
-  cancellation_token: CancellationToken,
-  // The intrinsic properties of the device associated with this simulator.
-  intrinsics: protocol::Intrinsics,
-  // The real-time device state associated with this simulator.
-  state: Arc<RwLock<protocol::State>>,
-  // The join handle that owns the asynchronous server tasks.
-  handle: task::JoinHandle<io::Result<()>>
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Simulator Builder
+
+pub struct SimulatorBuilder {
+  capacity: u16,
+  ip_addr: IpAddr,
+  port: u16
 }
 
-impl Simulator {
+impl SimulatorBuilder {
   /// Starts an Etherdream simulator with the default capacity.
-  pub async fn start() -> io::Result<Self> {
-    Self::start_with_capacity( DEFAULT_POINT_BUFFER_CAPACITY ).await
+  pub fn new() -> Self {
+    Self{
+      capacity: DEFAULT_POINT_BUFFER_CAPACITY,
+      ip_addr: IpAddr::V4( Ipv4Addr::LOCALHOST ),
+      port: protocol::CLIENT_PORT
+    }
+  }
+
+  pub fn capacity( mut self, capacity: u16 ) -> Self {
+    self.capacity = capacity;
+    self
+  }
+
+  pub fn ip_addr( mut self, ip_addr: IpAddr ) -> Self {
+    self.ip_addr = ip_addr;
+    self
+  }
+
+  pub fn port( mut self, port: u16 ) -> Self {
+    self.port = port;
+    self
   }
 
   /// Starts an Etherdream simulator using the provided point buffer
   /// `capacity`. Will bind locally to `127.0.0.1:*` (any available port).
-  pub async fn start_with_capacity( capacity: u16 ) -> io::Result<Self> {
+  pub async fn start( self ) -> io::Result<Simulator> {
     let cancellation_token = CancellationToken::new();
 
     let intrinsics = protocol::Intrinsics{
-      buffer_capacity: capacity,
+      buffer_capacity: self.capacity,
       ..Default::default()
     };
 
@@ -50,13 +63,11 @@ impl Simulator {
       ..Default::default()
     } ) );
 
-    // Start listening on `127.0.0.1:*` (any available port)
-    let ip_addr = IpAddr::V4( Ipv4Addr::LOCALHOST );
-
-    let broadcast_socket = UdpSocket::bind( SocketAddr::new( ip_addr, 0 ) ).await?;
+    // ...
+    let broadcast_socket = UdpSocket::bind( SocketAddr::new( self.ip_addr, 0 ) ).await?;
     broadcast_socket.set_broadcast( true )?;
 
-    let api_listener = TcpListener::bind( SocketAddr::new( ip_addr, 0 ) ).await?;
+    let api_listener = TcpListener::bind( SocketAddr::new( self.ip_addr, 0 ) ).await?;
     let address = api_listener.local_addr()?;
 
     let handle = tokio::spawn({
@@ -69,7 +80,7 @@ impl Simulator {
       };
 
       let broadcast_service = BroadcastService{
-        ip_addr: ip_addr.clone(),
+        ip_addr: self.ip_addr,
         intrinsics: intrinsics.clone(),
         state: state.clone()
       };
@@ -83,7 +94,7 @@ impl Simulator {
       }
     });
 
-    Ok( Self{
+    Ok( Simulator{
       address,
       cancellation_token,
       handle,
@@ -91,7 +102,25 @@ impl Simulator {
       state
     })
   }
+}
 
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Simulator
+
+/// A tokio TCP server that implements the Etherdream protocol.
+pub struct Simulator {
+  // The local socket address that the simulator is communicating on.
+  address: SocketAddr,
+  // The cancellation token used to shut down the simulator.
+  cancellation_token: CancellationToken,
+  // The intrinsic properties of the device associated with this simulator.
+  intrinsics: protocol::Intrinsics,
+  // The real-time device state associated with this simulator.
+  state: Arc<RwLock<protocol::State>>,
+  // The join handle that owns the asynchronous server tasks.
+  handle: task::JoinHandle<io::Result<()>>
+}
+
+impl Simulator {
   /// Returns the address that this simulator is running on.
   pub fn address( &self ) -> &SocketAddr {
     &self.address
