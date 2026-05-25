@@ -22,7 +22,7 @@ pub struct Builder {
 }
 
 impl Builder {
-  /// Starts an Etherdream simulator with the default capacity.
+  /// Creates an Etherdream simulator builder with the default values.
   pub fn new() -> Self {
     Self{
       capacity: DEFAULT_POINT_BUFFER_CAPACITY,
@@ -30,23 +30,25 @@ impl Builder {
     }
   }
 
+  /// Assigns the socket address the simulator will operate on.
   pub fn address( mut self, address: SocketAddr ) -> Self {
     self.address = address;
     self
   }
 
+  /// Assigns the point buffer capacity for the simulator.
   pub fn capacity( mut self, capacity: u16 ) -> Self {
     self.capacity = capacity;
     self
   }
 
-  /// Starts an Etherdream simulator using the provided point buffer
-  /// `capacity`. Will bind locally to `127.0.0.1:*` (any available port).
+  /// Starts the Etherdream simulator.
   pub async fn start( self ) -> io::Result<Simulator> {
     let cancellation_token = CancellationToken::new();
 
     let intrinsics = protocol::Intrinsics{
       buffer_capacity: self.capacity,
+      mac_address: protocol::MacAddress::new([ b'S', b'I', b'M', b'U', b'L', b'A' ]),
       ..Default::default()
     };
 
@@ -54,22 +56,21 @@ impl Builder {
       playback_state: protocol::PlaybackState::Prepared,
       ..Default::default()
     } ) );
-
-    // ...
-    let api_listener = TcpListener::bind( self.address ).await?;
-    let address = api_listener.local_addr()?;
+    
+    let listener = TcpListener::bind( self.address ).await?;
+    let address = listener.local_addr()?;
 
     let handle = tokio::spawn({
       let cancellation_token = cancellation_token.clone();
 
       let api_service = ApiService{
         intrinsics: intrinsics.clone(),
-        listener: api_listener,
+        listener,
         state: state.clone()
       };
 
       let broadcast_service = BroadcastService{
-        ip_addr: self.address.ip(),
+        ip_addr: address.ip(),
         intrinsics: intrinsics.clone(),
         state: state.clone()
       };

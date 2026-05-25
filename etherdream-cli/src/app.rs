@@ -90,6 +90,11 @@ impl App {
             }
           }
         }
+        SceneEvent::Disconnect( address ) => {
+          if let Some( device ) = self.device_map.borrow_mut().get_mut( &address ) {
+            device.disconnect()
+          }
+        }
         SceneEvent::Select( address ) => {
           *self.device_selected_id.borrow_mut() = Some( address );
           self.current_scene = Scene::Info;

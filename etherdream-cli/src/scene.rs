@@ -21,6 +21,7 @@ pub enum Scene { List, Info }
 #[derive( PartialEq )]
 pub enum SceneEvent {
   Connect( SocketAddr ),    // Connect to a device
+  Disconnect( SocketAddr ), // Disconnect from a device
   Exit,                     // The scene should be exited
   Handled,                  // The event was handled internally by the scene
   NotHandled,               // The event was not handled by the scene

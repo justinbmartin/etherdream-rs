@@ -3,9 +3,9 @@ use std::net::SocketAddr;
 use crossterm::event::KeyCode;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{ Constraint, Rect };
-use ratatui::style::{ palette::tailwind::SLATE, Style };
+use ratatui::style::{ Color, palette::tailwind::SLATE, Style };
 use ratatui::text::Line;
-use ratatui::widgets::{ Block, Paragraph, Row, StatefulWidget, Table, TableState, Widget };
+use ratatui::widgets::{ Block, Cell, Paragraph, Row, StatefulWidget, Table, TableState, Widget };
 
 use crate::device::Device;
 use super::{ IsScene, Context, SceneEvent };
@@ -13,6 +13,8 @@ use super::{ IsScene, Context, SceneEvent };
 const CONNECTED: &str = "Connected";
 const DISCONNECTED: &str = "Disconnected";
 //const PLAYING: &str = "Playing";
+
+const HIGHLIGHT_STYLE: Style = Style::new().bg( SLATE.c800 );
 
 pub struct ListScene {
   device_map_version: usize,
@@ -44,8 +46,18 @@ impl IsScene for ListScene {
         return SceneEvent::Handled;
       }
       KeyCode::Enter => {
-        if let Some( addr ) = self.state.selected().and_then( |i|{ self.sorted_device_keys.get( i ) } ) {
+        if let Some( addr ) = self.get_selected_device_addr() {
           return SceneEvent::Select( *addr );
+        }
+      }
+      KeyCode::Char( 'c' ) => {
+        if let Some( addr ) = self.get_selected_device_addr() {
+          return SceneEvent::Connect( *addr );
+        }
+      }
+      KeyCode::Char( 'd' ) => {
+        if let Some( addr ) = self.get_selected_device_addr() {
+          return SceneEvent::Disconnect( *addr );
         }
       }
       _ => {}
@@ -79,13 +91,17 @@ impl IsScene for ListScene {
 
     let rows: Vec<Row> = self.sorted_device_keys
       .iter()
-      .filter_map(| addr |{
+      .enumerate()
+      .filter_map(|( i, addr )|{
         if let Some( device ) = ctx.device_map().get( addr ) {
+          let selected = self.state.selected().filter(| si |{ *si == i }).is_some();
+          let theme = if selected { HIGHLIGHT_STYLE } else { Style::new() };
+
           Some( Row::new([
-            addr.to_string(),
-            device.info().mac_address().to_string(),
-            device_status( device ).to_string()
-          ]) )
+            Cell::new( addr.to_string() ),
+            Cell::new( device.info().mac_address().to_string() ),
+            render_device_status( device, selected )
+          ]).style( theme ) )
         } else {
           None
         }
@@ -96,17 +112,23 @@ impl IsScene for ListScene {
       .block( block )
       .header( Row::new(vec![ "Address", "MAC", "Status" ]).style( Style::new().bold() ) )
       .highlight_spacing( ratatui::widgets::HighlightSpacing::Always )
-      .highlight_symbol( "> " )
-      .row_highlight_style( Style::new().bg( SLATE.c800 ) );
+      .highlight_symbol( "> " );
 
     StatefulWidget::render( table, area, buf, &mut self.state );
   }
 }
 
-fn device_status( device: &Device ) -> &str {
+impl ListScene {
+  fn get_selected_device_addr( &self ) -> Option<&SocketAddr> {
+    self.state.selected().and_then(| i |{ self.sorted_device_keys.get( i ) })
+  }
+}
+
+fn render_device_status<'a>( device: &Device, selected: bool ) -> Cell<'a> {
   if let Some( _generator ) = device.generator() {
-    CONNECTED
+    Cell::new( CONNECTED ).style( Style::new().bg( Color::Yellow ) )
   } else {
-    DISCONNECTED
+    let cell = Cell::new( DISCONNECTED );
+    if selected { cell.style( HIGHLIGHT_STYLE ) } else { cell }
   }
 }

@@ -28,6 +28,10 @@ impl Device {
     self.generator = Some( generator );
   }
 
+  pub fn disconnect( &mut self ) {
+    self.generator = None
+  }
+
   pub fn info( &self ) -> &etherdream::DeviceInfo {
     &self.info
   }
