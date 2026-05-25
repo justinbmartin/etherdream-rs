@@ -5,10 +5,8 @@ mod event;
 mod executors;
 mod scene;
 
-use std::process::ExitCode;
-
 #[tokio::main]
-async fn main() -> ExitCode {
+async fn main() -> Result<(),String> {
   // Start the Etherdream device discovery service
   let ( discovery_tx, discovery_rx ) = tokio::sync::mpsc::channel( 16 );
 
@@ -16,16 +14,16 @@ async fn main() -> ExitCode {
     match etherdream::discover( discovery_tx ).await {
       Ok( server ) => server,
       Err( err ) => {
-        eprintln!( "Failed to start Etherdream device discovery service: {:?}", err );
-        return ExitCode::FAILURE;
+        return Err( format!( "Failed to start Etherdream device discovery service: {:?}", err ) );
       }
     };
 
   // [Blocks] Create and run the app
   let terminal = ratatui::init();
   app::App::new().run( terminal, discovery_rx ).await;
+  ratatui::restore();
 
   // Shutdown the discovery service and terminate
   discovery.shutdown().await;
-  ExitCode::SUCCESS
+  Ok( () )
 }

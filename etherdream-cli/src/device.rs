@@ -16,8 +16,16 @@ impl Device {
     }
   }
 
+  pub fn address( &self ) -> &SocketAddr {
+    self.info.address()
+  }
+
   pub fn generator( &self ) -> &Option<etherdream::Generator> {
     &self.generator
+  }
+
+  pub fn set_generator( &mut self, generator: etherdream::Generator ) {
+    self.generator = Some( generator );
   }
 
   pub fn info( &self ) -> &etherdream::DeviceInfo {
@@ -44,6 +52,10 @@ impl Default for DeviceMap {
 impl DeviceMap{
   pub fn get( &self, addr: &SocketAddr ) -> Option<&Device> {
     self.data.get( addr )
+  }
+
+  pub fn get_mut( &mut self, addr: &SocketAddr ) -> Option<&mut Device> {
+    self.data.get_mut( addr )
   }
 
   pub fn insert( &mut self, info: etherdream::DeviceInfo ) {

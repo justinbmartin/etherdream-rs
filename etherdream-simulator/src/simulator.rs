@@ -152,6 +152,22 @@ struct ApiService {
 
 impl ApiService {
   async fn run( &self ) -> io::Result<()> {
+    loop {
+      match self.do_listen().await {
+        Ok( _ ) => {
+          return Ok( () )
+        },
+        Err( err ) if err.kind() == io::ErrorKind::UnexpectedEof => {
+          println!( "disconnected..." )
+        }
+        Err( err ) => {
+          return Err( err )
+        }
+      }
+    }
+  }
+
+  async fn do_listen( &self ) -> io::Result<()> {
     let mut cmd: u8;
     let mut control_signal: u8;
     let mut tx_buf = [0u8; protocol::RESPONSE_BYTES_SIZE];

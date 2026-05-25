@@ -11,6 +11,7 @@ use tokio::sync::mpsc::Receiver;
 
 use crate::device::DeviceMap;
 use crate::event::{ Event, EventHandler };
+use crate::executors;
 use crate::scene::{ self, Context, IsScene, Scene, SceneEvent };
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
@@ -27,14 +28,6 @@ impl App {
   pub fn new() -> Self {
     let device_map = Rc::new( RefCell::new( DeviceMap::default() ) );
     let device_selected_id = Rc::new( RefCell::new( None::<SocketAddr> ) );
-
-    // >>> BEGIN device hack
-    let device_info = etherdream::DeviceInfo::new( SocketAddr::from(( [10, 0, 0, 1], 6543 )), etherdream::protocol::Intrinsics::default() );
-    device_map.borrow_mut().insert( device_info );
-
-    let device_info = etherdream::DeviceInfo::new( SocketAddr::from(( [10, 0, 0, 2], 6543 )), etherdream::protocol::Intrinsics::default() );
-    device_map.borrow_mut().insert( device_info );
-    // <<< END device hack
 
     let mut scenes: HashMap<Scene,Box<dyn IsScene>> = HashMap::new();
     scenes.insert( Scene::Info, Box::new( scene::InfoScene::default() ) );
@@ -87,8 +80,14 @@ impl App {
 
       match handled {
         SceneEvent::Connect( address ) => {
-          if let Some( device ) = self.device_map.borrow().get( &address ) {
-            let _ = etherdream::connect( *device.info() ).await;
+          if let Some( device ) = self.device_map.borrow_mut().get_mut( &address ) {
+            match etherdream::connect( *device.info() ).await {
+              Ok( client ) => {
+                let generator = etherdream::make_generator( client, Box::new( executors::Noop::new() ) );
+                device.set_generator( generator );
+              },
+              Err( _ ) => println!( "FAILED to connect..." )
+            }
           }
         }
         SceneEvent::Select( address ) => {
