@@ -1,6 +1,6 @@
 /// ...
 use std::env;
-use std::net::{ IpAddr, Ipv4Addr };
+use std::net::{ IpAddr, Ipv4Addr, SocketAddr };
 use std::process::ExitCode;
 
 use clap::{ Arg, Command };
@@ -21,13 +21,19 @@ async fn main() -> ExitCode {
       Arg::new( "port" )
         .help("The port to run the simulator with.")
         .default_value( protocol::CLIENT_PORT.to_string() )
+        .value_parser( clap::value_parser!( u16 ) ),
+      Arg::new( "capacity" )
+        .help("The capacity of the point buffer.")
+        .default_value( 1024.to_string() )
         .value_parser( clap::value_parser!( u16 ) )
     ])
     .get_matches();
 
   let builder = simulator::Builder::new()
-    .ip_addr( IpAddr::V4( *matches.get_one::<Ipv4Addr>( "ip" ).unwrap() ) )
-    .port( *matches.get_one::<u16>( "port" ).unwrap() );
+    .address( SocketAddr::new(
+      IpAddr::V4( *matches.get_one::<Ipv4Addr>( "ip" ).unwrap() ),
+      *matches.get_one::<u16>( "port" ).unwrap() ) )
+    .capacity( *matches.get_one::<u16>( "capacity" ).unwrap() );
 
   match builder.start().await {
     Ok( simulator ) => {
