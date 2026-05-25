@@ -10,7 +10,7 @@ version = "0.1.0"
 [dependencies]
 futures = { version = "0.3" }
 tokio = { workspace = true }
-tokio-util = { version = "0.7.18", features = [ "codec", "net" ] }
+tokio-util = { workspace = true, features = [ "codec", "net" ] }
 
 [dev-dependencies]
 etherdream-simulator = { path = "../etherdream-simulator" }

@@ -10,3 +10,4 @@ version = "0.1.0"
 [dependencies]
 etherdream = { path = "../etherdream" }
 tokio = { workspace = true, features = [ "rt-multi-thread" ] }
+tokio-util = { workspace = true }
