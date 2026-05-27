@@ -33,7 +33,7 @@ impl Default for ListScene {
 }
 
 impl IsScene for ListScene {
-  fn on_key_down( &mut self, ctx: &mut Context, key: KeyCode ) -> SceneEvent {
+  fn on_key_down( &mut self, ctx: &Context, key: KeyCode ) -> SceneEvent {
     match key {
       KeyCode::Down => {
         let i = self.state.selected().unwrap_or( 0 ).saturating_add( 1 ) % ctx.device_map().len();
@@ -105,7 +105,7 @@ impl IsScene for ListScene {
           Some( Row::new([
             Cell::new( addr.to_string() ),
             Cell::new( device.info().mac_address().to_string() ),
-            render_device_status( device, selected )
+            render_device_status_cell( device, selected )
           ]).style( theme ) )
         } else {
           None
@@ -129,7 +129,7 @@ impl ListScene {
   }
 }
 
-fn render_device_status<'a>( device: &Device, selected: bool ) -> Cell<'a> {
+fn render_device_status_cell<'a>( device: &Device, selected: bool ) -> Cell<'a> {
   if let Some( generator ) = device.generator() {
     if generator.is_running() {
       Cell::new( PLAYING ).style( Style::new().bg( Color::Green ) )

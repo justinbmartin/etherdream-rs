@@ -6,7 +6,7 @@ use std::time::{ Duration, Instant };
 
 use tokio::io::{ AsyncReadExt, AsyncWriteExt };
 use tokio::net::{ tcp, TcpSocket };
-use tokio::sync::{ broadcast, mpsc, Mutex, oneshot, RwLock, RwLockReadGuard };
+use tokio::sync::{ broadcast, mpsc, Mutex, oneshot, RwLock, watch };
 use tokio::task::{ JoinHandle, JoinSet };
 use tokio::time;
 use tokio_util::sync::CancellationToken;
@@ -132,12 +132,12 @@ impl Default for State {
 
 /// A read-only version of a `State` shared reference.
 pub(crate) struct ReadOnlyState {
-  inner: Arc<RwLock<State>>
+  inner: watch::Receiver<State>
 }
 
 impl ReadOnlyState {
-  pub(crate) async fn read( &'_ self ) -> RwLockReadGuard<'_, State> {
-    self.inner.read().await
+  pub(crate) async fn read( &'_ self ) -> watch::Ref<'_, State> {
+    self.inner.borrow()
   }
 }
 
@@ -177,6 +177,7 @@ impl Builder {
     let ( point_tx, point_rx ) = CircularBuffer::new( self.capacity );
     let shutdown_token = CancellationToken::new();
     let state = Arc::new( RwLock::new( State::default() ) );
+    let ( state_tx, state_rx ) = watch::channel( State::default() );
     let mut tasks = JoinSet::new();
 
     // Communicates commands from the client to the `<Writer>` task.
@@ -193,13 +194,15 @@ impl Builder {
     tasks.spawn({
       let on_response_tx = on_response_tx.clone();
       let shutdown_token = shutdown_token.clone();
+      let state_tx = state_tx.clone();
 
       let reader = Reader{
         awaiting_ack: awaiting_ack.clone(),
         dac_rx,
         on_response_tx,
         shutdown_token: shutdown_token.clone(),
-        state: state.clone()
+        state: state.clone(),
+        state_tx
       };
 
       async move {
@@ -237,7 +240,8 @@ impl Builder {
       device_info: self.device_info,
       point_tx,
       shutdown_token,
-      state,
+      state_rx,
+      state_tx,
       tasks
     };
 
@@ -260,8 +264,10 @@ pub struct Client {
   point_tx: PointTx,
   // The cancellation token used to shut down the client.
   shutdown_token: CancellationToken,
-  // The client's run-time state.
-  state: Arc<RwLock<State>>,
+  // The current state of the client run-time.
+  state_rx: watch::Receiver<State>,
+  // ...
+  state_tx: watch::Sender<State>,
   // The asynchronous task handles.
   tasks: JoinSet<io::Result<()>>
 }
@@ -302,10 +308,10 @@ impl Client {
     self.device_info.max_points_per_second()
   }
 
-  /// Returns a copy of the connection's current state.
+  /// Clone's a copy of the client's run-time state into `state`.
   #[inline]
-  pub async fn state( &self ) -> State {
-    *self.state.read().await
+  pub fn state( &'_ self ) -> watch::Ref<'_, State> {
+    self.state_rx.borrow()
   }
 
   /// Ping's the connected Etherdream device and awaits a response.
@@ -384,7 +390,7 @@ impl Client {
     let client = ReadOnlyClient{
       device_info: self.device_info,
       shutdown_token: self.shutdown_token,
-      state: self.state,
+      state_tx: self.state_tx,
       tasks: self.tasks
     };
 
@@ -399,7 +405,8 @@ impl Client {
       device_info: client.device_info,
       point_tx,
       shutdown_token: client.shutdown_token,
-      state: client.state,
+      state_rx: client.state_tx.subscribe(),
+      state_tx: client.state_tx,
       tasks: client.tasks
     }
   }
@@ -412,7 +419,8 @@ struct Reader {
   dac_rx: tcp::OwnedReadHalf,
   on_response_tx: broadcast::Sender<OnResponseMsg>,
   shutdown_token: CancellationToken,
-  state: Arc<RwLock<State>>
+  state: Arc<RwLock<State>>,
+  state_tx: watch::Sender<State>
 }
 
 impl Reader {
@@ -461,6 +469,7 @@ impl Reader {
 
         // Publish the response to all subscribers.
         let _ = self.on_response_tx.send( ( control_signal, command, *state ) );
+        let _ = self.state_tx.send( *state );
       }
     }
   }
@@ -635,14 +644,14 @@ fn calculate_point_send_count( state: &State, point_send_count_accumulated: usiz
 pub(crate) struct ReadOnlyClient {
   device_info: DeviceInfo,
   shutdown_token: CancellationToken,
-  state: Arc<RwLock<State>>,
+  state_tx: watch::Sender<State>,
   tasks: JoinSet<io::Result<()>>
 }
 
 impl ReadOnlyClient {
   /// Returns a read-only clone of the client's state.
   pub(crate) fn clone_state( &self ) -> ReadOnlyState {
-    ReadOnlyState{ inner: self.state.clone() }
+    ReadOnlyState{ inner: self.state_tx.subscribe() }
   }
 
   /// Returns the `DeviceInfo` associated with this client.

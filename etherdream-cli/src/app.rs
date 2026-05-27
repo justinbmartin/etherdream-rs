@@ -57,7 +57,7 @@ impl App {
       }
 
       // Render the terminal
-      let _ = terminal.draw( | frame | self.render( &ctx, frame ) );
+      let _ = terminal.draw(| frame |{ self.render( &ctx, frame ) });
 
       // Handle any events
       match events_rx.recv().await {
@@ -99,11 +99,13 @@ impl App {
         }
         SceneEvent::Play( addr ) => {
           if let Some( device ) = self.device_map.borrow_mut().get_mut( &addr ) {
-            if let Some( client ) = device.into_client().await {
-              let mut generator = etherdream::make_generator( client, Box::new( executors::Demo::new() ) );
-              generator.start().await;
-
-              device.set_generator( generator )
+            if let Some( generator ) = device.take_generator() {
+              if let Ok( client ) = generator.into_client().await {
+                let executor = Box::new( executors::Demo::new() );
+                let mut generator = etherdream::make_generator( client, executor );
+                generator.start().await;
+                device.set_generator( generator );
+              }
             }
           }
         }

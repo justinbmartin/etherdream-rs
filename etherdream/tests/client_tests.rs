@@ -16,7 +16,7 @@ async fn will_return_device_properties() {
   assert_eq!( client.max_points_per_second(), simulator.intrinsics().max_points_per_second as usize );
   assert_eq!( client.peer_addr(), simulator.address() );
 
-  let state = client.state().await;
+  let state = client.state();
   assert_eq!( state.is_ready(), true );
   assert_eq!( state.points_buffered(), 0 );
 }
@@ -90,8 +90,7 @@ async fn can_start_the_client() {
   sleep( Duration::from_secs( 1 ) ).await;
 
   // Verify that all remaining points have been flushed
-  let state = client.state().await;
-  assert_eq!( state.points_buffered(), 2 );
+  assert_eq!( client.state().points_buffered(), 2 );
   assert_eq!( client.point_count(), 0 );
 }
 

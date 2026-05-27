@@ -31,7 +31,7 @@ pub enum SceneEvent {
 
 // All scenes must implement this trait
 pub trait IsScene {
-  fn on_key_down( &mut self, ctx: &mut Context, key: KeyCode ) -> SceneEvent;
+  fn on_key_down( &mut self, ctx: &Context, key: KeyCode ) -> SceneEvent;
   fn render( &mut self, ctx: &Context, area: Rect, buf: &mut Buffer );
 }
 

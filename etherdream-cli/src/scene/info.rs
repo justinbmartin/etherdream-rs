@@ -1,19 +1,17 @@
 use crossterm::event::KeyCode;
 use ratatui::buffer::Buffer;
-use ratatui::layout::Rect;
-//use ratatui::style::{ palette::tailwind::SLATE, Style };
+use ratatui::layout::{ Constraint, Rect };
+use ratatui::style::Style;
 use ratatui::text::Line;
-use ratatui::widgets::{ Block, Paragraph, Widget };
+use ratatui::widgets::{ Block, Cell, Padding, Row, Widget, Table };
 
 use super::{ Context, IsScene, SceneEvent };
-
-//const SELECTED: Style = Style::new().bg( SLATE.c800 );
 
 #[derive( Default )]
 pub struct InfoScene;
 
 impl IsScene for InfoScene {
-  fn on_key_down( &mut self, ctx: &mut Context, key: KeyCode ) -> SceneEvent {
+  fn on_key_down( &mut self, ctx: &Context, key: KeyCode ) -> SceneEvent {
     match key {
       KeyCode::Esc | KeyCode::Char( 'q' ) => SceneEvent::Exit,
       KeyCode::Char( 'c' ) => {
@@ -29,13 +27,36 @@ impl IsScene for InfoScene {
 
   fn render( &mut self, ctx: &Context, area: Rect, buf: &mut Buffer ) {
     if let Some( device ) = ctx.selected_device() {
+      let block = Block::bordered()
+        .title( Line::raw( format!( " Device: {} ", device.info().address() ) ).centered() )
+        .padding( Padding::uniform( 1 ) );
 
-      // Info
-      let block = Block::bordered().title( Line::raw( format!( " Device: {} ", device.info().address() ) ).centered() );
-      Paragraph::new( format!( "MAC Address: {}", device.info().mac_address() ) )
-        .centered()
-        .block( block )
-        .render( area, buf )
+      let constraints = [ Constraint::Length( 25 ), Constraint::Fill( 1 ) ];
+
+      let mut rows = Vec::with_capacity( 50 );
+      rows.extend([
+        Row::new([ Cell::new( "Intrinsics" ).style( Style::new().bold() ) ]),
+        Row::new([ " IP address:".to_owned(), device.address().to_string() ]),
+        Row::new([ " MAC address:".to_owned(), device.info().mac_address().to_string() ]),
+        Row::new([ " Version:".to_owned(), format!( "Hardware: {}; Software: {};", device.info().version().hardware, device.info().version().software ) ]),
+        Row::new([ " Point buffer capacity:".to_owned(), device.info().buffer_capacity().to_string() ]),
+        Row::new([ " Max points per second:".to_owned(), device.info().max_points_per_second().to_string() ])
+      ]);
+
+      //
+      rows.push( Row::new([ Cell::new( "State" ).style( Style::new().bold() ) ]) );
+
+      if let Some( generator ) = device.generator() {
+        rows.extend([
+          Row::new([ " Running:".to_owned(), generator.is_running().to_string() ])
+        ]);
+      } else {
+        rows.push( Row::new([ " Connected:", "No" ]) );
+      }
+
+      let table = Table::new( rows, constraints ).block( block );
+
+      Widget::render( table, area, buf );
     }
   }
 }

@@ -32,16 +32,8 @@ impl Device {
     self.generator = Some( generator );
   }
 
-  pub async fn into_client( &mut self ) -> Option<etherdream::Client> {
-    if let Some( generator ) = self.generator.take() {
-      if let Ok( client ) = generator.into_client().await {
-        Some( client )
-      } else {
-        None
-      }
-    } else {
-      None
-    }
+  pub fn take_generator( &mut self ) -> Option<etherdream::Generator> {
+    self.generator.take()
   }
 
   pub fn disconnect( &mut self ) {
@@ -88,7 +80,7 @@ impl DeviceMap{
 
   pub fn insert( &mut self, info: etherdream::DeviceInfo ) {
     self.data.insert( *info.address(), Device::new( info ) );
-    self.version += 1;
+    self.version = self.version.saturating_add( 1 );
   }
 
   pub fn iter( &self ) -> Iter<'_, SocketAddr, Device> {
