@@ -6,8 +6,8 @@ use std::time::{ Duration, Instant };
 
 use tokio::io::{ AsyncReadExt, AsyncWriteExt };
 use tokio::net::{ tcp, TcpSocket };
-use tokio::sync::{ broadcast, mpsc, Mutex, oneshot, RwLock, watch };
-use tokio::task::{ JoinHandle, JoinSet };
+use tokio::sync::{ broadcast, mpsc, Mutex, oneshot, watch };
+use tokio::task::JoinHandle;
 use tokio::time;
 use tokio_util::sync::CancellationToken;
 
@@ -100,12 +100,6 @@ pub struct State {
 }
 
 impl State {
-  // Updates the state with component parts
-  fn update( &mut self, state: protocol::State, last_seen_at: Instant ) {
-    self.inner = state;
-    self.last_seen_at = last_seen_at;
-  }
-
   /// Returns true if the device is ready to receive point data.
   pub fn is_ready( &self ) -> bool { self.inner.is_ready() }
   /// Returns true if the device is playing point data.
@@ -128,6 +122,12 @@ impl State {
   pub fn source( &self ) -> protocol::Source { self.inner.source }
   /// Returns the current light engine state of the device.
   pub fn light_engine_state( &self ) -> protocol::LightEngineState { self.inner.light_engine_state }
+
+  // Updates the state with component parts
+  fn update( &mut self, state: protocol::State, last_seen_at: Instant ) {
+    self.inner = state;
+    self.last_seen_at = last_seen_at;
+  }
 }
 
 impl Default for State {
@@ -182,9 +182,7 @@ impl Builder {
     let awaiting_ack = Arc::new( AtomicBool::new( false ) );
     let ( point_tx, point_rx ) = CircularBuffer::new( self.capacity );
     let shutdown_token = CancellationToken::new();
-    let state = Arc::new( RwLock::new( State::default() ) );
     let ( state_tx, state_rx ) = watch::channel( State::default() );
-    let mut tasks = JoinSet::new();
 
     // Communicates commands from the client to the `<Writer>` task.
     let ( command_tx, command_rx ) = mpsc::channel::<Command>( 16 );
@@ -196,8 +194,8 @@ impl Builder {
     let dac_stream = TcpSocket::new_v4()?.connect( *self.device_info.address() ).await?;
     let ( dac_rx, dac_tx ) = dac_stream.into_split();
 
-    // Start the `<Reader>` task (w/ cancellation token)
-    tasks.spawn({
+    // Start the `<Reader>` and `<Writer>` tasks (w/ cancellation token)
+    let io_tasks = tokio::spawn({
       let on_response_tx = on_response_tx.clone();
       let shutdown_token = shutdown_token.clone();
       let state_tx = state_tx.clone();
@@ -207,20 +205,8 @@ impl Builder {
         dac_rx,
         on_response_tx,
         shutdown_token: shutdown_token.clone(),
-        state_tx
+        state_tx: state_tx.clone()
       };
-
-      async move {
-        tokio::select!{
-          _ = shutdown_token.cancelled() => { Ok( () ) }
-          result = reader.start() => { result }
-        }
-      }
-    });
-
-    // Start the `<Writer>` task (w/ cancellation token)
-    tasks.spawn({
-      let shutdown_token = shutdown_token.clone();
 
       let writer = Writer{
         awaiting_ack: awaiting_ack.clone(),
@@ -228,13 +214,13 @@ impl Builder {
         dac_tx,
         device_info: self.device_info.clone(),
         point_rx,
-        shutdown_token: shutdown_token.clone(),
         state_rx: state_tx.subscribe()
       };
 
       async move {
         tokio::select!{
           _ = shutdown_token.cancelled() => { Ok( () ) }
+          result = reader.start() => { result }
           result = writer.start() => { result }
         }
       }
@@ -243,11 +229,11 @@ impl Builder {
     let mut client = Client{
       command_tx: CommandTx::new( command_tx, on_response_tx, self.command_timeout ).await,
       device_info: self.device_info,
+      io_tasks,
       point_tx,
       shutdown_token,
       state_rx,
       state_tx,
-      tasks
     };
 
     // Reset the client to a "ready" state
@@ -265,6 +251,8 @@ pub struct Client {
   command_tx: CommandTx,
   // Intrinsic properties of the remote device.
   device_info: DeviceInfo,
+  // The asynchronous I/O task handle.
+  io_tasks: JoinHandle<io::Result<()>>,
   // The buffer used to communicate point data to the `<Writer>` task.
   point_tx: PointTx,
   // The cancellation token used to shut down the client.
@@ -272,9 +260,7 @@ pub struct Client {
   // The current state of the client run-time.
   state_rx: watch::Receiver<State>,
   // ...
-  state_tx: watch::Sender<State>,
-  // The asynchronous task handles.
-  tasks: JoinSet<io::Result<()>>
+  state_tx: watch::Sender<State>
 }
 
 impl Client {
@@ -386,7 +372,7 @@ impl Client {
   /// device, consuming `self`.
   pub async fn disconnect( self ) {
     self.shutdown_token.cancel();
-    self.tasks.join_all().await;
+    let _ = self.io_tasks.await;
   }
 
   /// Breaks the client into its constituent parts. Designed for use by the
@@ -394,9 +380,9 @@ impl Client {
   pub(crate) fn into_parts( self ) -> ( ReadOnlyClient, CommandTx, PointTx ) {
     let client = ReadOnlyClient{
       device_info: self.device_info,
+      io_tasks: self.io_tasks,
       shutdown_token: self.shutdown_token,
-      state_tx: self.state_tx,
-      tasks: self.tasks
+      state_tx: self.state_tx
     };
 
     ( client, self.command_tx, self.point_tx )
@@ -408,11 +394,11 @@ impl Client {
     Self{
       command_tx,
       device_info: client.device_info,
+      io_tasks: client.io_tasks,
       point_tx,
       shutdown_token: client.shutdown_token,
       state_rx: client.state_tx.subscribe(),
-      state_tx: client.state_tx,
-      tasks: client.tasks
+      state_tx: client.state_tx
     }
   }
 }
@@ -433,10 +419,6 @@ impl Reader {
     let mut state = State::default();
 
     loop {
-      if self.shutdown_token.is_cancelled() {
-        return Ok( () );
-      }
-
       self.dac_rx.read_exact( &mut buf ).await?;
 
       let control_signal =
@@ -463,19 +445,17 @@ impl Reader {
           }
         };
 
-        // Update the local state
-        state.update(
-          protocol::State::from_bytes( &buf[2..protocol::RESPONSE_BYTES_SIZE] ),
-          Instant::now()
-        );
+      // Update the local state
+      state.update(
+        protocol::State::from_bytes( &buf[2..protocol::RESPONSE_BYTES_SIZE] ),
+        Instant::now()
+      );
 
-        // Reset the acknowledgement
-        self.awaiting_ack.store( false, Release );
-
-        // Publish the response to all channels
-        let _ = self.on_response_tx.send( ( control_signal, command, state ) );
-        self.state_tx.send_replace( state );
-      }
+      // >>> Begin. The order of these next lines matters for atomic safety.
+      self.state_tx.send_replace( state );
+      self.awaiting_ack.store( false, Release );
+      let _ = self.on_response_tx.send( ( control_signal, command, state ) );
+      // <<< End
     }
   }
 }
@@ -488,7 +468,6 @@ struct Writer {
   dac_tx: tcp::OwnedWriteHalf,
   device_info: DeviceInfo,
   point_rx: circular_buffer::Reader<Point>,
-  shutdown_token: CancellationToken,
   state_rx: watch::Receiver<State>
 }
 
@@ -509,11 +488,7 @@ impl Writer {
     let mut buf: Vec<u8> = vec![0; max_buffer_size];
 
     loop {
-      if self.shutdown_token.is_cancelled() {
-        return Ok( () );
-      }
-
-      // Only send commands if all messages have been acknowledged.
+      // Only send commands if the last message has been acknowledged.
       if self.awaiting_ack.load( Acquire ) == true {
         tokio::time::sleep( Duration::from_millis( 1 ) ).await;
         continue;
@@ -648,9 +623,9 @@ fn calculate_point_send_count( state: &State, point_send_count_accumulated: usiz
 /// A read-only version of a `Client` for use by `Generator`s.
 pub(crate) struct ReadOnlyClient {
   device_info: DeviceInfo,
+  io_tasks: JoinHandle<io::Result<()>>,
   shutdown_token: CancellationToken,
-  state_tx: watch::Sender<State>,
-  tasks: JoinSet<io::Result<()>>
+  state_tx: watch::Sender<State>
 }
 
 impl ReadOnlyClient {
