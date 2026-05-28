@@ -100,6 +100,12 @@ pub struct State {
 }
 
 impl State {
+  // Updates the state with component parts
+  fn update( &mut self, state: protocol::State, last_seen_at: Instant ) {
+    self.inner = state;
+    self.last_seen_at = last_seen_at;
+  }
+
   /// Returns true if the device is ready to receive point data.
   pub fn is_ready( &self ) -> bool { self.inner.is_ready() }
   /// Returns true if the device is playing point data.
@@ -201,7 +207,6 @@ impl Builder {
         dac_rx,
         on_response_tx,
         shutdown_token: shutdown_token.clone(),
-        state: state.clone(),
         state_tx
       };
 
@@ -222,9 +227,9 @@ impl Builder {
         command_rx,
         dac_tx,
         device_info: self.device_info.clone(),
-        state: state.clone(),
         point_rx,
-        shutdown_token: shutdown_token.clone()
+        shutdown_token: shutdown_token.clone(),
+        state_rx: state_tx.subscribe()
       };
 
       async move {
@@ -310,8 +315,8 @@ impl Client {
 
   /// Clone's a copy of the client's run-time state into `state`.
   #[inline]
-  pub fn state( &'_ self ) -> watch::Ref<'_, State> {
-    self.state_rx.borrow()
+  pub fn clone_into_state( &'_ self, state: &mut State ) {
+    *state = *self.state_rx.borrow();
   }
 
   /// Ping's the connected Etherdream device and awaits a response.
@@ -419,13 +424,13 @@ struct Reader {
   dac_rx: tcp::OwnedReadHalf,
   on_response_tx: broadcast::Sender<OnResponseMsg>,
   shutdown_token: CancellationToken,
-  state: Arc<RwLock<State>>,
   state_tx: watch::Sender<State>
 }
 
 impl Reader {
   async fn start( mut self ) -> Result<(),io::Error> {
     let mut buf = [0u8; protocol::RESPONSE_BYTES_SIZE];
+    let mut state = State::default();
 
     loop {
       if self.shutdown_token.is_cancelled() {
@@ -458,18 +463,18 @@ impl Reader {
           }
         };
 
-      {
-        let mut state = self.state.write().await;
-        state.inner = protocol::State::from_bytes( &buf[2..protocol::RESPONSE_BYTES_SIZE] );
-        state.last_seen_at = Instant::now();
+        // Update the local state
+        state.update(
+          protocol::State::from_bytes( &buf[2..protocol::RESPONSE_BYTES_SIZE] ),
+          Instant::now()
+        );
 
-        // If a successful acknowledgment, set `awaiting_ack` to false,
-        // unblocking the `<Writer>` task.
+        // Reset the acknowledgement
         self.awaiting_ack.store( false, Release );
 
-        // Publish the response to all subscribers.
-        let _ = self.on_response_tx.send( ( control_signal, command, *state ) );
-        let _ = self.state_tx.send( *state );
+        // Publish the response to all channels
+        let _ = self.on_response_tx.send( ( control_signal, command, state ) );
+        self.state_tx.send_replace( state );
       }
     }
   }
@@ -484,7 +489,7 @@ struct Writer {
   device_info: DeviceInfo,
   point_rx: circular_buffer::Reader<Point>,
   shutdown_token: CancellationToken,
-  state: Arc<RwLock<State>>
+  state_rx: watch::Receiver<State>
 }
 
 impl Writer {
@@ -515,7 +520,7 @@ impl Writer {
       }
 
       // Copy the current device state into our local `state`
-      state = *self.state.read().await;
+      state = *self.state_rx.borrow_and_update();
 
       // Receive any commands and populate the network buffer as required. Any
       // positive `buf_commited_bytes` will be written to the device.
