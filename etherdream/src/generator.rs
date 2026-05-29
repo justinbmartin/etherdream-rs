@@ -4,7 +4,7 @@ use std::time::Duration;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use crate::client::{ self, Client };
+use crate::client::{ self, Client, State };
 use crate::device_info::DeviceInfo;
 use crate::protocol::{ X, Y, R, G, B };
 
@@ -150,13 +150,16 @@ impl Generator {
           let config = executor.on_start( OnStartContext{ device_info: &device_info, capacity: point_tx.capacity() } );
           let low_watermark = ( point_tx.capacity() as f32 * config.low_watermark ) as usize;
           let mut ctx = ExecutionContext{ max_points: 0, point_count: 0, point_tx };
+          let mut local_state = State::default();
 
           loop {
             if shutdown_token.is_cancelled() {
               return ( ctx.point_tx, executor, None );
             }
 
-            if state.read().await.is_ready() && ctx.point_tx.len() <= low_watermark {
+            state.clone_into( &mut local_state );
+
+            if local_state.is_ready() && ctx.point_tx.len() <= low_watermark {
               // Copy the point publisher's remaining capacity into
               // `ctx.max_points` to provide a constant, non-changing value for
               // the duration of the execution.

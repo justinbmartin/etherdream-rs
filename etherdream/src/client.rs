@@ -20,7 +20,7 @@ const DEFAULT_POINT_BUFFER_CAPACITY: usize = 10_000;
 
 pub(crate) type Point = ( X, Y, R, G, B );
 pub(crate) type PointTx = circular_buffer::Writer<Point>;
-type OnResponseMsg = ( protocol::ControlSignal, protocol::Command, State );
+type ResponseMsg = ( protocol::ControlSignal, protocol::Command, State );
 
 // - - - - - - - - - - - - - - - - - -  Command, Control Signal and Error Enums
 
@@ -142,8 +142,9 @@ pub(crate) struct ReadOnlyState {
 }
 
 impl ReadOnlyState {
-  pub(crate) async fn read( &'_ self ) -> watch::Ref<'_, State> {
-    self.inner.borrow()
+  /// Clones `self` into `state`
+  pub(crate) fn clone_into( &self, state: &mut State ) {
+    *state = *self.inner.borrow()
   }
 }
 
@@ -179,7 +180,7 @@ impl Builder {
 
   /// Connects to a remote Etherdream device using the provided configuration.
   pub async fn connect( self ) -> Result<Client,Error> {
-    let awaiting_ack = Arc::new( AtomicBool::new( false ) );
+    let msg_received = Arc::new( AtomicBool::new( true ) );
     let ( point_tx, point_rx ) = CircularBuffer::new( self.capacity );
     let shutdown_token = CancellationToken::new();
     let ( state_tx, state_rx ) = watch::channel( State::default() );
@@ -188,7 +189,7 @@ impl Builder {
     let ( command_tx, command_rx ) = mpsc::channel::<Command>( 16 );
 
     // Communicates received messages from the `<Reader>` task to all subscribers.
-    let ( on_response_tx, _ ) = broadcast::channel::<OnResponseMsg>( 16 );
+    let ( response_tx, _ ) = broadcast::channel::<ResponseMsg>( 16 );
 
     // Connect to the Etherdream device
     let dac_stream = TcpSocket::new_v4()?.connect( *self.device_info.address() ).await?;
@@ -196,25 +197,23 @@ impl Builder {
 
     // Start the `<Reader>` and `<Writer>` tasks (w/ cancellation token)
     let io_tasks = tokio::spawn({
-      let on_response_tx = on_response_tx.clone();
       let shutdown_token = shutdown_token.clone();
-      let state_tx = state_tx.clone();
 
       let reader = Reader{
-        awaiting_ack: awaiting_ack.clone(),
         dac_rx,
-        on_response_tx,
+        msg_received: msg_received.clone(),
+        response_tx: response_tx.clone(),
         shutdown_token: shutdown_token.clone(),
         state_tx: state_tx.clone()
       };
 
       let writer = Writer{
-        awaiting_ack: awaiting_ack.clone(),
         command_rx,
         dac_tx,
         device_info: self.device_info.clone(),
+        msg_received: msg_received.clone(),
         point_rx,
-        state_rx: state_tx.subscribe()
+        state_rx
       };
 
       async move {
@@ -227,12 +226,11 @@ impl Builder {
     });
 
     let mut client = Client{
-      command_tx: CommandTx::new( command_tx, on_response_tx, self.command_timeout ).await,
+      command_tx: CommandTx::new( command_tx, response_tx, self.command_timeout ).await,
       device_info: self.device_info,
       io_tasks,
       point_tx,
       shutdown_token,
-      state_rx,
       state_tx,
     };
 
@@ -257,9 +255,7 @@ pub struct Client {
   point_tx: PointTx,
   // The cancellation token used to shut down the client.
   shutdown_token: CancellationToken,
-  // The current state of the client run-time.
-  state_rx: watch::Receiver<State>,
-  // ...
+  // The current device state in the client run-time.
   state_tx: watch::Sender<State>
 }
 
@@ -301,8 +297,8 @@ impl Client {
 
   /// Clone's a copy of the client's run-time state into `state`.
   #[inline]
-  pub fn clone_into_state( &'_ self, state: &mut State ) {
-    *state = *self.state_rx.borrow();
+  pub fn clone_state_into( &'_ self, state: &mut State ) {
+    *state = *self.state_tx.borrow();
   }
 
   /// Ping's the connected Etherdream device and awaits a response.
@@ -397,7 +393,6 @@ impl Client {
       io_tasks: client.io_tasks,
       point_tx,
       shutdown_token: client.shutdown_token,
-      state_rx: client.state_tx.subscribe(),
       state_tx: client.state_tx
     }
   }
@@ -406,9 +401,9 @@ impl Client {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Reader
 
 struct Reader {
-  awaiting_ack: Arc<AtomicBool>,
   dac_rx: tcp::OwnedReadHalf,
-  on_response_tx: broadcast::Sender<OnResponseMsg>,
+  msg_received: Arc<AtomicBool>,
+  response_tx: broadcast::Sender<ResponseMsg>,
   shutdown_token: CancellationToken,
   state_tx: watch::Sender<State>
 }
@@ -453,8 +448,8 @@ impl Reader {
 
       // >>> Begin. The order of these next lines matters for atomic safety.
       self.state_tx.send_replace( state );
-      self.awaiting_ack.store( false, Release );
-      let _ = self.on_response_tx.send( ( control_signal, command, state ) );
+      self.msg_received.store( true, Release );
+      let _ = self.response_tx.send( ( control_signal, command, state ) );
       // <<< End
     }
   }
@@ -463,10 +458,10 @@ impl Reader {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Writer
 
 struct Writer {
-  awaiting_ack: Arc<AtomicBool>,
   command_rx: mpsc::Receiver<Command>,
   dac_tx: tcp::OwnedWriteHalf,
   device_info: DeviceInfo,
+  msg_received: Arc<AtomicBool>,
   point_rx: circular_buffer::Reader<Point>,
   state_rx: watch::Receiver<State>
 }
@@ -489,7 +484,7 @@ impl Writer {
 
     loop {
       // Only send commands if the last message has been acknowledged.
-      if self.awaiting_ack.load( Acquire ) == true {
+      if self.msg_received.load( Acquire ) == false {
         tokio::time::sleep( Duration::from_millis( 1 ) ).await;
         continue;
       }
@@ -598,7 +593,7 @@ impl Writer {
       // tokio run-time.
       if buf_committed_bytes > 0 {
         self.dac_tx.write_all( &buf[..buf_committed_bytes] ).await?;
-        self.awaiting_ack.store( true, Release );
+        self.msg_received.store( false, Release );
         auto_ping_at = Instant::now();
       } else {
         tokio::task::yield_now().await;
@@ -645,7 +640,7 @@ impl ReadOnlyClient {
 type CommandTxWaitForRef = Arc<Mutex<Option<CommandTxWaitFor>>>;
 
 struct CommandTxWaitFor {
-  callback: Option<oneshot::Sender<OnResponseMsg>>,
+  callback: Option<oneshot::Sender<ResponseMsg>>,
   cmd: protocol::Command,
 }
 
@@ -657,7 +652,7 @@ pub(crate) struct CommandTx {
   // The task handle that consumes all received messages from the `<Reader>`
   _handle: JoinHandle<()>,
   // Used when cloning this `CommandTx`.
-  on_response_tx: broadcast::Sender<OnResponseMsg>,
+  response_tx: broadcast::Sender<ResponseMsg>,
   // The duration of time to wait for command acknowledgements before
   // returning a timeout.
   timeout: Duration,
@@ -668,7 +663,7 @@ pub(crate) struct CommandTx {
 impl CommandTx {
   async fn new(
     command_tx: mpsc::Sender<Command>,
-    on_response_tx: broadcast::Sender<OnResponseMsg>,
+    response_tx: broadcast::Sender<ResponseMsg>,
     timeout: Duration
   ) -> CommandTx {
     let wait_for = Arc::new( Mutex::new( None::<CommandTxWaitFor> ) );
@@ -677,11 +672,11 @@ impl CommandTx {
     // If `wait_for` is `Some`, will check each response against
     // `wait_for.command`, executing the callback on a match.
     let handle = tokio::spawn({
-      let mut on_response_rx = on_response_tx.subscribe();
+      let mut response_rx = response_tx.subscribe();
       let wait_for = wait_for.clone();
 
       async move {
-        while let Ok( ( control_signal, cmd, state ) ) = on_response_rx.recv().await {
+        while let Ok( ( control_signal, cmd, state ) ) = response_rx.recv().await {
           if let Some( callback ) = wait_for.lock().await
             .take_if( |wf| wf.cmd == cmd )
             .and_then( |mut wf| wf.callback.take() )
@@ -695,7 +690,7 @@ impl CommandTx {
     Self{
       command_tx,
       _handle: handle,
-      on_response_tx,
+      response_tx,
       timeout,
       wait_for
     }
@@ -703,7 +698,7 @@ impl CommandTx {
 
   /// Will send `command` to the `<Writer>` task and await an acknowledgement.
   pub(crate) async fn send_and_wait( &mut self, command: Command )-> Result<State,Error> {
-    let ( wait_for_tx, wait_for_rx ) = oneshot::channel::<OnResponseMsg>();
+    let ( wait_for_tx, wait_for_rx ) = oneshot::channel::<ResponseMsg>();
 
     // Create our shared "wait_for" payload and send the command
     {
@@ -744,7 +739,7 @@ impl CommandTx {
 
   /// Clones a new `CommandTx`.
   pub(crate) async fn clone( &self ) -> Self {
-    Self::new( self.command_tx.clone(), self.on_response_tx.clone(), self.timeout ).await
+    Self::new( self.command_tx.clone(), self.response_tx.clone(), self.timeout ).await
   }
 }
 
