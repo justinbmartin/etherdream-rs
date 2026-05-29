@@ -647,10 +647,10 @@ struct CommandTxWaitFor {
 /// Provides functionality for sending commands to the `<Writer>` task and
 /// validating acknowledgments.
 pub(crate) struct CommandTx {
+  // ...
+  cancellation_token: CancellationToken,
   // Channel used to send commands to the `<Writer>` task.
   command_tx: mpsc::Sender<Command>,
-  // The task handle that consumes all received messages from the `<Reader>`
-  _handle: JoinHandle<()>,
   // Used when cloning this `CommandTx`.
   response_tx: broadcast::Sender<ResponseMsg>,
   // The duration of time to wait for command acknowledgements before
@@ -666,30 +666,37 @@ impl CommandTx {
     response_tx: broadcast::Sender<ResponseMsg>,
     timeout: Duration
   ) -> CommandTx {
+    let cancellation_token = CancellationToken::new();
     let wait_for = Arc::new( Mutex::new( None::<CommandTxWaitFor> ) );
 
     // Start a task that will receive all responses processed by the `Reader`.
     // If `wait_for` is `Some`, will check each response against
     // `wait_for.command`, executing the callback on a match.
-    let handle = tokio::spawn({
+    tokio::spawn({
+      let cancellation_token = cancellation_token.child_token();
       let mut response_rx = response_tx.subscribe();
       let wait_for = wait_for.clone();
 
       async move {
-        while let Ok( ( control_signal, cmd, state ) ) = response_rx.recv().await {
-          if let Some( callback ) = wait_for.lock().await
-            .take_if( |wf| wf.cmd == cmd )
-            .and_then( |mut wf| wf.callback.take() )
-          {
-            let _ = callback.send( ( control_signal, cmd, state ) );
-          }
+        tokio::select!{
+          _ = cancellation_token.cancelled() => (),
+          _ = async move {
+            while let Ok( ( control_signal, cmd, state ) ) = response_rx.recv().await {
+              if let Some( callback ) = wait_for.lock().await
+                .take_if( |wf| wf.cmd == cmd )
+                .and_then( |mut wf| wf.callback.take() )
+              {
+                let _ = callback.send( ( control_signal, cmd, state ) );
+              }
+            }
+          } => ()
         }
       }
     });
 
     Self{
+      cancellation_token,
       command_tx,
-      _handle: handle,
       response_tx,
       timeout,
       wait_for
@@ -740,6 +747,12 @@ impl CommandTx {
   /// Clones a new `CommandTx`.
   pub(crate) async fn clone( &self ) -> Self {
     Self::new( self.command_tx.clone(), self.response_tx.clone(), self.timeout ).await
+  }
+}
+
+impl Drop for CommandTx {
+  fn drop( &mut self ) {
+    self.cancellation_token.cancel();
   }
 }
 
