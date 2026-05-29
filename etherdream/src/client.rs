@@ -446,11 +446,12 @@ impl Reader {
         Instant::now()
       );
 
-      // >>> Begin. The order of these next lines matters for atomic safety.
+      // >>> BEGIN Ordering Safety. The order of these next lines matters for
+      // atomic safety.
       self.state_tx.send_replace( state );
       self.msg_received.store( true, Release );
       let _ = self.response_tx.send( ( control_signal, command, state ) );
-      // <<< End
+      // <<< END Ordering Safety
     }
   }
 }
