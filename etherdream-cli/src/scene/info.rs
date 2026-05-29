@@ -44,10 +44,11 @@ impl IsScene for InfoScene {
       ]);
 
       //
-      rows.push( Row::new([ Cell::new( "State" ).style( Style::new().bold() ) ]) );
+      rows.push( Row::new([ Cell::new( "State" ).style( Style::new().bold() ) ]).top_margin( 1 ) );
 
       if let Some( generator ) = device.generator() {
         rows.extend([
+          Row::new([ " Connected:", "Yes" ]),
           Row::new([ " Running:".to_owned(), generator.is_running().to_string() ])
         ]);
       } else {

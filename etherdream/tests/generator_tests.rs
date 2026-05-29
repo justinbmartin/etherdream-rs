@@ -31,7 +31,12 @@ impl generator::Executable for TestExecutor {
 
 #[tokio::test]
 async fn a_generator_will_publish_point_data() {
-  let mut simulator = simulator::Builder::new().capacity( 10 ).start().await.unwrap();
+  let mut simulator = simulator::Builder::new()
+    .capacity( 10 )
+    .enable_point_consumer( false )
+    .start().await
+    .unwrap();
+
   let device_info = DeviceInfo::new( *simulator.address(), *simulator.intrinsics() );
 
   let client = client::Builder::new( device_info )
@@ -77,7 +82,12 @@ async fn a_generator_will_publish_point_data() {
 
 #[tokio::test]
 async fn a_generator_can_be_configured_with_a_custom_low_watermark() {
-  let mut simulator = simulator::Builder::new().capacity( 10 ).start().await.unwrap();
+  let mut simulator = simulator::Builder::new()
+    .capacity( 10 )
+    .enable_point_consumer( false )
+    .start().await
+    .unwrap();
+
   let device_info = DeviceInfo::new( *simulator.address(), *simulator.intrinsics() );
 
   let client = client::Builder::new( device_info )
@@ -112,7 +122,12 @@ async fn a_generator_can_be_configured_with_a_custom_low_watermark() {
 
 #[tokio::test]
 async fn a_generator_can_ping_the_device() {
-  let simulator = simulator::Builder::new().capacity( 10 ).start().await.unwrap();
+  let simulator = simulator::Builder::new()
+    .capacity( 10 )
+    .enable_point_consumer( false )
+    .start().await
+    .unwrap();
+
   let device_info = DeviceInfo::new( *simulator.address(), *simulator.intrinsics() );
 
   let client = client::Builder::new( device_info )

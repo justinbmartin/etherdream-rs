@@ -3,7 +3,7 @@
 use std::io;
 use std::net::{ IpAddr, Ipv4Addr, SocketAddr };
 use std::sync::{ Arc, RwLock };
-use std::time::Duration;
+use std::time::{ Duration, Instant };
 
 use etherdream::protocol;
 use tokio::io::{ AsyncReadExt, AsyncWriteExt };
@@ -18,7 +18,8 @@ pub const DEFAULT_POINT_BUFFER_CAPACITY: u16 = 1024;
 
 pub struct Builder {
   address: SocketAddr,
-  capacity: u16
+  capacity: u16,
+  enable_point_consumer: bool
 }
 
 impl Builder {
@@ -26,7 +27,8 @@ impl Builder {
   pub fn new() -> Self {
     Self{
       capacity: DEFAULT_POINT_BUFFER_CAPACITY,
-      address: SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), 0 )
+      address: SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), 0 ),
+      enable_point_consumer: true
     }
   }
 
@@ -39,6 +41,12 @@ impl Builder {
   /// Assigns the point buffer capacity for the simulator.
   pub fn capacity( mut self, capacity: u16 ) -> Self {
     self.capacity = capacity;
+    self
+  }
+
+  /// Controls whether the simulator will automatically consume points or not...
+  pub fn enable_point_consumer( mut self, enabled: bool ) -> Self {
+    self.enable_point_consumer = enabled;
     self
   }
 
@@ -75,11 +83,16 @@ impl Builder {
         state: state.clone()
       };
 
+      let mut point_consuming_service = PointConsumingService{
+        state: state.clone()
+      };
+
       async move {
         tokio::select!{
           _ = cancellation_token.cancelled() => Ok( () ),
           result = api_service.run() => result,
-          result = broadcast_service.run() => result
+          result = broadcast_service.run() => result,
+          _ = point_consuming_service.run(), if self.enable_point_consumer => Ok( () )
         }
       }
     });
@@ -303,5 +316,45 @@ fn copy_state_into_buf( buf: &mut [u8], state: &Arc<RwLock<protocol::State>> ) {
     buf[10..12].copy_from_slice( &state.points_buffered.to_le_bytes() );
     buf[12..16].copy_from_slice( &state.points_per_second.to_le_bytes() );
     buf[16..20].copy_from_slice( &state.points_lifetime.to_le_bytes() );
+  }
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - -  Point Consuming Service
+
+struct PointConsumingService {
+  state: Arc<RwLock<protocol::State>>
+}
+
+impl PointConsumingService {
+  async fn run( &mut self ) {
+    let mut interval = time::interval( Duration::from_millis( 1 ) );
+
+    // Local properties
+    let mut current_at: Instant;
+    let mut duration: Duration;
+    let mut last_at = None::<Instant>;
+    let mut points_to_consume: u16;
+
+    loop {
+      interval.tick().await;
+
+      if let Ok( mut state ) = self.state.write() && state.is_playing() {
+        if let Some( at ) = last_at {
+          current_at = Instant::now();
+          duration = current_at - at;
+
+          if ! duration.is_zero() {
+            points_to_consume = ( state.points_per_second as f32 / duration.as_secs_f32() ).round() as u16;
+            state.points_buffered = state.points_buffered.saturating_sub( points_to_consume );
+          }
+
+          last_at = Some( current_at );
+        } else {
+          last_at = Some( Instant::now() );
+        }
+      } else {
+        last_at = None;
+      }
+    }
   }
 }

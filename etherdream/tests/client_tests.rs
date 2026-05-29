@@ -125,7 +125,12 @@ async fn setup() -> ( Simulator, Client ) {
 // Creates an Etherdream simulator and client using a provided a point buffer
 // `capacity`.
 async fn setup_with_capacity( capacity: u16 ) -> ( Simulator, Client  ) {
-  let simulator = simulator::Builder::new().capacity( capacity ).start().await.unwrap();
+  let simulator = simulator::Builder::new()
+    .capacity( capacity )
+    .enable_point_consumer( false )
+    .start().await
+    .unwrap();
+
   let device_info = DeviceInfo::new( *simulator.address(), *simulator.intrinsics() );
 
   let client =
