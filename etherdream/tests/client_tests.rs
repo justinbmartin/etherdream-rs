@@ -112,19 +112,18 @@ async fn can_stop_the_client() {
 
 #[tokio::test]
 async fn can_disconnect_the_client() {
-  // TODO
-  //let ( _, client ) = setup().await;
-  //assert_eq!( client.disconnect().await, () );
+  let ( _, client ) = setup().await;
+  assert_eq!( client.disconnect().await, () );
 }
 
-// Creates a default Etherdream emulator and a client.
+// Creates a default Etherdream emulator and a client w/ a default capacity.
 async fn setup() -> ( Simulator, Client ) {
   setup_with_capacity( 16 ).await
 }
 
 // Creates an Etherdream simulator and client using a provided a point buffer
 // `capacity`.
-async fn setup_with_capacity( capacity: u16 ) -> ( Simulator, Client  ) {
+async fn setup_with_capacity( capacity: u16 ) -> ( Simulator, Client ) {
   let simulator = simulator::Builder::new()
     .capacity( capacity )
     .enable_point_consumer( false )

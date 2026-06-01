@@ -44,7 +44,8 @@ impl Builder {
     self
   }
 
-  /// Controls whether the simulator will automatically consume points or not...
+  /// Controls whether the simulator will automatically consume points or not.
+  /// Useful to disable for unit-tests where strict control is required.
   pub fn enable_point_consumer( mut self, enabled: bool ) -> Self {
     self.enable_point_consumer = enabled;
     self
@@ -330,30 +331,29 @@ impl PointConsumingService {
     let mut interval = time::interval( Duration::from_millis( 1 ) );
 
     // Local properties
-    let mut current_at: Instant;
     let mut duration: Duration;
-    let mut last_at = None::<Instant>;
-    let mut points_to_consume: u16;
+    let mut last_processed_at = None::<Instant>;
+    let mut now: Instant;
+    let mut consume_count: f32;
 
     loop {
       interval.tick().await;
 
       if let Ok( mut state ) = self.state.write() && state.is_playing() {
-        if let Some( at ) = last_at {
-          current_at = Instant::now();
-          duration = current_at - at;
+        now = Instant::now();
+
+        if let Some( last_processed_at ) = last_processed_at {
+          duration = now - last_processed_at;
 
           if ! duration.is_zero() {
-            points_to_consume = ( state.points_per_second as f32 / duration.as_secs_f32() ).round() as u16;
-            state.points_buffered = state.points_buffered.saturating_sub( points_to_consume );
+            consume_count = ( state.points_per_second as f32 / duration.as_secs_f32() ).round();
+            state.points_buffered = state.points_buffered.saturating_sub( consume_count as u16 );
           }
-
-          last_at = Some( current_at );
-        } else {
-          last_at = Some( Instant::now() );
         }
+
+        last_processed_at = Some( now );
       } else {
-        last_at = None;
+        last_processed_at = None;
       }
     }
   }
