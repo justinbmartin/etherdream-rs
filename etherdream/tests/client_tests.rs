@@ -134,6 +134,7 @@ async fn setup_with_capacity( capacity: u16 ) -> ( Simulator, Client ) {
 
   let client =
     etherdream::client::Builder::new( device_info )
+      .port( simulator.address().port() )
       .connect().await
       .expect( "Failed to create a client from Etherdream connection" );
 

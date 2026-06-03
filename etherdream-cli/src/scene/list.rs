@@ -92,7 +92,11 @@ impl IsScene for ListScene {
     }
 
     // Render our table of discovered devices
-    let constraints = [ Constraint::Length( 25 ), Constraint::Length( 25 ), Constraint::Fill( 1 ) ];
+    let constraints = [
+      Constraint::Length( 20 ),
+      Constraint::Length( 10 ),
+      Constraint::Length( 30 ),
+      Constraint::Fill( 1 ) ];
 
     let rows: Vec<Row> = self.sorted_device_keys
       .iter()
@@ -103,7 +107,8 @@ impl IsScene for ListScene {
           let theme = if selected { HIGHLIGHT_STYLE } else { Style::new() };
 
           Some( Row::new([
-            Cell::new( addr.to_string() ),
+            Cell::new( addr.ip().to_string() ),
+            Cell::new( "-" ),
             Cell::new( device.info().mac_address().to_string() ),
             render_device_status_cell( device, selected )
           ]).style( theme ) )
@@ -115,7 +120,7 @@ impl IsScene for ListScene {
 
     let table = Table::new( rows, constraints )
       .block( block )
-      .header( Row::new(vec![ "Address", "MAC", "Status" ]).style( Style::new().bold() ) )
+      .header( Row::new(vec![ "Host", "Port", "MAC", "Status" ]).style( Style::new().bold() ) )
       .highlight_spacing( ratatui::widgets::HighlightSpacing::Always )
       .highlight_symbol( "> " );
 

@@ -154,7 +154,8 @@ impl ReadOnlyState {
 pub struct Builder {
   capacity: usize,
   command_timeout: Duration,
-  device_info: DeviceInfo
+  device_info: DeviceInfo,
+  port: u16
 }
 
 impl Builder {
@@ -162,7 +163,8 @@ impl Builder {
     Self{
       capacity: DEFAULT_POINT_BUFFER_CAPACITY,
       command_timeout: DEFAULT_COMMAND_TIMEOUT,
-      device_info
+      device_info,
+      port: protocol::CLIENT_PORT
     }
   }
 
@@ -175,6 +177,12 @@ impl Builder {
   /// Sets a custom command timeout for the client.
   pub fn command_timeout( mut self, duration: Duration ) -> Self {
     self.command_timeout = duration;
+    self
+  }
+
+  /// Sets the port that the client will connect to. Defaults to `7765`.
+  pub fn port( mut self, port: u16 ) -> Self {
+    self.port = port;
     self
   }
 
@@ -192,7 +200,8 @@ impl Builder {
     let ( response_tx, _ ) = broadcast::channel::<ResponseMsg>( 16 );
 
     // Connect to the Etherdream device
-    let dac_stream = TcpSocket::new_v4()?.connect( *self.device_info.address() ).await?;
+    let dac_address = SocketAddr::new( self.device_info.ip(), self.port );
+    let dac_stream = TcpSocket::new_v4()?.connect( dac_address ).await?;
     let ( dac_rx, dac_tx ) = dac_stream.into_split();
 
     // Start the `<Reader>` and `<Writer>` tasks (w/ cancellation token)
@@ -226,6 +235,7 @@ impl Builder {
     });
 
     let mut client = Client{
+      address: dac_address,
       command_tx: CommandTx::new( command_tx, response_tx, self.command_timeout ).await,
       device_info: self.device_info,
       io_tasks,
@@ -245,6 +255,8 @@ impl Builder {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Client
 
 pub struct Client {
+  // The address that the remote device is communicating on.
+  address: SocketAddr,
   // The buffer used to communicate command data to the `<Writer>` task.
   command_tx: CommandTx,
   // Intrinsic properties of the remote device.
@@ -264,7 +276,7 @@ impl Client {
   /// connected to.
   #[inline]
   pub fn peer_addr( &self ) -> &SocketAddr {
-    self.device_info.address()
+    &self.address
   }
 
   /// Returns the MAC address of the remote device.
@@ -375,6 +387,7 @@ impl Client {
   /// `Generator`. Crate-internal function, only.
   pub(crate) fn into_parts( self ) -> ( ReadOnlyClient, CommandTx, PointTx ) {
     let client = ReadOnlyClient{
+      address: self.address,
       device_info: self.device_info,
       io_tasks: self.io_tasks,
       shutdown_token: self.shutdown_token,
@@ -388,6 +401,7 @@ impl Client {
   /// `Generator`. Crate-internal function, only.
   pub(crate) fn from_parts( client: ReadOnlyClient, command_tx: CommandTx, point_tx: PointTx ) -> Client {
     Self{
+      address: client.address,
       command_tx,
       device_info: client.device_info,
       io_tasks: client.io_tasks,
@@ -618,6 +632,7 @@ fn calculate_point_send_count( state: &State, point_send_count_accumulated: usiz
 
 /// A read-only version of a `Client` for use by `Generator`s.
 pub(crate) struct ReadOnlyClient {
+  address: SocketAddr,
   device_info: DeviceInfo,
   io_tasks: JoinHandle<io::Result<()>>,
   shutdown_token: CancellationToken,

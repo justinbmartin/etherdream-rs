@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::net::{ IpAddr, SocketAddr };
 
 use crate::protocol::{ Intrinsics, MacAddress, Version };
 
@@ -17,9 +17,13 @@ impl DeviceInfo {
     Self{ address, intrinsics }
   }
 
-  /// Returns the socket address that the remote device can communicate on.
+  /// Returns the IP address of the remote device.
   #[inline]
-  pub fn address( &self ) -> &SocketAddr { &self.address }
+  pub fn ip( &self ) -> IpAddr { self.address.ip() }
+
+  /// Returns the address that the remote device broadcasted from.
+  #[inline]
+  pub fn broadcast_address( &self ) -> &SocketAddr { &self.address }
 
   /// Returns the maximum point buffer capacity of the remote device.
   #[inline]
