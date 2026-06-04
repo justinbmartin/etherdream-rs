@@ -1,6 +1,5 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::net::SocketAddr;
 use std::rc::Rc;
 
 use crossterm::event::{ KeyCode, KeyEvent, KeyEventKind };
@@ -19,7 +18,7 @@ use crate::scene::{ self, Context, IsScene, Scene, SceneEvent };
 pub struct App {
   current_scene: Scene,
   device_map: Rc<RefCell<DeviceMap>>,
-  device_selected_id: Rc<RefCell<Option<SocketAddr>>>,
+  device_selected_id: Rc<RefCell<Option<usize>>>,
   is_running: bool,
   scenes: HashMap<Scene,Box<dyn IsScene>>
 }
@@ -27,7 +26,7 @@ pub struct App {
 impl App {
   pub fn new() -> Self {
     let device_map = Rc::new( RefCell::new( DeviceMap::default() ) );
-    let device_selected_id = Rc::new( RefCell::new( None::<SocketAddr> ) );
+    let device_selected_id = Rc::new( RefCell::new( None::<usize> ) );
 
     let mut scenes: HashMap<Scene,Box<dyn IsScene>> = HashMap::new();
     scenes.insert( Scene::Info, Box::new( scene::InfoScene::default() ) );
@@ -78,8 +77,8 @@ impl App {
         };
 
       match handled {
-        SceneEvent::Connect( addr ) => {
-          if let Some( device ) = self.device_map.borrow_mut().get_mut( &addr ) {
+        SceneEvent::Connect( id ) => {
+          if let Some( device ) = self.device_map.borrow_mut().get_mut( id ) {
             match etherdream::connect( *device.info() ).await {
               Ok( client ) => {
                 let generator = etherdream::make_generator( client, Box::new( executors::Noop::new() ) );
@@ -92,13 +91,13 @@ impl App {
             }
           }
         }
-        SceneEvent::Disconnect( addr ) => {
-          if let Some( device ) = self.device_map.borrow_mut().get_mut( &addr ) {
+        SceneEvent::Disconnect( id ) => {
+          if let Some( device ) = self.device_map.borrow_mut().get_mut( id ) {
             device.disconnect()
           }
         }
-        SceneEvent::Play( addr ) => {
-          if let Some( device ) = self.device_map.borrow_mut().get_mut( &addr ) {
+        SceneEvent::Play( id ) => {
+          if let Some( device ) = self.device_map.borrow_mut().get_mut( id ) {
             if let Some( generator ) = device.take_generator() {
               if let Ok( client ) = generator.into_client().await {
                 let executor = Box::new( executors::Demo::new() );
@@ -109,8 +108,8 @@ impl App {
             }
           }
         }
-        SceneEvent::Select( addr ) => {
-          *self.device_selected_id.borrow_mut() = Some( addr );
+        SceneEvent::Select( id ) => {
+          *self.device_selected_id.borrow_mut() = Some( id );
           self.current_scene = Scene::Info;
         }
         SceneEvent::Exit => {

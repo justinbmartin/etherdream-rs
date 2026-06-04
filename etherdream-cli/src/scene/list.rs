@@ -1,5 +1,3 @@
-use std::net::SocketAddr;
-
 use crossterm::event::KeyCode;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{ Constraint, Rect };
@@ -18,7 +16,7 @@ const HIGHLIGHT_STYLE: Style = Style::new().bg( SLATE.c800 );
 
 pub struct ListScene {
   device_map_version: usize,
-  sorted_device_keys: Vec<SocketAddr>, // Scene cache of sorted device keys
+  sorted_device_keys: Vec<usize>, // Scene cache of sorted device id's
   state: TableState
 }
 
@@ -46,23 +44,23 @@ impl IsScene for ListScene {
         return SceneEvent::Handled;
       }
       KeyCode::Enter => {
-        if let Some( addr ) = self.get_selected_device_addr() {
-          return SceneEvent::Select( *addr );
+        if let Some( id ) = self.get_selected_device_id() {
+          return SceneEvent::Select( id );
         }
       }
       KeyCode::Char( 'c' ) => {
-        if let Some( addr ) = self.get_selected_device_addr() {
-          return SceneEvent::Connect( *addr );
+        if let Some( id ) = self.get_selected_device_id() {
+          return SceneEvent::Connect( id );
         }
       }
       KeyCode::Char( 'd' ) => {
-        if let Some( addr ) = self.get_selected_device_addr() {
-          return SceneEvent::Disconnect( *addr );
+        if let Some( id ) = self.get_selected_device_id() {
+          return SceneEvent::Disconnect( id );
         }
       }
       KeyCode::Char( 'p' ) => {
-        if let Some( addr ) = self.get_selected_device_addr() {
-          return SceneEvent::Play( *addr );
+        if let Some( id ) = self.get_selected_device_id() {
+          return SceneEvent::Play( id );
         }
       }
       _ => {}
@@ -101,13 +99,13 @@ impl IsScene for ListScene {
     let rows: Vec<Row> = self.sorted_device_keys
       .iter()
       .enumerate()
-      .filter_map(|( i, addr )|{
-        if let Some( device ) = ctx.device_map().get( addr ) {
+      .filter_map(|( i, id )|{
+        if let Some( device ) = ctx.device_map().get( *id ) {
           let selected = self.state.selected().filter(| si |{ *si == i }).is_some();
           let theme = if selected { HIGHLIGHT_STYLE } else { Style::new() };
 
           Some( Row::new([
-            Cell::new( addr.ip().to_string() ),
+            Cell::new( device.info().ip().to_string() ),
             Cell::new( "-" ),
             Cell::new( device.info().mac_address().to_string() ),
             render_device_status_cell( device, selected )
@@ -129,8 +127,8 @@ impl IsScene for ListScene {
 }
 
 impl ListScene {
-  fn get_selected_device_addr( &self ) -> Option<&SocketAddr> {
-    self.state.selected().and_then(| i |{ self.sorted_device_keys.get( i ) })
+  fn get_selected_device_id( &self ) -> Option<usize> {
+    self.state.selected().and_then(| i |{ self.sorted_device_keys.get( i ) }).copied()
   }
 }
 

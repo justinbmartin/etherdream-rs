@@ -16,7 +16,7 @@ impl IsScene for InfoScene {
       KeyCode::Esc | KeyCode::Char( 'q' ) => SceneEvent::Exit,
       KeyCode::Char( 'c' ) => {
         if let Some( device ) = ctx.selected_device() {
-          SceneEvent::Connect( *device.info().broadcast_address() )
+          SceneEvent::Connect( device.id() )
         } else {
           SceneEvent::Handled
         }
@@ -28,7 +28,7 @@ impl IsScene for InfoScene {
   fn render( &mut self, ctx: &Context, area: Rect, buf: &mut Buffer ) {
     if let Some( device ) = ctx.selected_device() {
       let block = Block::bordered()
-        .title( Line::raw( format!( " Device: {} ", device.info().broadcast_address() ) ).centered() )
+        .title( Line::raw( format!( " Device: {} ", device.info().ip() ) ).centered() )
         .padding( Padding::uniform( 1 ) );
 
       let constraints = [ Constraint::Length( 25 ), Constraint::Fill( 1 ) ];
@@ -36,7 +36,7 @@ impl IsScene for InfoScene {
       let mut rows = Vec::with_capacity( 50 );
       rows.extend([
         Row::new([ Cell::new( "Intrinsics" ).style( Style::new().bold() ) ]),
-        Row::new([ " IP address:".to_owned(), device.ip().to_string() ]),
+        Row::new([ " IP address:".to_owned(), device.info().ip().to_string() ]),
         Row::new([ " MAC address:".to_owned(), device.info().mac_address().to_string() ]),
         Row::new([ " Version:".to_owned(), format!( "Hardware: {}; Software: {};", device.info().version().hardware, device.info().version().software ) ]),
         Row::new([ " Point buffer capacity:".to_owned(), device.info().buffer_capacity().to_string() ]),

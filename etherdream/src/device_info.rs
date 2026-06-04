@@ -21,10 +21,6 @@ impl DeviceInfo {
   #[inline]
   pub fn ip( &self ) -> IpAddr { self.address.ip() }
 
-  /// Returns the address that the remote device broadcasted from.
-  #[inline]
-  pub fn broadcast_address( &self ) -> &SocketAddr { &self.address }
-
   /// Returns the maximum point buffer capacity of the remote device.
   #[inline]
   pub fn buffer_capacity( &self ) -> usize { self.intrinsics.buffer_capacity as usize }

@@ -2,7 +2,6 @@ mod info;
 mod list;
 
 use std::cell::{ Ref, RefCell };
-use std::net::SocketAddr;
 use std::rc::Rc;
 
 use crossterm::event::KeyCode;
@@ -20,13 +19,13 @@ pub enum Scene { List, Info }
 // Return values from scene key events
 #[derive( PartialEq )]
 pub enum SceneEvent {
-  Connect( SocketAddr ),    // Connect to a device
-  Disconnect( SocketAddr ), // Disconnect from a device
-  Play( SocketAddr ),       // Start playing point data for a device
-  Exit,                     // The scene should be exited
-  Handled,                  // The event was handled internally by the scene
-  NotHandled,               // The event was not handled by the scene
-  Select( SocketAddr )      // A device was selected
+  Connect( usize ),    // Connect to a device
+  Disconnect( usize ), // Disconnect from a device
+  Play( usize ),       // Start playing point data for a device
+  Exit,                // The scene should be exited
+  Handled,             // The event was handled internally by the scene
+  NotHandled,          // The event was not handled by the scene
+  Select( usize )      // A device was selected
 }
 
 // All scenes must implement this trait
@@ -38,11 +37,11 @@ pub trait IsScene {
 // Shared read-only scene data
 pub struct Context {
   device_map: Rc<RefCell<DeviceMap>>,
-  device_selected_id: Rc<RefCell<Option<SocketAddr>>>
+  device_selected_id: Rc<RefCell<Option<usize>>>
 }
 
 impl Context {
-  pub fn new( device_map: Rc<RefCell<DeviceMap>>, device_selected_id: Rc<RefCell<Option<SocketAddr>>> ) -> Self {
+  pub fn new( device_map: Rc<RefCell<DeviceMap>>, device_selected_id: Rc<RefCell<Option<usize>>> ) -> Self {
     Self{ device_map, device_selected_id }
   }
 
@@ -54,7 +53,7 @@ impl Context {
   // Returns the selected device, if one is set
   pub fn selected_device( &'_ self ) -> Option<Ref<'_, Device>> {
     if let Some( id ) = *self.device_selected_id.borrow() {
-      Ref::filter_map( self.device_map.borrow(), |dm|{ dm.get( &id ) } ).ok()
+      Ref::filter_map( self.device_map.borrow(), |dm|{ dm.get( id ) } ).ok()
     } else {
       None
     }
