@@ -23,32 +23,28 @@ impl EventHandler {
 
   pub async fn run( &self ) {
     let mut crossterm_events = EventStream::new();
-    let tick_rate = Duration::from_secs_f64( 1.0 / FPS );
-    let mut tick = tokio::time::interval( tick_rate );
+    let fps = Duration::from_secs_f64( 1.0 / FPS );
+    let mut interval = tokio::time::interval( fps );
 
     loop {
       tokio::select! {
         _ = self.tx.closed() => {
           break
         }
-        _ = tick.tick() => {
-          self.send( Event::Tick ).await
+        _ = interval.tick() => {
+          let _ = self.tx.send( Event::Tick ).await;
         }
         Some( Ok( crossterm_event ) ) = crossterm_events.next().fuse() => {
           match crossterm_event {
             event::Event::Key( key ) => {
               if key.kind == KeyEventKind::Press {
-                self.send( Event::KeyEvent( key ) ).await;
+                let _ = self.tx.send( Event::KeyEvent( key ) ).await;
               }
             }
-            _ => {}
+            _ => { /* no-op */ }
           }
         }
       }
     }
-  }
-
-  async fn send( &self, event: Event ) {
-    let _ = self.tx.send( event ).await;
   }
 }

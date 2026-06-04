@@ -9,7 +9,7 @@ pub struct Device {
 }
 
 impl Device {
-  /// Creates a new `Device` using an `etherdream::DeviceInfo`
+  /// Called from `DeviceMap` to create a new `Device`.
   fn new( id: usize, info: etherdream::DeviceInfo ) -> Self {
     Self{
       id,
@@ -21,10 +21,10 @@ impl Device {
   /// Returns the id of the device
   pub fn id( &self ) -> usize { self.id }
 
-  /// ...
-  pub fn generator( &self ) -> &Option<etherdream::Generator> { &self.generator }
+  /// Returns a reference to the active device generator, if one is set.
+  pub fn generator( &self ) -> Option<&etherdream::Generator> { self.generator.as_ref() }
 
-  ///
+  /// ...
   pub fn set_generator( &mut self, generator: etherdream::Generator ) {
     self.generator = Some( generator );
   }
