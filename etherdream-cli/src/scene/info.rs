@@ -4,12 +4,14 @@ use ratatui::layout::{ Constraint, Layout, Rect };
 use ratatui::style::{ Color, Style };
 use ratatui::text::Line;
 use ratatui::widgets::{ Block, Cell, Row, Widget, Table, Tabs };
+use ratatui_textarea::{ Input, Key, TextArea };
 
 use super::{ Context, Device, IsScene, SceneEvent };
 
 #[derive( Default )]
 pub struct InfoScene {
-  selected: usize
+  selected: usize,
+  port_input: Vec<String>
 }
 
 impl IsScene for InfoScene {
@@ -44,7 +46,11 @@ impl IsScene for InfoScene {
       self.render_menu( menu, buf, &device );
 
       // Render Info
-      self.render_info( content, buf, &device )
+      if self.selected == 0 {
+        self.render_info( content, buf, &device )
+      } else {
+        self.render_connect( content, buf, &device )
+      }
     }
   }
 }
@@ -94,5 +100,15 @@ impl InfoScene {
 
     let table = Table::new( rows, constraints ).block( block );
     Widget::render( table, area, buf );
+  }
+
+  fn render_connect( &mut self, area: Rect, buf: &mut Buffer, _device: &Device ) {
+    let block = Block::bordered();
+
+    let mut textarea = TextArea::new( self.port_input );
+    textarea.set_cursor_line_style( Style::default() );
+    textarea.set_placeholder_text( etherdream::protocol::CLIENT_PORT.to_string() );
+
+    block.render( area, buf );
   }
 }
