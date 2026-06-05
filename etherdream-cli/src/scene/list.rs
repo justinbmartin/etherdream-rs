@@ -118,7 +118,7 @@ impl IsScene for ListScene {
 
     let table = Table::new( rows, constraints )
       .block( block )
-      .header( Row::new(vec![ "Host", "Port", "MAC", "Status" ]).style( Style::new().bold() ) )
+      .header( Row::new(vec![ "Ip", "Port", "MAC", "Status" ]).style( Style::new().bold() ) )
       .highlight_spacing( ratatui::widgets::HighlightSpacing::Always )
       .highlight_symbol( "> " );
 
