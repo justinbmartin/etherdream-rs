@@ -10,6 +10,8 @@ use ratatui_textarea::TextArea;
 
 use super::{ Context, IsScene, SceneEvent };
 
+const HIGHLIGHT_STYLE: Style = Style::new().bg( Color::Green );
+
 #[derive( Eq, Hash, PartialEq )]
 enum DeviceSceneKey{ Info, Test }
 
@@ -32,22 +34,34 @@ impl Default for DeviceScene {
 }
 
 impl IsScene for DeviceScene {
-  fn on_key_down( &mut self, _ctx: &Context, key: KeyCode ) -> SceneEvent {
-    match key {
-      KeyCode::Left => {
-        if self.scene == DeviceSceneKey::Test { self.scene = DeviceSceneKey::Info; }
-        SceneEvent::Handled
-      },
-      KeyCode::Right => {
-        if self.scene == DeviceSceneKey::Info { self.scene = DeviceSceneKey::Test; }
-        SceneEvent::Handled
-      },
-      KeyCode::Esc | KeyCode::Char( 'q' ) => {
-        SceneEvent::Exit
-      },
-      _ => {
+  fn on_key_down( &mut self, ctx: &Context, key: KeyCode ) -> SceneEvent {
+    let handled =
+      if let Some( scene ) = self.scenes.get_mut( &self.scene ) {
+        scene.on_key_down( ctx, key )
+      } else {
         SceneEvent::NotHandled
-      }
+      };
+    
+    match handled {
+      SceneEvent::NotHandled => {
+        match key {
+          KeyCode::Left => {
+            if self.scene == DeviceSceneKey::Test { self.scene = DeviceSceneKey::Info; }
+            SceneEvent::Handled
+          },
+          KeyCode::Right => {
+            if self.scene == DeviceSceneKey::Info { self.scene = DeviceSceneKey::Test; }
+            SceneEvent::Handled
+          },
+          KeyCode::Esc | KeyCode::Char( 'q' ) => {
+            SceneEvent::Exit
+          }
+          _ => {
+            SceneEvent::NotHandled
+          }
+        }
+      },
+      _ => handled
     }
   }
 
@@ -180,13 +194,15 @@ impl<'a> IsScene for DeviceTestScene<'a> {
       ]));
 
       // Port override
-      let port_block = Block::bordered().title( " Port " );
+      let style = if self.selected == 1 { HIGHLIGHT_STYLE } else { Style::default() };
+      let port_block = Block::bordered().title( " Port " ).style( style );
       self.port_input.set_block( port_block );
       Widget::render( &self.port_input, port_area, buf );
 
       // Connect
+      let style = if self.selected == 1 { HIGHLIGHT_STYLE } else { Style::default() };
       let connect_block = Block::bordered().title( " Connect " );
-      let connect = Paragraph::new( "Connect" ).centered().block( connect_block );
+      let connect = Paragraph::new( "Connect" ).centered().block( connect_block ).style( style );
       Widget::render( connect, connect_area, buf );
     }
   }
