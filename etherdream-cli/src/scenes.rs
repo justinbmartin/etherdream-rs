@@ -15,8 +15,8 @@ use crate::device::{ Device, DeviceMap };
 pub use device::DeviceScene;
 pub use list::ListScene;
 
-#[derive( Eq, Hash, PartialEq )]
-pub enum Scene { Device, List }
+#[derive( Clone, Copy, Eq, Hash, PartialEq )]
+pub enum SceneKey { Device, List }
 
 // Return values from scene key events
 #[derive( PartialEq )]

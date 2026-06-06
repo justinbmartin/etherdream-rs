@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::rc::Rc;
 
 use crossterm::event::{ KeyCode, KeyEvent, KeyEventKind };
@@ -11,16 +10,15 @@ use tokio::sync::mpsc::Receiver;
 use crate::device::DeviceMap;
 use crate::event::{ Event, EventHandler };
 use crate::executors;
-use crate::scenes::{ self, Context, IsScene, Scene, SceneEvent };
+use crate::scenes::{ self, Context, SceneKey, SceneEvent, SceneManager, SceneManagerBuilder };
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
 
 pub struct App {
-  current_scene: Scene,
   device_map: Rc<RefCell<DeviceMap>>,
   device_selected_id: Rc<RefCell<Option<usize>>>,
   is_running: bool,
-  scenes: HashMap<Scene,Box<dyn IsScene>>
+  scenes: SceneManager<SceneKey>
 }
 
 impl App {
@@ -28,12 +26,11 @@ impl App {
     let device_map = Rc::new( RefCell::new( DeviceMap::default() ) );
     let device_selected_id = Rc::new( RefCell::new( None::<usize> ) );
 
-    let mut scenes: HashMap<Scene,Box<dyn IsScene>> = HashMap::new();
-    scenes.insert( Scene::Device, Box::new( scenes::DeviceScene::default() ) );
-    scenes.insert( Scene::List, Box::new( scenes::ListScene::default() ) );
+    let scenes = SceneManagerBuilder::<SceneKey>::new( SceneKey::List, Box::new( scenes::ListScene::default() ) )
+      .add_scene( SceneKey::Device, Box::new( scenes::DeviceScene::default() ) )
+      .build();
 
     Self{
-      current_scene: Scene::List,
       device_map,
       device_selected_id,
       is_running: false,
@@ -69,14 +66,7 @@ impl App {
 
   async fn on_key_event( &mut self, ctx: &mut Context, key: KeyEvent ) {
     if key.kind == KeyEventKind::Press {
-      let handled =
-        if let Some( scene ) = self.scenes.get_mut( &self.current_scene ) {
-          scene.on_key_down( ctx, key.code )
-        } else {
-          SceneEvent::NotHandled
-        };
-
-      match handled {
+      match self.scenes.current_scene().on_key_down( ctx, key.code ) {
         SceneEvent::Connect( id ) => {
           if let Some( device ) = self.device_map.borrow_mut().get_mut( id ) {
             match etherdream::connect( *device.info() ).await {
@@ -110,11 +100,11 @@ impl App {
         }
         SceneEvent::Select( id ) => {
           *self.device_selected_id.borrow_mut() = Some( id );
-          self.current_scene = Scene::Device;
+          self.scenes.set_scene( SceneKey::Device )
         }
         SceneEvent::Exit => {
           *self.device_selected_id.borrow_mut() = None;
-          self.current_scene = Scene::List;
+          self.scenes.set_scene( SceneKey::List )
         }
         SceneEvent::NotHandled => {
           match key.code {
@@ -133,9 +123,7 @@ impl App {
     let main_layout = Layout::vertical([ Constraint::Fill( 1 ), Constraint::Length( 1 ) ]);
     let [ content_area, footer_area ] = frame.area().layout( &main_layout );
 
-    if let Some( scene ) = self.scenes.get_mut( &self.current_scene ) {
-      scene.render( ctx, content_area, frame.buffer_mut() )
-    }
+    self.scenes.current_scene().render( ctx, content_area, frame.buffer_mut() );
 
     // Main > Footer
     Paragraph::new( "Use ↓↑ to move, <Enter> to select a device, 'q' to quit." )
