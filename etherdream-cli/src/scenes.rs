@@ -2,6 +2,8 @@ mod device;
 mod list;
 
 use std::cell::{ Ref, RefCell };
+use std::collections::HashMap;
+use std::hash::Hash;
 use std::rc::Rc;
 
 use crossterm::event::KeyCode;
@@ -60,5 +62,59 @@ impl Context {
     } else {
       None
     }
+  }
+}
+
+pub struct SceneManagerBuilder<Key>
+  where Key: Copy + Eq + Hash + PartialEq
+{
+  scene: Key,
+  scenes: HashMap<Key,Box<dyn IsScene>>
+}
+
+impl<Key> SceneManagerBuilder<Key>
+  where Key: Copy + Eq + Hash + PartialEq
+{
+  pub fn new( key: Key, scene: Box<dyn IsScene> ) -> Self {
+    let mut scenes = HashMap::new();
+    scenes.insert( key, scene );
+
+    Self{
+      scene: key,
+      scenes
+    }
+  }
+
+  pub fn add_scene( mut self, key: Key, scene: Box<dyn IsScene> ) -> Self {
+    self.scenes.insert( key, scene );
+    self
+  }
+
+  pub fn build( self ) -> SceneManager<Key> {
+    SceneManager::<Key>{
+      scene: self.scene,
+      scenes: self.scenes
+    }
+  }
+}
+
+pub struct SceneManager<Key>
+  where Key: Copy + Eq + Hash + PartialEq
+{
+  scene: Key,
+  scenes: HashMap<Key,Box<dyn IsScene>>
+}
+
+impl<Key> SceneManager<Key>
+  where Key: Copy + Eq + Hash + PartialEq
+{
+  pub fn current_scene( &mut self ) -> &mut Box<dyn IsScene> {
+    self.scenes.get_mut( &self.scene ).unwrap()
+  }
+
+  pub fn current_scene_key( &self ) -> Key { self.scene }
+
+  pub fn set_scene( &mut self, key: Key ) {
+    self.scene = key
   }
 }

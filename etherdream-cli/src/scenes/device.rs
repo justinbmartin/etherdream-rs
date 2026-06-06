@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crossterm::event::KeyCode;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{ Constraint, Layout, Rect };
@@ -8,49 +6,44 @@ use ratatui::text::Line;
 use ratatui::widgets::{ Block, Cell, Paragraph, Row, Widget, Table, Tabs };
 use ratatui_textarea::TextArea;
 
-use super::{ Context, IsScene, SceneEvent };
+use super::{ Context, IsScene, SceneEvent, SceneManagerBuilder, SceneManager };
 
 const HIGHLIGHT_STYLE: Style = Style::new().bg( Color::Green );
 
-#[derive( Eq, Hash, PartialEq )]
+#[derive( Clone, Copy, Eq, Hash, PartialEq )]
 enum DeviceSceneKey{ Info, Test }
 
 pub struct DeviceScene {
-  scene: DeviceSceneKey,
-  scenes: HashMap<DeviceSceneKey,Box<dyn IsScene>>
+  scenes: SceneManager<DeviceSceneKey>
 }
 
 impl Default for DeviceScene {
   fn default() -> Self {
-    let mut scenes: HashMap<DeviceSceneKey,Box<dyn IsScene>> = HashMap::new();
-    scenes.insert( DeviceSceneKey::Info, Box::new( DeviceInfoScene::default() ) );
-    scenes.insert( DeviceSceneKey::Test, Box::new( DeviceTestScene::default() ) );
+    let scenes = SceneManagerBuilder::<DeviceSceneKey>::new( DeviceSceneKey::Info, Box::new( DeviceInfoScene::default() ) )
+      .add_scene( DeviceSceneKey::Test, Box::new( DeviceTestScene::default() ) )
+      .build();
 
-    Self{
-      scene: DeviceSceneKey::Info,
-      scenes
-    }
+    Self{ scenes }
   }
 }
 
 impl IsScene for DeviceScene {
   fn on_key_down( &mut self, ctx: &Context, key: KeyCode ) -> SceneEvent {
-    let handled =
-      if let Some( scene ) = self.scenes.get_mut( &self.scene ) {
-        scene.on_key_down( ctx, key )
-      } else {
-        SceneEvent::NotHandled
-      };
-    
-    match handled {
+    match self.scenes.current_scene().on_key_down( ctx, key ) {
       SceneEvent::NotHandled => {
         match key {
           KeyCode::Left => {
-            if self.scene == DeviceSceneKey::Test { self.scene = DeviceSceneKey::Info; }
+            if self.scenes.current_scene_key() == DeviceSceneKey::Test {
+              self.scenes.set_scene( DeviceSceneKey::Info );
+            }
+
             SceneEvent::Handled
           },
           KeyCode::Right => {
-            if self.scene == DeviceSceneKey::Info { self.scene = DeviceSceneKey::Test; }
+            if self.scenes.current_scene_key() == DeviceSceneKey::Info {
+              self.scenes.set_scene( DeviceSceneKey::Test );
+            }
+
             SceneEvent::Handled
           },
           KeyCode::Esc | KeyCode::Char( 'q' ) => {
@@ -61,7 +54,7 @@ impl IsScene for DeviceScene {
           }
         }
       },
-      _ => handled
+      event => event
     }
   }
 
@@ -75,7 +68,7 @@ impl IsScene for DeviceScene {
         .title( Line::raw( format!( " Device: {} ", device.info().ip() ) ).centered() );
 
       let selected =
-        match self.scene {
+        match self.scenes.current_scene_key() {
           DeviceSceneKey::Info => 0,
           DeviceSceneKey::Test => 1
         };
@@ -91,9 +84,7 @@ impl IsScene for DeviceScene {
       Widget::render( tabs, menu, buf );
 
       //
-      if let Some( scene ) = self.scenes.get_mut( &self.scene ) {
-        scene.render( ctx, content, buf );
-      }
+      self.scenes.current_scene().render( ctx, content, buf );
     } else {
       // TODO
     }
