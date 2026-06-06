@@ -4,17 +4,29 @@ use ratatui::layout::{ Constraint, Layout, Rect };
 use ratatui::style::{ Color, Style };
 use ratatui::text::Line;
 use ratatui::widgets::{ Block, Cell, Row, Widget, Table, Tabs };
-use ratatui_textarea::{ Input, Key, TextArea };
+use ratatui_textarea::TextArea;
 
 use super::{ Context, Device, IsScene, SceneEvent };
 
-#[derive( Default )]
-pub struct InfoScene {
+pub struct InfoScene<'a> {
   selected: usize,
-  port_input: Vec<String>
+  port_input: TextArea<'a>
 }
 
-impl IsScene for InfoScene {
+impl<'a> Default for InfoScene<'a> {
+  fn default() -> Self {
+    let mut port_input = TextArea::default();
+    port_input.set_cursor_line_style( Style::default() );
+    port_input.set_placeholder_text( etherdream::protocol::CLIENT_PORT.to_string() );
+
+    Self{
+      port_input,
+      selected: 0
+    }
+  }
+}
+
+impl<'a> IsScene for InfoScene<'a> {
   fn on_key_down( &mut self, ctx: &Context, key: KeyCode ) -> SceneEvent {
     match key {
       KeyCode::Left => {
@@ -55,7 +67,7 @@ impl IsScene for InfoScene {
   }
 }
 
-impl InfoScene {
+impl<'a> InfoScene<'a> {
   fn render_menu( &self, area: Rect, buf: &mut Buffer, device: &Device ) {
     let block = Block::bordered()
       .title( Line::raw( format!( " Device: {} ", device.info().ip() ) ).centered() );
@@ -104,11 +116,7 @@ impl InfoScene {
 
   fn render_connect( &mut self, area: Rect, buf: &mut Buffer, _device: &Device ) {
     let block = Block::bordered();
-
-    let mut textarea = TextArea::new( self.port_input );
-    textarea.set_cursor_line_style( Style::default() );
-    textarea.set_placeholder_text( etherdream::protocol::CLIENT_PORT.to_string() );
-
-    block.render( area, buf );
+    self.port_input.set_block( block );
+    Widget::render( &self.port_input, area, buf );
   }
 }
