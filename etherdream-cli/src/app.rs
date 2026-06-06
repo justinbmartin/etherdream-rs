@@ -29,7 +29,7 @@ impl App {
     let device_selected_id = Rc::new( RefCell::new( None::<usize> ) );
 
     let mut scenes: HashMap<Scene,Box<dyn IsScene>> = HashMap::new();
-    scenes.insert( Scene::Info, Box::new( scenes::DeviceScene::default() ) );
+    scenes.insert( Scene::Device, Box::new( scenes::DeviceScene::default() ) );
     scenes.insert( Scene::List, Box::new( scenes::ListScene::default() ) );
 
     Self{
@@ -110,7 +110,7 @@ impl App {
         }
         SceneEvent::Select( id ) => {
           *self.device_selected_id.borrow_mut() = Some( id );
-          self.current_scene = Scene::Info;
+          self.current_scene = Scene::Device;
         }
         SceneEvent::Exit => {
           *self.device_selected_id.borrow_mut() = None;
