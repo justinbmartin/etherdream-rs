@@ -1,4 +1,4 @@
-mod info;
+mod device;
 mod list;
 
 use std::cell::{ Ref, RefCell };
@@ -10,7 +10,7 @@ use ratatui::prelude::*;
 use crate::device::{ Device, DeviceMap };
 
 // Export our scenes
-pub use info::InfoScene;
+pub use device::DeviceScene;
 pub use list::ListScene;
 
 #[derive( Eq, Hash, PartialEq )]

@@ -3,17 +3,18 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{ Constraint, Layout, Rect };
 use ratatui::style::{ Color, Style };
 use ratatui::text::Line;
-use ratatui::widgets::{ Block, Cell, Row, Widget, Table, Tabs };
+use ratatui::widgets::{ Block, Cell, Paragraph, Row, Widget, Table, Tabs };
 use ratatui_textarea::TextArea;
 
 use super::{ Context, Device, IsScene, SceneEvent };
 
-pub struct InfoScene<'a> {
-  selected: usize,
+pub struct DeviceScene<'a> {
+  connect_selected: usize,
+  tab_selected: usize,
   port_input: TextArea<'a>
 }
 
-impl<'a> Default for InfoScene<'a> {
+impl<'a> Default for DeviceScene<'a> {
   fn default() -> Self {
     let mut port_input = TextArea::default();
     port_input.set_cursor_line_style( Style::default() );
@@ -21,31 +22,50 @@ impl<'a> Default for InfoScene<'a> {
 
     Self{
       port_input,
-      selected: 0
+      connect_selected: 0,
+      tab_selected: 0
     }
   }
 }
 
-impl<'a> IsScene for InfoScene<'a> {
+impl<'a> IsScene for DeviceScene<'a> {
   fn on_key_down( &mut self, ctx: &Context, key: KeyCode ) -> SceneEvent {
     match key {
       KeyCode::Left => {
-        self.selected = self.selected.saturating_sub( 1 );
+        self.tab_selected = self.tab_selected.saturating_sub( 1 );
         SceneEvent::Handled
-      }
+      },
       KeyCode::Right => {
-        self.selected = self.selected.saturating_add( 1 ).min( 1 );
+        self.tab_selected = self.tab_selected.saturating_add( 1 ).min( 1 );
         SceneEvent::Handled
-      }
-      KeyCode::Esc | KeyCode::Char( 'q' ) => SceneEvent::Exit,
+      },
+      KeyCode::Up => {
+        if self.tab_selected == 1 {
+          self.connect_selected = self.connect_selected.saturating_sub( 1 )
+        }
+
+        SceneEvent::Handled
+      },
+      KeyCode::Down => {
+        if self.tab_selected == 1 {
+          self.connect_selected = self.connect_selected.saturating_add( 1 ).min( 2 )
+        }
+
+        SceneEvent::Handled
+      },
+      KeyCode::Esc | KeyCode::Char( 'q' ) => {
+        SceneEvent::Exit
+      },
       KeyCode::Char( 'c' ) => {
         if let Some( device ) = ctx.selected_device() {
           SceneEvent::Connect( device.id() )
         } else {
           SceneEvent::Handled
         }
+      },
+      _ => {
+        SceneEvent::NotHandled
       }
-      _ => SceneEvent::NotHandled
     }
   }
 
@@ -54,11 +74,11 @@ impl<'a> IsScene for InfoScene<'a> {
       let layout = Layout::vertical([ Constraint::Length( 3 ), Constraint::Fill( 1 ) ]);
       let [ menu, content ] = area.layout( &layout );
 
-      // Render menu
+      // Render the info scene menu
       self.render_menu( menu, buf, &device );
 
-      // Render Info
-      if self.selected == 0 {
+      // Render the selected tab
+      if self.tab_selected == 0 {
         self.render_info( content, buf, &device )
       } else {
         self.render_connect( content, buf, &device )
@@ -67,16 +87,16 @@ impl<'a> IsScene for InfoScene<'a> {
   }
 }
 
-impl<'a> InfoScene<'a> {
+impl<'a> DeviceScene<'a> {
   fn render_menu( &self, area: Rect, buf: &mut Buffer, device: &Device ) {
     let block = Block::bordered()
       .title( Line::raw( format!( " Device: {} ", device.info().ip() ) ).centered() );
 
-    let tabs = Tabs::new( vec![ "Info", "Connect" ])
+    let tabs = Tabs::new( vec![ "Info", "Test" ])
       .block( block )
       .style( Color::White )
       .highlight_style( Style::default().magenta().on_black().bold() )
-      .select( self.selected )
+      .select( self.tab_selected )
       .divider( "|" )
       .padding( " ", " " );
 
@@ -85,7 +105,6 @@ impl<'a> InfoScene<'a> {
 
   fn render_info( &self, area: Rect, buf: &mut Buffer, device: &Device ) {
     let block = Block::bordered();
-
     let constraints = [ Constraint::Length( 25 ), Constraint::Fill( 1 ) ];
 
     let mut rows = Vec::with_capacity( 50 );
@@ -116,7 +135,23 @@ impl<'a> InfoScene<'a> {
 
   fn render_connect( &mut self, area: Rect, buf: &mut Buffer, _device: &Device ) {
     let block = Block::bordered();
-    self.port_input.set_block( block );
-    Widget::render( &self.port_input, area, buf );
+    Widget::render( &block, area, buf );
+
+    let inner_area = block.inner( area );
+    let [ port_area, connect_area, _ ] = inner_area.layout( &Layout::vertical([
+      Constraint::Length( 3 ),
+      Constraint::Length( 3 ),
+      Constraint::Fill( 1 )
+    ]));
+
+    // Port override
+    let port_block = Block::bordered().title( " Port " );
+    self.port_input.set_block( port_block );
+    Widget::render( &self.port_input, port_area, buf );
+
+    // Connect
+    let connect_block = Block::bordered().title( " Connect " );
+    let connect = Paragraph::new( "Connect" ).centered().block( connect_block );
+    Widget::render( connect, connect_area, buf );
   }
 }

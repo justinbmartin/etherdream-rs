@@ -11,7 +11,7 @@ use tokio::sync::mpsc::Receiver;
 use crate::device::DeviceMap;
 use crate::event::{ Event, EventHandler };
 use crate::executors;
-use crate::scene::{ self, Context, IsScene, Scene, SceneEvent };
+use crate::scenes::{ self, Context, IsScene, Scene, SceneEvent };
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
 
@@ -29,8 +29,8 @@ impl App {
     let device_selected_id = Rc::new( RefCell::new( None::<usize> ) );
 
     let mut scenes: HashMap<Scene,Box<dyn IsScene>> = HashMap::new();
-    scenes.insert( Scene::Info, Box::new( scene::InfoScene::default() ) );
-    scenes.insert( Scene::List, Box::new( scene::ListScene::default() ) );
+    scenes.insert( Scene::Info, Box::new( scenes::DeviceScene::default() ) );
+    scenes.insert( Scene::List, Box::new( scenes::ListScene::default() ) );
 
     Self{
       current_scene: Scene::List,

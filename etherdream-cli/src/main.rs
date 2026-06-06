@@ -3,7 +3,7 @@ mod app;
 mod device;
 mod event;
 mod executors;
-mod scene;
+mod scenes;
 
 #[tokio::main]
 async fn main() -> Result<(),String> {
