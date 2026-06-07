@@ -80,14 +80,7 @@ impl App {
         }
         SceneEvent::Play( id ) => {
           if let Some( device ) = self.device_map.borrow_mut().get_mut( id ) {
-            if let Some( generator ) = device.take_generator() {
-              if let Ok( client ) = generator.into_client().await {
-                let executor = Box::new( executors::Demo::new() );
-                let mut generator = etherdream::make_generator( client, executor );
-                generator.start().await;
-                device.set_generator( generator );
-              }
-            }
+            device.generate( Box::new( executors::Demo::new() ) );
           }
         }
         SceneEvent::Select( id ) => {

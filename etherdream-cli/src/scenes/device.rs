@@ -3,15 +3,18 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{ Constraint, Layout, Rect };
 use ratatui::style::{ Color, Style };
 use ratatui::text::Span;
-use ratatui::widgets::{ Block, Cell, Paragraph, Row, Widget, Table };
+use ratatui::widgets::{ Block, Cell, Padding, Paragraph, Row, Widget, Table };
 use ratatui_textarea::TextArea;
 
 use crate::device::Device;
 use crate::scene::{ Scene, SceneContext, SceneEvent };
 
+const PORT_INPUT_INDEX: usize = 0;
 const CONNECT_BUTTON_INDEX: usize = 1;
 
 pub struct DeviceScene<'a> {
+  state: etherdream::State,
+
   // Connect pane properties
   connect_input_selected: usize,
   connect_port_input: TextArea<'a>
@@ -25,7 +28,8 @@ impl<'a> Default for DeviceScene<'a> {
 
     Self{
       connect_input_selected: CONNECT_BUTTON_INDEX,
-      connect_port_input
+      connect_port_input,
+      state: etherdream::State::default()
     }
   }
 }
@@ -38,15 +42,19 @@ impl<'a> Scene for DeviceScene<'a> {
   fn on_key_down( &mut self, ctx: &SceneContext, key: KeyCode ) -> SceneEvent {
     if let Some( device ) = ctx.selected_device() {
       if device.is_connected() {
-
+        match key {
+          KeyCode::Enter => return SceneEvent::Play( device.id() ),
+          KeyCode::Esc | KeyCode::Char( 'q' ) => return SceneEvent::Exit,
+          _ => {}
+        }
       } else {
         match key {
           KeyCode::Up => {
-            self.connect_input_selected = 0;
+            self.connect_input_selected = PORT_INPUT_INDEX;
             return SceneEvent::Handled;
           },
           KeyCode::Down => {
-            self.connect_input_selected = 1;
+            self.connect_input_selected = CONNECT_BUTTON_INDEX;
             return SceneEvent::Handled;
           },
           KeyCode::Enter => {
@@ -54,9 +62,7 @@ impl<'a> Scene for DeviceScene<'a> {
               return SceneEvent::Connect( device.id() );
             }
           },
-          KeyCode::Esc | KeyCode::Char( 'q' ) => {
-            return SceneEvent::Exit;
-          },
+          KeyCode::Esc | KeyCode::Char( 'q' ) => return SceneEvent::Exit,
           _ => {}
         };
       }
@@ -83,7 +89,7 @@ impl<'a> Scene for DeviceScene<'a> {
       test_block.render( test_area, buf );
 
       if device.is_connected() {
-        self.render_generate_pane( test_inner_area, buf );
+        self.render_generator_pane( test_inner_area, buf );
       } else {
         self.render_connect_pane( test_inner_area, buf );
       }
@@ -92,27 +98,34 @@ impl<'a> Scene for DeviceScene<'a> {
 }
 
 impl<'a> DeviceScene<'a> {
-  fn render_info( &self, device: &Device, area: Rect, buf: &mut Buffer ) {
-    let block = Block::bordered().title( " Info " );
+  // UI to render the Etherdream device intrinsic and run-time properties
+  fn render_info( &mut self, device: &Device, area: Rect, buf: &mut Buffer ) {
+    let block = Block::bordered().title( " Info " ).padding( Padding::uniform( 1 ) );
 
     let mut rows = Vec::with_capacity( 50 );
     rows.extend([
       Row::new([ Cell::new( "Intrinsics" ).style( Style::new().bold() ) ]),
       Row::new([ " IP address:".to_owned(), device.info().ip().to_string() ]),
       Row::new([ " MAC address:".to_owned(), device.info().mac_address().to_string() ]),
-      Row::new([ " Hardware Version:".to_owned(), device.info().version().hardware.to_string() ]),
-      Row::new([ " Software Version:".to_owned(), device.info().version().software.to_string() ]),
+      Row::new([ " Hardware version:".to_owned(), device.info().version().hardware.to_string() ]),
+      Row::new([ " Software version:".to_owned(), device.info().version().software.to_string() ]),
       Row::new([ " Point buffer capacity:".to_owned(), device.info().buffer_capacity().to_string() ]),
       Row::new([ " Max points per second:".to_owned(), device.info().max_points_per_second().to_string() ])
     ]);
 
     //
     rows.push( Row::new([ Cell::new( "State" ).style( Style::new().bold() ) ]) );
+    rows.push( Row::new([ " Connected:", if device.is_connected() { "Yes" } else { "No" } ]) );
 
-    if device.is_connected() {
-      rows.push( Row::new([ " Connected:", "Yes" ]) );
+    if let Some( generator ) = device.generator() {
+      generator.clone_state_into( &mut self.state );
+      rows.push( Row::new([ " Generator:", "Demo" ]) );
+      rows.extend([
+        Row::new([ "Points buffered:".to_owned(), self.state.points_buffered().to_string() ]),
+        Row::new([ "Points per second:".to_owned(), self.state.points_per_second().to_string() ])
+      ]);
     } else {
-      rows.push( Row::new([ " Connected:", "No" ]) );
+      rows.push( Row::new([ " Generator:", "None" ]) );
     }
 
     Table::new( rows, [ Constraint::Length( 25 ), Constraint::Fill( 1 ) ])
@@ -120,6 +133,7 @@ impl<'a> DeviceScene<'a> {
       .render( area, buf );
   }
 
+  // UI to render a form to connect to an Etherdream device
   fn render_connect_pane( &mut self, area: Rect, buf: &mut Buffer ) {
     let centered_area = area.centered_horizontally( Constraint::Length( 50 ) );
 
@@ -145,7 +159,8 @@ impl<'a> DeviceScene<'a> {
     Widget::render( connect_btn, connect_area, buf );
   }
 
-  fn render_generate_pane( &mut self, area: Rect, buf: &mut Buffer ) {
+  // UI to start a generator on a connected Etherdream device
+  fn render_generator_pane( &mut self, area: Rect, buf: &mut Buffer ) {
     Paragraph::new( ">> Generate <<" ).render( area, buf );
   }
 }

@@ -131,6 +131,12 @@ impl Generator {
   pub async fn ping( &mut self ) -> Result<client::State,client::Error> {
     self.command_tx.send_and_wait( client::Command::Ping ).await
   }
+
+  /// Clone's a copy of the client's run-time state into `state`.
+  #[inline]
+  pub fn clone_state_into( &'_ self, state: &mut State ) {
+    self.client.clone_state_into( state )
+  }
   
   /// Starts the generator, playing point data at the provided `rate` (points
   /// per second).

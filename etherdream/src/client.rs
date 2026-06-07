@@ -641,11 +641,19 @@ pub(crate) struct ReadOnlyClient {
 
 impl ReadOnlyClient {
   /// Returns a read-only clone of the client's state.
+  #[inline]
   pub(crate) fn clone_state( &self ) -> ReadOnlyState {
     ReadOnlyState{ inner: self.state_tx.subscribe() }
   }
 
+  /// Clones a copy of the run-time state into `state`.
+  #[inline]
+  pub(crate) fn clone_state_into( &self, state: &mut State ) {
+    *state = *self.state_tx.borrow();
+  }
+
   /// Returns the `DeviceInfo` associated with this client.
+  #[inline]
   pub(crate) fn device_info( &self ) -> &DeviceInfo {
     &self.device_info
   }

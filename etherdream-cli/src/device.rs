@@ -1,7 +1,5 @@
 use std::collections::{ HashMap, hash_map::Iter };
 
-use crate::executors::Noop;
-
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Device
 
 pub struct Device {
@@ -50,12 +48,11 @@ impl Device {
   pub fn generator( &self ) -> Option<&etherdream::Generator> { self.generator.as_ref() }
 
   /// ...
-  pub fn set_generator( &mut self, generator: etherdream::Generator ) {
-    self.generator = Some( generator );
-  }
-
-  pub fn take_generator( &mut self ) -> Option<etherdream::Generator> {
-    self.generator.take()
+  pub fn generate( &mut self, executable: Box<dyn etherdream::generator::Executable> ) {
+    if let Some( client ) = self.client.take() {
+      let generator = etherdream::make_generator( client, executable );
+      self.generator = Some( generator );
+    }
   }
 
   pub fn info( &self ) -> &etherdream::DeviceInfo {
