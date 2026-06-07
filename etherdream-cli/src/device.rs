@@ -7,6 +7,7 @@ use crate::executors::Noop;
 pub struct Device {
   id: usize,
   info: etherdream::DeviceInfo,
+  client: Option<etherdream::Client>,
   generator: Option<etherdream::Generator>
 }
 
@@ -14,6 +15,7 @@ impl Device {
   /// Called from `DeviceMap` to create a new `Device`.
   fn new( id: usize, info: etherdream::DeviceInfo ) -> Self {
     Self{
+      client: None,
       id,
       info,
       generator: None
@@ -23,14 +25,16 @@ impl Device {
   /// Returns the id of the device
   pub fn id( &self ) -> usize { self.id }
 
+  /// Returns true if the device is connected.
+  pub fn is_connected( &self ) -> bool { self.client.is_some() || self.generator.is_some() }
+
   //
   pub async fn connect( &mut self ) -> Result<(), etherdream::client::Error> {
     if self.generator.is_some() { return Ok( () ); }
 
     etherdream::connect( self.info ).await
       .and_then(| client |{
-        let generator = etherdream::make_generator( client, Box::new( Noop::new() ) );
-        self.generator = Some( generator );
+        self.client = Some( client );
         Ok( () )
       })
   }
