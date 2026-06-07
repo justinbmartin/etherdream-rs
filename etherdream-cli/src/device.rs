@@ -1,5 +1,7 @@
 use std::collections::{ HashMap, hash_map::Iter };
 
+use crate::executors::Noop;
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Device
 
 pub struct Device {
@@ -21,6 +23,25 @@ impl Device {
   /// Returns the id of the device
   pub fn id( &self ) -> usize { self.id }
 
+  //
+  pub async fn connect( &mut self ) -> Result<(), etherdream::client::Error> {
+    if self.generator.is_some() { return Ok( () ); }
+
+    etherdream::connect( self.info ).await
+      .and_then(| client |{
+        let generator = etherdream::make_generator( client, Box::new( Noop::new() ) );
+        self.generator = Some( generator );
+        Ok( () )
+      })
+  }
+
+  //
+  pub async fn disconnect( &mut self ) {
+    if let Some( generator ) = self.generator.take() && let Ok( client ) = generator.into_client().await {
+      client.disconnect().await
+    }
+  }
+
   /// Returns a reference to the active device generator, if one is set.
   pub fn generator( &self ) -> Option<&etherdream::Generator> { self.generator.as_ref() }
 
@@ -31,10 +52,6 @@ impl Device {
 
   pub fn take_generator( &mut self ) -> Option<etherdream::Generator> {
     self.generator.take()
-  }
-
-  pub fn disconnect( &mut self ) {
-    self.generator = None
   }
 
   pub fn info( &self ) -> &etherdream::DeviceInfo {

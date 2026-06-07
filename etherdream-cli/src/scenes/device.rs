@@ -2,13 +2,11 @@ use crossterm::event::KeyCode;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{ Constraint, Layout, Rect };
 use ratatui::style::{ Color, Style };
-use ratatui::text::Line;
+use ratatui::text::{ Line, Span };
 use ratatui::widgets::{ Block, Cell, Paragraph, Row, Widget, Table, Tabs };
 use ratatui_textarea::TextArea;
 
-use super::{ Context, IsScene, SceneEvent, SceneManagerBuilder, SceneManager };
-
-const HIGHLIGHT_STYLE: Style = Style::new().bg( Color::Green );
+use crate::scene::{ Context, IsScene, SceneEvent, SceneManagerBuilder, SceneManager };
 
 #[derive( Clone, Copy, Eq, Hash, PartialEq )]
 enum DeviceSceneKey{ Info, Test }
@@ -73,7 +71,7 @@ impl IsScene for DeviceScene {
           DeviceSceneKey::Test => 1
         };
 
-      let tabs = Tabs::new( vec![ "Info", "Test" ])
+      let tabs = Tabs::new( vec![ "Info", "Generate" ])
         .block( block )
         .style( Color::White )
         .highlight_style( Style::default().magenta().on_black().bold() )
@@ -153,7 +151,11 @@ impl<'a> Default for DeviceTestScene<'a> {
 }
 
 impl<'a> IsScene for DeviceTestScene<'a> {
-  fn on_key_down( &mut self, _ctx: &Context, key: KeyCode ) -> SceneEvent {
+  fn on_scene_enter( &mut self ) {
+    self.selected = 0;
+  }
+
+  fn on_key_down( &mut self, ctx: &Context, key: KeyCode ) -> SceneEvent {
     match key {
       KeyCode::Up => {
         self.selected = self.selected.saturating_sub( 1 );
@@ -162,6 +164,13 @@ impl<'a> IsScene for DeviceTestScene<'a> {
       KeyCode::Down => {
         self.selected = self.selected.saturating_add( 1 ).min( 2 );
         SceneEvent::Handled
+      },
+      KeyCode::Enter => {
+        if self.selected == 2 {
+          SceneEvent::Connect( ctx.selected_device().unwrap().id() )
+        } else {
+          SceneEvent::NotHandled
+        }
       },
       KeyCode::Esc | KeyCode::Char( 'q' ) => {
         SceneEvent::Exit
@@ -178,23 +187,29 @@ impl<'a> IsScene for DeviceTestScene<'a> {
       Widget::render( &block, area, buf );
 
       let inner_area = block.inner( area );
-      let [ port_area, connect_area, _ ] = inner_area.layout( &Layout::vertical([
+
+      let centered_area = inner_area.centered_horizontally( Constraint::Length( 50 ) );
+
+      let [ port_area, connect_area, _ ] = centered_area.layout( &Layout::vertical([
         Constraint::Length( 3 ),
         Constraint::Length( 3 ),
         Constraint::Fill( 1 )
       ]));
 
+      //
+      let button_highlight_style = Style::default().fg( Color::Green );
+
       // Port override
-      let style = if self.selected == 1 { HIGHLIGHT_STYLE } else { Style::default() };
-      let port_block = Block::bordered().title( " Port " ).style( style );
+      let style = if self.selected == 1 { button_highlight_style } else { Style::default() };
+      let port_block = Block::bordered().title( " Port " ).border_style( style );
       self.port_input.set_block( port_block );
       Widget::render( &self.port_input, port_area, buf );
 
       // Connect
-      let style = if self.selected == 1 { HIGHLIGHT_STYLE } else { Style::default() };
-      let connect_block = Block::bordered().title( " Connect " );
-      let connect = Paragraph::new( "Connect" ).centered().block( connect_block ).style( style );
-      Widget::render( connect, connect_area, buf );
+      let style = if self.selected == 2 { button_highlight_style } else { Style::default() };
+      let connect_block = Block::bordered().border_style( style );
+      let connect_btn = Paragraph::new( Span::styled( "<C>onnect", Style::default().bold() ) ).centered().block( connect_block );
+      Widget::render( connect_btn, connect_area, buf );
     }
   }
 }

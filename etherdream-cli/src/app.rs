@@ -10,7 +10,8 @@ use tokio::sync::mpsc::Receiver;
 use crate::device::DeviceMap;
 use crate::event::{ Event, EventHandler };
 use crate::executors;
-use crate::scenes::{ self, Context, SceneKey, SceneEvent, SceneManager, SceneManagerBuilder };
+use crate::scene::{ Context, SceneEvent, SceneManager, SceneManagerBuilder };
+use crate::scenes::{ self, SceneKey };
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
 
@@ -69,21 +70,12 @@ impl App {
       match self.scenes.current_scene().on_key_down( ctx, key.code ) {
         SceneEvent::Connect( id ) => {
           if let Some( device ) = self.device_map.borrow_mut().get_mut( id ) {
-            match etherdream::connect( *device.info() ).await {
-              Ok( client ) => {
-                let generator = etherdream::make_generator( client, Box::new( executors::Noop::new() ) );
-                device.set_generator( generator );
-              },
-              Err( _ ) => {
-                // TODO: Error block...
-                println!( "FAILED to connect..." )
-              }
-            }
+            let _ = device.connect().await;
           }
         }
         SceneEvent::Disconnect( id ) => {
           if let Some( device ) = self.device_map.borrow_mut().get_mut( id ) {
-            device.disconnect()
+            let _ = device.disconnect().await;
           }
         }
         SceneEvent::Play( id ) => {

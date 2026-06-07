@@ -6,7 +6,7 @@ use ratatui::text::Line;
 use ratatui::widgets::{ Block, Cell, Paragraph, Row, StatefulWidget, Table, TableState, Widget };
 
 use crate::device::Device;
-use super::{ IsScene, Context, SceneEvent };
+use crate::scene::{ IsScene, Context, SceneEvent };
 
 const CONNECTED: &str = " Connected ";
 const DISCONNECTED: &str = "Disconnected";
