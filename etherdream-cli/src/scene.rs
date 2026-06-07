@@ -9,7 +9,6 @@ use ratatui::layout::Rect;
 
 use crate::device::{ Device, DeviceMap };
 
-// Return values from scene key events
 #[derive( PartialEq )]
 pub enum SceneEvent {
   Connect( usize ),    // Connect to a device
@@ -29,21 +28,22 @@ pub trait Scene {
   fn on_scene_exit( &mut self ) { /* no-op */ }
 
   /// Called each time a key-press is registered. (Optional)
-  fn on_key_down( &mut self, _ctx: &Context, _key: KeyCode ) -> SceneEvent {
+  fn on_key_down( &mut self, _ctx: &SceneContext, _key: KeyCode ) -> SceneEvent {
     SceneEvent::NotHandled
   }
 
   /// Called on each frame. (Required)
-  fn render( &mut self, ctx: &Context, area: Rect, buf: &mut Buffer );
+  fn render( &mut self, ctx: &SceneContext, area: Rect, buf: &mut Buffer );
 }
 
-// Shared read-only scene data
-pub struct Context {
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene Context
+
+pub struct SceneContext {
   device_map: Rc<RefCell<DeviceMap>>,
   device_selected_id: Rc<RefCell<Option<usize>>>
 }
 
-impl Context {
+impl SceneContext {
   pub fn new( device_map: Rc<RefCell<DeviceMap>>, device_selected_id: Rc<RefCell<Option<usize>>> ) -> Self {
     Self{ device_map, device_selected_id }
   }
@@ -62,6 +62,8 @@ impl Context {
     }
   }
 }
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene Manager + Builder
 
 pub struct SceneManagerBuilder<Key>
   where Key: Copy + Eq + Hash + PartialEq

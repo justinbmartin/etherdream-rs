@@ -6,7 +6,7 @@ use ratatui::text::Line;
 use ratatui::widgets::{ Block, Cell, Paragraph, Row, StatefulWidget, Table, TableState, Widget };
 
 use crate::device::Device;
-use crate::scene::{ Context, Scene, SceneEvent };
+use crate::scene::{ Scene, SceneContext, SceneEvent };
 
 const CONNECTED: &str = " Connected ";
 const DISCONNECTED: &str = "Disconnected";
@@ -31,7 +31,7 @@ impl Default for ListScene {
 }
 
 impl Scene for ListScene {
-  fn on_key_down( &mut self, ctx: &Context, key: KeyCode ) -> SceneEvent {
+  fn on_key_down( &mut self, ctx: &SceneContext, key: KeyCode ) -> SceneEvent {
     match key {
       KeyCode::Down => {
         let i = self.state.selected().unwrap_or( 0 ).saturating_add( 1 ) % ctx.device_map().len();
@@ -69,7 +69,7 @@ impl Scene for ListScene {
     SceneEvent::NotHandled
   }
 
-  fn render( &mut self, ctx: &Context, area: Rect, buf: &mut Buffer ) {
+  fn render( &mut self, ctx: &SceneContext, area: Rect, buf: &mut Buffer ) {
     let block = Block::bordered().title( Line::raw( " Etherdream Devices " ).centered() );
 
     // Refresh our local sorted device cache if the remote device map has changed

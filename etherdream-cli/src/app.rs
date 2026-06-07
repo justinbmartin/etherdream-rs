@@ -10,7 +10,7 @@ use tokio::sync::mpsc::Receiver;
 use crate::device::DeviceMap;
 use crate::event::{ Event, EventHandler };
 use crate::executors;
-use crate::scene::{ Context, SceneEvent, SceneManager, SceneManagerBuilder };
+use crate::scene::{ SceneContext, SceneEvent, SceneManager, SceneManagerBuilder };
 use crate::scenes::{ self, SceneKey };
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
@@ -42,7 +42,7 @@ impl App {
   pub async fn run( &mut self, mut terminal: DefaultTerminal, mut discovery_rx: Receiver<etherdream::DiscoveredDeviceInfo> ) {
     self.is_running = true;
 
-    let mut ctx = Context::new( self.device_map.clone(), self.device_selected_id.clone() );
+    let mut ctx = SceneContext::new( self.device_map.clone(), self.device_selected_id.clone() );
 
     let ( events, mut events_rx ) = EventHandler::new();
     tokio::spawn( async move{ events.run().await } );
@@ -65,7 +65,7 @@ impl App {
     }
   }
 
-  async fn on_key_event( &mut self, ctx: &mut Context, key: KeyEvent ) {
+  async fn on_key_event( &mut self, ctx: &mut SceneContext, key: KeyEvent ) {
     if key.kind == KeyEventKind::Press {
       match self.scenes.current_scene().on_key_down( ctx, key.code ) {
         SceneEvent::Connect( id ) => {
@@ -111,7 +111,7 @@ impl App {
     }
   }
 
-  fn render( &mut self, ctx: &Context, frame: &mut Frame ) {
+  fn render( &mut self, ctx: &SceneContext, frame: &mut Frame ) {
     let main_layout = Layout::vertical([ Constraint::Fill( 1 ), Constraint::Length( 1 ) ]);
     let [ content_area, footer_area ] = frame.area().layout( &main_layout );
 

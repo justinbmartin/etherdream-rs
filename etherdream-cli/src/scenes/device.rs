@@ -6,7 +6,7 @@ use ratatui::text::{ Line, Span };
 use ratatui::widgets::{ Block, Cell, Paragraph, Row, Widget, Table, Tabs };
 use ratatui_textarea::TextArea;
 
-use crate::scene::{ Context, Scene, SceneEvent, SceneManagerBuilder, SceneManager };
+use crate::scene::{ Scene, SceneContext, SceneEvent, SceneManagerBuilder, SceneManager };
 
 #[derive( Clone, Copy, Eq, Hash, PartialEq )]
 enum DeviceSceneKey{ Info, Test }
@@ -26,7 +26,7 @@ impl Default for DeviceScene {
 }
 
 impl Scene for DeviceScene {
-  fn on_key_down( &mut self, ctx: &Context, key: KeyCode ) -> SceneEvent {
+  fn on_key_down( &mut self, ctx: &SceneContext, key: KeyCode ) -> SceneEvent {
     match self.scenes.current_scene().on_key_down( ctx, key ) {
       SceneEvent::NotHandled => {
         match key {
@@ -56,7 +56,7 @@ impl Scene for DeviceScene {
     }
   }
 
-  fn render( &mut self, ctx: &Context, area: Rect, buf: &mut Buffer ) {
+  fn render( &mut self, ctx: &SceneContext, area: Rect, buf: &mut Buffer ) {
     if let Some( device ) = ctx.selected_device() {
       let layout = Layout::vertical([ Constraint::Length( 3 ), Constraint::Fill( 1 ) ]);
       let [ menu, content ] = area.layout( &layout );
@@ -95,7 +95,7 @@ impl Scene for DeviceScene {
 pub struct DeviceInfoScene;
 
 impl Scene for DeviceInfoScene {
-  fn render( &mut self, ctx: &Context, area: Rect, buf: &mut Buffer ) {
+  fn render( &mut self, ctx: &SceneContext, area: Rect, buf: &mut Buffer ) {
     if let Some( device ) = ctx.selected_device() {
       let block = Block::bordered();
       let constraints = [ Constraint::Length( 25 ), Constraint::Fill( 1 ) ];
@@ -155,7 +155,7 @@ impl<'a> Scene for DeviceTestScene<'a> {
     self.selected = 0;
   }
 
-  fn on_key_down( &mut self, ctx: &Context, key: KeyCode ) -> SceneEvent {
+  fn on_key_down( &mut self, ctx: &SceneContext, key: KeyCode ) -> SceneEvent {
     match key {
       KeyCode::Up => {
         self.selected = self.selected.saturating_sub( 1 );
@@ -181,7 +181,7 @@ impl<'a> Scene for DeviceTestScene<'a> {
     }
   }
 
-  fn render( &mut self, ctx: &Context, area: Rect, buf: &mut Buffer ) {
+  fn render( &mut self, ctx: &SceneContext, area: Rect, buf: &mut Buffer ) {
     if let Some( _device ) = ctx.selected_device() {
       let block = Block::bordered();
       Widget::render( &block, area, buf );
