@@ -21,15 +21,19 @@ pub enum SceneEvent {
   Select( usize )      // A device was selected
 }
 
-// All scenes must implement this trait
-pub trait IsScene {
+pub trait Scene {
+  /// Called once when the scene is entered. (Optional)
   fn on_scene_enter( &mut self ) { /* no-op */ }
+
+  /// Called once when the scene is exited. (Optional)
   fn on_scene_exit( &mut self ) { /* no-op */ }
 
+  /// Called each time a key-press is registered. (Optional)
   fn on_key_down( &mut self, _ctx: &Context, _key: KeyCode ) -> SceneEvent {
     SceneEvent::NotHandled
   }
 
+  /// Called on each frame. (Required)
   fn render( &mut self, ctx: &Context, area: Rect, buf: &mut Buffer );
 }
 
@@ -63,13 +67,13 @@ pub struct SceneManagerBuilder<Key>
   where Key: Copy + Eq + Hash + PartialEq
 {
   scene: Key,
-  scenes: HashMap<Key,Box<dyn IsScene>>
+  scenes: HashMap<Key,Box<dyn Scene>>
 }
 
 impl<Key> SceneManagerBuilder<Key>
   where Key: Copy + Eq + Hash + PartialEq
 {
-  pub fn new( key: Key, scene: Box<dyn IsScene> ) -> Self {
+  pub fn new( key: Key, scene: Box<dyn Scene> ) -> Self {
     let mut scenes = HashMap::new();
     scenes.insert( key, scene );
 
@@ -79,7 +83,7 @@ impl<Key> SceneManagerBuilder<Key>
     }
   }
 
-  pub fn add_scene( mut self, key: Key, scene: Box<dyn IsScene> ) -> Self {
+  pub fn add_scene( mut self, key: Key, scene: Box<dyn Scene> ) -> Self {
     self.scenes.insert( key, scene );
     self
   }
@@ -96,13 +100,13 @@ pub struct SceneManager<Key>
   where Key: Copy + Eq + Hash + PartialEq
 {
   scene: Key,
-  scenes: HashMap<Key,Box<dyn IsScene>>
+  scenes: HashMap<Key,Box<dyn Scene>>
 }
 
 impl<Key> SceneManager<Key>
   where Key: Copy + Eq + Hash + PartialEq
 {
-  pub fn current_scene( &mut self ) -> &mut Box<dyn IsScene> {
+  pub fn current_scene( &mut self ) -> &mut Box<dyn Scene> {
     self.scenes.get_mut( &self.scene ).unwrap()
   }
 

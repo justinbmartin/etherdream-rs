@@ -6,7 +6,7 @@ use ratatui::text::{ Line, Span };
 use ratatui::widgets::{ Block, Cell, Paragraph, Row, Widget, Table, Tabs };
 use ratatui_textarea::TextArea;
 
-use crate::scene::{ Context, IsScene, SceneEvent, SceneManagerBuilder, SceneManager };
+use crate::scene::{ Context, Scene, SceneEvent, SceneManagerBuilder, SceneManager };
 
 #[derive( Clone, Copy, Eq, Hash, PartialEq )]
 enum DeviceSceneKey{ Info, Test }
@@ -25,7 +25,7 @@ impl Default for DeviceScene {
   }
 }
 
-impl IsScene for DeviceScene {
+impl Scene for DeviceScene {
   fn on_key_down( &mut self, ctx: &Context, key: KeyCode ) -> SceneEvent {
     match self.scenes.current_scene().on_key_down( ctx, key ) {
       SceneEvent::NotHandled => {
@@ -94,7 +94,7 @@ impl IsScene for DeviceScene {
 #[derive( Default )]
 pub struct DeviceInfoScene;
 
-impl IsScene for DeviceInfoScene {
+impl Scene for DeviceInfoScene {
   fn render( &mut self, ctx: &Context, area: Rect, buf: &mut Buffer ) {
     if let Some( device ) = ctx.selected_device() {
       let block = Block::bordered();
@@ -150,7 +150,7 @@ impl<'a> Default for DeviceTestScene<'a> {
   }
 }
 
-impl<'a> IsScene for DeviceTestScene<'a> {
+impl<'a> Scene for DeviceTestScene<'a> {
   fn on_scene_enter( &mut self ) {
     self.selected = 0;
   }
