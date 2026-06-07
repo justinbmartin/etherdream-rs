@@ -47,7 +47,7 @@ impl Device {
   /// Returns a reference to the active device generator, if one is set.
   pub fn generator( &self ) -> Option<&etherdream::Generator> { self.generator.as_ref() }
 
-  /// ...
+  /// Creates and starts a generator from `executable`.
   pub async fn generate( &mut self, executable: Box<dyn etherdream::generator::Executable> ) {
     if let Some( client ) = self.client.take() {
       let mut generator = etherdream::make_generator( client, executable );

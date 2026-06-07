@@ -80,7 +80,7 @@ impl App {
         }
         SceneEvent::Play( id ) => {
           if let Some( device ) = self.device_map.borrow_mut().get_mut( id ) {
-            device.generate( Box::new( executors::Demo::new() ) );
+            device.generate( Box::new( executors::Demo::new() ) ).await;
           }
         }
         SceneEvent::Select( id ) => {
