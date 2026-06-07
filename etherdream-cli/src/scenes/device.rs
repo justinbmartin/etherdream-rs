@@ -12,6 +12,7 @@ use crate::scene::{ Scene, SceneContext, SceneEvent };
 const CONNECT_BUTTON_INDEX: usize = 1;
 
 pub struct DeviceScene<'a> {
+  // Connect pane properties
   connect_input_selected: usize,
   connect_port_input: TextArea<'a>
 }
@@ -82,7 +83,7 @@ impl<'a> Scene for DeviceScene<'a> {
       test_block.render( test_area, buf );
 
       if device.is_connected() {
-        // todo
+        self.render_generate_pane( test_inner_area, buf );
       } else {
         self.render_connect_pane( test_inner_area, buf );
       }
@@ -108,11 +109,8 @@ impl<'a> DeviceScene<'a> {
     //
     rows.push( Row::new([ Cell::new( "State" ).style( Style::new().bold() ) ]) );
 
-    if let Some( generator ) = device.generator() {
-      rows.extend([
-        Row::new([ " Connected:", "Yes" ]),
-        Row::new([ " Running:".to_owned(), generator.is_running().to_string() ])
-      ]);
+    if device.is_connected() {
+      rows.push( Row::new([ " Connected:", "Yes" ]) );
     } else {
       rows.push( Row::new([ " Connected:", "No" ]) );
     }
@@ -145,5 +143,9 @@ impl<'a> DeviceScene<'a> {
     let connect_block = Block::bordered().border_style( style );
     let connect_btn = Paragraph::new( Span::styled( "<C>onnect", Style::default().bold() ) ).centered().block( connect_block );
     Widget::render( connect_btn, connect_area, buf );
+  }
+
+  fn render_generate_pane( &mut self, area: Rect, buf: &mut Buffer ) {
+    Paragraph::new( ">> Generate <<" ).render( area, buf );
   }
 }
