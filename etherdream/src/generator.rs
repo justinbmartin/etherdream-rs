@@ -138,8 +138,7 @@ impl Generator {
     self.client.clone_state_into( state )
   }
   
-  /// Starts the generator, playing point data at the provided `rate` (points
-  /// per second).
+  /// Starts the generator.
   pub async fn start( &mut self ) {
     if self.is_running() { return; }
 

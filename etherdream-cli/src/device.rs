@@ -48,9 +48,11 @@ impl Device {
   pub fn generator( &self ) -> Option<&etherdream::Generator> { self.generator.as_ref() }
 
   /// ...
-  pub fn generate( &mut self, executable: Box<dyn etherdream::generator::Executable> ) {
+  pub async fn generate( &mut self, executable: Box<dyn etherdream::generator::Executable> ) {
     if let Some( client ) = self.client.take() {
-      let generator = etherdream::make_generator( client, executable );
+      let mut generator = etherdream::make_generator( client, executable );
+      generator.start().await;
+
       self.generator = Some( generator );
     }
   }

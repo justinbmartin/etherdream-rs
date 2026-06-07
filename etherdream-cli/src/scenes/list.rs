@@ -133,8 +133,8 @@ impl ListScene {
 }
 
 fn render_device_status_cell<'a>( device: &Device, selected: bool ) -> Cell<'a> {
-  if let Some( generator ) = device.generator() {
-    if generator.is_running() {
+  if device.is_connected() {
+    if let Some( generator ) = device.generator() && generator.is_running() {
       Cell::new( PLAYING ).style( Style::new().bg( Color::Green ) )
     } else {
       Cell::new( CONNECTED ).style( Style::new().bg( Color::Yellow ) )
