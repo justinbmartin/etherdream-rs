@@ -9,7 +9,11 @@ use ratatui_textarea::TextArea;
 use crate::scene::{ Scene, SceneContext, SceneEvent, SceneManagerBuilder, SceneManager };
 
 #[derive( Clone, Copy, Eq, Hash, PartialEq )]
-enum DeviceSceneKey{ Info, Test }
+#[repr( usize )]
+enum DeviceSceneKey{
+  Info = 0,
+  Generate = 1
+}
 
 pub struct DeviceScene {
   scenes: SceneManager<DeviceSceneKey>
@@ -18,7 +22,7 @@ pub struct DeviceScene {
 impl Default for DeviceScene {
   fn default() -> Self {
     let scenes = SceneManagerBuilder::<DeviceSceneKey>::new( DeviceSceneKey::Info, Box::new( DeviceInfoScene::default() ) )
-      .add_scene( DeviceSceneKey::Test, Box::new( DeviceTestScene::default() ) )
+      .add_scene( DeviceSceneKey::Generate, Box::new( DeviceTestScene::default() ) )
       .build();
 
     Self{ scenes }
@@ -31,7 +35,7 @@ impl Scene for DeviceScene {
       SceneEvent::NotHandled => {
         match key {
           KeyCode::Left => {
-            if self.scenes.current_scene_key() == DeviceSceneKey::Test {
+            if self.scenes.current_scene_key() == DeviceSceneKey::Generate {
               self.scenes.set_scene( DeviceSceneKey::Info );
             }
 
@@ -39,7 +43,7 @@ impl Scene for DeviceScene {
           },
           KeyCode::Right => {
             if self.scenes.current_scene_key() == DeviceSceneKey::Info {
-              self.scenes.set_scene( DeviceSceneKey::Test );
+              self.scenes.set_scene( DeviceSceneKey::Generate );
             }
 
             SceneEvent::Handled
@@ -61,35 +65,26 @@ impl Scene for DeviceScene {
       let layout = Layout::vertical([ Constraint::Length( 3 ), Constraint::Fill( 1 ) ]);
       let [ menu, content ] = area.layout( &layout );
 
-      // Render the menu
-      let block = Block::bordered()
+      // Render the tabbed menu
+      let menu_block = Block::bordered()
         .title( Line::raw( format!( " Device: {} ", device.info().ip() ) ).centered() );
 
-      let selected =
-        match self.scenes.current_scene_key() {
-          DeviceSceneKey::Info => 0,
-          DeviceSceneKey::Test => 1
-        };
-
-      let tabs = Tabs::new( vec![ "Info", "Generate" ])
-        .block( block )
+      Tabs::new( vec![ "Info", "Generate" ])
+        .block( menu_block )
         .style( Color::White )
         .highlight_style( Style::default().magenta().on_black().bold() )
-        .select( selected )
+        .select( self.scenes.current_scene_key() as usize )
         .divider( "|" )
-        .padding( " ", " " );
+        .padding( " ", " " )
+        .render( menu, buf );
 
-      Widget::render( tabs, menu, buf );
-
-      //
+      // Render the scene
       self.scenes.current_scene().render( ctx, content, buf );
-    } else {
-      // TODO
     }
   }
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Device Info Scene
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Device: Info Scene
 
 #[derive( Default )]
 pub struct DeviceInfoScene;
@@ -98,7 +93,10 @@ impl Scene for DeviceInfoScene {
   fn render( &mut self, ctx: &SceneContext, area: Rect, buf: &mut Buffer ) {
     if let Some( device ) = ctx.selected_device() {
       let block = Block::bordered();
-      let constraints = [ Constraint::Length( 25 ), Constraint::Fill( 1 ) ];
+      let centered_area = block.inner( area ).centered_horizontally( Constraint::Length( 50 ) );
+      block.render( area, buf );
+
+      let content_block = Block::default();
 
       let mut rows = Vec::with_capacity( 50 );
       rows.extend([
@@ -122,10 +120,9 @@ impl Scene for DeviceInfoScene {
         rows.push( Row::new([ " Connected:", "No" ]) );
       }
 
-      let table = Table::new( rows, constraints ).block( block );
-      Widget::render( table, area, buf );
-    } else {
-      // TODO: no device?!
+      Table::new( rows, [ Constraint::Length( 25 ), Constraint::Fill( 1 ) ])
+        .block( content_block )
+        .render( centered_area, buf );
     }
   }
 }
@@ -185,7 +182,6 @@ impl<'a> Scene for DeviceTestScene<'a> {
     if let Some( _device ) = ctx.selected_device() {
       let block = Block::bordered();
       Widget::render( &block, area, buf );
-
       let inner_area = block.inner( area );
 
       let centered_area = inner_area.centered_horizontally( Constraint::Length( 50 ) );

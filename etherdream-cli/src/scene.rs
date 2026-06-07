@@ -38,6 +38,7 @@ pub trait Scene {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene Context
 
+/// Read-only context provided to Scene-trait implementation functions.
 pub struct SceneContext {
   device_map: Rc<RefCell<DeviceMap>>,
   device_selected_id: Rc<RefCell<Option<usize>>>
