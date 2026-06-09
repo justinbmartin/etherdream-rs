@@ -67,7 +67,7 @@ impl App {
 
   async fn on_key_event( &mut self, ctx: &mut SceneContext, key: KeyEvent ) {
     if key.kind == KeyEventKind::Press {
-      match self.scenes.current_scene().on_key_down( ctx, key.code ) {
+      match self.scenes.current_scene().on_key_down( ctx, key ) {
         SceneEvent::Connect( id ) => {
           if let Some( device ) = self.device_map.borrow_mut().get_mut( id ) {
             let _ = device.connect().await;

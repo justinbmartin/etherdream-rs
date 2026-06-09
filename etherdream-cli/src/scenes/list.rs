@@ -1,4 +1,4 @@
-use crossterm::event::KeyCode;
+use crossterm::event::{ KeyCode, KeyEvent };
 use ratatui::buffer::Buffer;
 use ratatui::layout::{ Constraint, Rect };
 use ratatui::style::{ Color, palette::tailwind::SLATE, Style };
@@ -31,8 +31,8 @@ impl Default for ListScene {
 }
 
 impl Scene for ListScene {
-  fn on_key_down( &mut self, ctx: &SceneContext, key: KeyCode ) -> SceneEvent {
-    match key {
+  fn on_key_down( &mut self, ctx: &SceneContext, key: KeyEvent ) -> SceneEvent {
+    match key.code {
       KeyCode::Down => {
         let i = self.state.selected().unwrap_or( 0 ).saturating_add( 1 ) % ctx.device_map().len();
         self.state.select( Some( i ) );

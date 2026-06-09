@@ -1,4 +1,4 @@
-use crossterm::event::KeyCode;
+use crossterm::event::{ KeyCode, KeyEvent };
 use ratatui::buffer::Buffer;
 use ratatui::layout::{ Constraint, Layout, Rect };
 use ratatui::style::{ Color, Style };
@@ -39,16 +39,16 @@ impl<'a> Scene for DeviceScene<'a> {
     self.connect_input_selected = CONNECT_BUTTON_INDEX;
   }
 
-  fn on_key_down( &mut self, ctx: &SceneContext, key: KeyCode ) -> SceneEvent {
+  fn on_key_down( &mut self, ctx: &SceneContext, key: KeyEvent ) -> SceneEvent {
     if let Some( device ) = ctx.selected_device() {
       if device.is_connected() {
-        match key {
+        match key.code {
           KeyCode::Enter => return SceneEvent::Play( device.id() ),
           KeyCode::Esc | KeyCode::Char( 'q' ) => return SceneEvent::Exit,
           _ => {}
         }
       } else {
-        match key {
+        match key.code {
           KeyCode::Up => {
             self.connect_input_selected = PORT_INPUT_INDEX;
             return SceneEvent::Handled;
@@ -63,7 +63,11 @@ impl<'a> Scene for DeviceScene<'a> {
             }
           },
           KeyCode::Esc | KeyCode::Char( 'q' ) => return SceneEvent::Exit,
-          _ => {}
+          _ => {
+            if self.connect_input_selected == 0 && self.connect_port_input.input( key ) {
+              let _is_valid = validate_port( &mut self.connect_port_input );
+            }
+          }
         };
       }
     }
@@ -79,12 +83,14 @@ impl<'a> Scene for DeviceScene<'a> {
       // Render the header
       Paragraph::new( format!( " Device: {} ", device.info().ip() ) ).render( header, buf );
 
-      // Render the info pane
-      let [ info_area, test_area ] = body.layout( &Layout::horizontal([ Constraint::Length( 60 ), Constraint::Fill( 1 ) ]) );
-      self.render_info( &device, info_area, buf );
+      //
+      let [ test_area, info_area ] = body.layout( &Layout::horizontal([
+        Constraint::Fill( 1 ),
+        Constraint::Length( 60 )
+      ]) );
 
       // Render the test pane
-      let test_block = Block::bordered().title( " Test " );
+      let test_block = Block::bordered().title( " Connect " );
       let test_inner_area = test_block.inner( test_area );
       test_block.render( test_area, buf );
 
@@ -93,6 +99,9 @@ impl<'a> Scene for DeviceScene<'a> {
       } else {
         self.render_connect_pane( test_inner_area, buf );
       }
+
+      // Render the info pane
+      self.render_info( &device, info_area, buf );
     }
   }
 }
@@ -100,21 +109,33 @@ impl<'a> Scene for DeviceScene<'a> {
 impl<'a> DeviceScene<'a> {
   // UI to render the Etherdream device intrinsic and run-time properties
   fn render_info( &mut self, device: &Device, area: Rect, buf: &mut Buffer ) {
-    let block = Block::bordered().title( " Info " ).padding( Padding::uniform( 1 ) );
+    let [ intrinsics_area, state_area ] = area.layout( &Layout::vertical([
+      Constraint::Length( 10 ), Constraint::Fill( 1 ),
+    ]) );
+
+    //
+    let intrinsics_block = Block::bordered()
+      .title( " Intrinsics " )
+      .padding( Padding::uniform( 1 ) );
 
     let mut rows = Vec::with_capacity( 50 );
     rows.extend([
-      Row::new([ Cell::new( "Intrinsics" ).style( Style::new().bold() ) ]),
-      Row::new([ " IP address:".to_owned(), device.info().ip().to_string() ]),
-      Row::new([ " MAC address:".to_owned(), device.info().mac_address().to_string() ]),
-      Row::new([ " Hardware version:".to_owned(), device.info().version().hardware.to_string() ]),
-      Row::new([ " Software version:".to_owned(), device.info().version().software.to_string() ]),
-      Row::new([ " Point buffer capacity:".to_owned(), device.info().buffer_capacity().to_string() ]),
-      Row::new([ " Max points per second:".to_owned(), device.info().max_points_per_second().to_string() ])
+      Row::new([ "IP address:".to_owned(), device.info().ip().to_string() ]),
+      Row::new([ "MAC address:".to_owned(), device.info().mac_address().to_string() ]),
+      Row::new([ "Hardware version:".to_owned(), device.info().version().hardware.to_string() ]),
+      Row::new([ "Software version:".to_owned(), device.info().version().software.to_string() ]),
+      Row::new([ "Point buffer capacity:".to_owned(), device.info().buffer_capacity().to_string() ]),
+      Row::new([ "Max points per second:".to_owned(), device.info().max_points_per_second().to_string() ])
     ]);
 
+    Table::new( rows, [ Constraint::Length( 25 ), Constraint::Fill( 1 ) ])
+      .block( intrinsics_block )
+      .render( intrinsics_area, buf );
+
+
     //
-    rows.push( Row::new([ Cell::new( "State" ).style( Style::new().bold() ) ]) );
+    let state_block = Block::bordered().title( " State " ).padding( Padding::horizontal( 1 ) );
+    let mut rows = Vec::with_capacity( 50 );
     rows.push( Row::new([ " Connected:", if device.is_connected() { "Yes" } else { "No" } ]) );
 
     if let Some( generator ) = device.generator() {
@@ -129,8 +150,8 @@ impl<'a> DeviceScene<'a> {
     }
 
     Table::new( rows, [ Constraint::Length( 25 ), Constraint::Fill( 1 ) ])
-      .block( block )
-      .render( area, buf );
+      .block( state_block )
+      .render( state_area, buf );
   }
 
   // UI to render a form to connect to an Etherdream device
@@ -150,6 +171,7 @@ impl<'a> DeviceScene<'a> {
     let style = if self.connect_input_selected == 0 { button_highlight_style } else { Style::default() };
     let port_block = Block::bordered().title( " Port " ).border_style( style );
     self.connect_port_input.set_block( port_block );
+
     Widget::render( &self.connect_port_input, port_area, buf );
 
     // Connect button
@@ -162,5 +184,16 @@ impl<'a> DeviceScene<'a> {
   // UI to start a generator on a connected Etherdream device
   fn render_generator_pane( &mut self, area: Rect, buf: &mut Buffer ) {
     Paragraph::new( ">> Generate <<" ).render( area, buf );
+  }
+}
+
+
+fn validate_port( port: &mut TextArea ) -> bool {
+  if let Err( _ ) = port.lines()[0].parse::<u16>() {
+    port.set_style( Style::default().fg( Color::LightRed ) );
+    false
+  } else {
+    port.set_style( Style::default().fg( Color::LightGreen ) );
+    true
   }
 }

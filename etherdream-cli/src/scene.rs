@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::rc::Rc;
 
-use crossterm::event::KeyCode;
+use crossterm::event::KeyEvent;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 
@@ -28,7 +28,7 @@ pub trait Scene {
   fn on_scene_exit( &mut self ) { /* no-op */ }
 
   /// Called each time a key-press is registered. (Optional)
-  fn on_key_down( &mut self, _ctx: &SceneContext, _key: KeyCode ) -> SceneEvent {
+  fn on_key_down( &mut self, _ctx: &SceneContext, _key: KeyEvent ) -> SceneEvent {
     SceneEvent::NotHandled
   }
 
