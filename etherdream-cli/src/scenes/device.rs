@@ -3,14 +3,15 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{ Constraint, Layout, Rect };
 use ratatui::style::{ Color, Style };
 use ratatui::text::Span;
-use ratatui::widgets::{ Block, Cell, Padding, Paragraph, Row, Widget, Table };
+use ratatui::widgets::{ Block, Padding, Paragraph, Row, Widget, Table };
 use ratatui_textarea::TextArea;
 
 use crate::device::Device;
 use crate::scene::{ Scene, SceneContext, SceneEvent };
 
-const PORT_INPUT_INDEX: usize = 0;
 const CONNECT_BUTTON_INDEX: usize = 1;
+const KEY_WIDTH: u16 = 25;
+const PORT_INPUT_INDEX: usize = 0;
 
 pub struct DeviceScene<'a> {
   state: etherdream::State,
@@ -113,43 +114,42 @@ impl<'a> DeviceScene<'a> {
       Constraint::Length( 10 ), Constraint::Fill( 1 ),
     ]) );
 
-    //
+    // Render intrinsics
     let intrinsics_block = Block::bordered()
       .title( " Intrinsics " )
       .padding( Padding::uniform( 1 ) );
 
-    let mut rows = Vec::with_capacity( 50 );
-    rows.extend([
+    let intrinsic_rows = [
       Row::new([ "IP address:".to_owned(), device.info().ip().to_string() ]),
       Row::new([ "MAC address:".to_owned(), device.info().mac_address().to_string() ]),
       Row::new([ "Hardware version:".to_owned(), device.info().version().hardware.to_string() ]),
       Row::new([ "Software version:".to_owned(), device.info().version().software.to_string() ]),
       Row::new([ "Point buffer capacity:".to_owned(), device.info().buffer_capacity().to_string() ]),
       Row::new([ "Max points per second:".to_owned(), device.info().max_points_per_second().to_string() ])
-    ]);
+    ];
 
-    Table::new( rows, [ Constraint::Length( 25 ), Constraint::Fill( 1 ) ])
+    Table::new( intrinsic_rows, [ Constraint::Length( KEY_WIDTH ), Constraint::Fill( 1 ) ])
       .block( intrinsics_block )
       .render( intrinsics_area, buf );
 
 
-    //
+    // Render state
     let state_block = Block::bordered().title( " State " ).padding( Padding::horizontal( 1 ) );
     let mut rows = Vec::with_capacity( 50 );
-    rows.push( Row::new([ " Connected:", if device.is_connected() { "Yes" } else { "No" } ]) );
+    rows.push( Row::new([ "Connected:", if device.is_connected() { "Yes" } else { "No" } ]) );
 
     if let Some( generator ) = device.generator() {
       generator.clone_state_into( &mut self.state );
-      rows.push( Row::new([ " Generator:", "Demo" ]) );
+      rows.push( Row::new([ "Generator:", "Demo" ]) );
       rows.extend([
         Row::new([ "Points buffered:".to_owned(), self.state.points_buffered().to_string() ]),
         Row::new([ "Points per second:".to_owned(), self.state.points_per_second().to_string() ])
       ]);
     } else {
-      rows.push( Row::new([ " Generator:", "None" ]) );
+      rows.push( Row::new([ "Generator:", "None" ]) );
     }
 
-    Table::new( rows, [ Constraint::Length( 25 ), Constraint::Fill( 1 ) ])
+    Table::new( rows, [ Constraint::Length( KEY_WIDTH ), Constraint::Fill( 1 ) ])
       .block( state_block )
       .render( state_area, buf );
   }
