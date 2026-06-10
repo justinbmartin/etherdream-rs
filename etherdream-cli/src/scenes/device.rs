@@ -1,79 +1,50 @@
 use crossterm::event::{ KeyCode, KeyEvent };
 use ratatui::buffer::Buffer;
 use ratatui::layout::{ Constraint, Layout, Rect };
-use ratatui::style::{ Color, Style };
+use ratatui::style::{ Color, palette::tailwind::SLATE, Style };
 use ratatui::text::Span;
-use ratatui::widgets::{ Block, Padding, Paragraph, Row, Widget, Table };
+use ratatui::widgets::{ Block, Cell, Padding, Paragraph, Row, Widget, Table, TableState };
 use ratatui_textarea::TextArea;
 
 use crate::device::Device;
-use crate::scene::{ Scene, SceneContext, SceneEvent };
+use crate::scene::{ Scene, SceneContext, SceneManager, SceneManagerBuilder, SceneEvent };
 
-const CONNECT_BUTTON_INDEX: usize = 1;
-const KEY_WIDTH: u16 = 25;
-const PORT_INPUT_INDEX: usize = 0;
+const HIGHLIGHT_STYLE: Style = Style::new().bg( SLATE.c800 );
+const INPUT_CONNECT_BUTTON: usize = 1;
+const INPUT_PORT: usize = 0;
+const TABLE_KEY_WIDTH: u16 = 25;
 
-pub struct DeviceScene<'a> {
-  state: etherdream::State,
+#[derive( Clone, Copy, Eq, Hash, PartialEq )]
+enum SceneKey{ ConnectForm, GeneratorList }
 
-  // Connect pane properties
-  connect_input_selected: usize,
-  connect_port_input: TextArea<'a>
+pub struct DeviceScene {
+  scenes: SceneManager<SceneKey>,
+  state: etherdream::State
 }
 
-impl<'a> Default for DeviceScene<'a> {
+impl Default for DeviceScene {
   fn default() -> Self {
-    let mut connect_port_input = TextArea::default();
-    connect_port_input.set_cursor_line_style( Style::default() );
-    connect_port_input.set_placeholder_text( etherdream::protocol::CLIENT_PORT.to_string() );
+    let scenes = SceneManagerBuilder::new( SceneKey::ConnectForm, Box::new( ConnectFormScene::default() ) )
+      .add_scene( SceneKey::GeneratorList, Box::new( GeneratorListScene::default() ) )
+      .build();
 
     Self{
-      connect_input_selected: CONNECT_BUTTON_INDEX,
-      connect_port_input,
+      scenes,
       state: etherdream::State::default()
     }
   }
 }
 
-impl<'a> Scene for DeviceScene<'a> {
-  fn on_scene_enter( &mut self ) {
-    self.connect_input_selected = CONNECT_BUTTON_INDEX;
-  }
-
+impl Scene for DeviceScene {
   fn on_key_down( &mut self, ctx: &SceneContext, key: KeyEvent ) -> SceneEvent {
-    if let Some( device ) = ctx.selected_device() {
-      if device.is_connected() {
-        match key.code {
-          KeyCode::Enter => return SceneEvent::Play( device.id() ),
-          KeyCode::Esc | KeyCode::Char( 'q' ) => return SceneEvent::Exit,
-          _ => {}
-        }
-      } else {
-        match key.code {
-          KeyCode::Up => {
-            self.connect_input_selected = PORT_INPUT_INDEX;
-            return SceneEvent::Handled;
-          },
-          KeyCode::Down => {
-            self.connect_input_selected = CONNECT_BUTTON_INDEX;
-            return SceneEvent::Handled;
-          },
-          KeyCode::Enter => {
-            if self.connect_input_selected == CONNECT_BUTTON_INDEX && let Some( device ) = ctx.selected_device() {
-              return SceneEvent::Connect( device.id() );
-            }
-          },
-          KeyCode::Esc | KeyCode::Char( 'q' ) => return SceneEvent::Exit,
-          _ => {
-            if self.connect_input_selected == 0 && self.connect_port_input.input( key ) {
-              let _is_valid = validate_port( &mut self.connect_port_input );
-            }
-          }
-        };
-      }
-    }
+    let handled = self.scenes.current_scene().on_key_down( ctx, key );
 
-    SceneEvent::NotHandled
+    // Change scene if this is a connect event
+    if let SceneEvent::Connect( _ ) = handled {
+      self.scenes.set_scene( SceneKey::GeneratorList );
+    };
+
+    handled
   }
 
   fn render( &mut self, ctx: &SceneContext, area: Rect, buf: &mut Buffer ) {
@@ -95,11 +66,8 @@ impl<'a> Scene for DeviceScene<'a> {
       let test_inner_area = test_block.inner( test_area );
       test_block.render( test_area, buf );
 
-      if device.is_connected() {
-        self.render_generator_pane( test_inner_area, buf );
-      } else {
-        self.render_connect_pane( test_inner_area, buf );
-      }
+      //
+      self.scenes.current_scene().render( ctx, test_inner_area, buf );
 
       // Render the info pane
       self.render_info( &device, info_area, buf );
@@ -107,7 +75,7 @@ impl<'a> Scene for DeviceScene<'a> {
   }
 }
 
-impl<'a> DeviceScene<'a> {
+impl DeviceScene {
   // UI to render the Etherdream device intrinsic and run-time properties
   fn render_info( &mut self, device: &Device, area: Rect, buf: &mut Buffer ) {
     let [ intrinsics_area, state_area ] = area.layout( &Layout::vertical([
@@ -128,10 +96,9 @@ impl<'a> DeviceScene<'a> {
       Row::new([ "Max points per second:".to_owned(), device.info().max_points_per_second().to_string() ])
     ];
 
-    Table::new( intrinsic_rows, [ Constraint::Length( KEY_WIDTH ), Constraint::Fill( 1 ) ])
+    Table::new( intrinsic_rows, [ Constraint::Length( TABLE_KEY_WIDTH ), Constraint::Fill( 1 ) ])
       .block( intrinsics_block )
       .render( intrinsics_area, buf );
-
 
     // Render state
     let state_block = Block::bordered().title( " State " ).padding( Padding::horizontal( 1 ) );
@@ -140,8 +107,9 @@ impl<'a> DeviceScene<'a> {
 
     if let Some( generator ) = device.generator() {
       generator.clone_state_into( &mut self.state );
-      rows.push( Row::new([ "Generator:", "Demo" ]) );
+
       rows.extend([
+        Row::new([ "Generator:", "Demo" ]),
         Row::new([ "Points buffered:".to_owned(), self.state.points_buffered().to_string() ]),
         Row::new([ "Points per second:".to_owned(), self.state.points_per_second().to_string() ])
       ]);
@@ -149,13 +117,66 @@ impl<'a> DeviceScene<'a> {
       rows.push( Row::new([ "Generator:", "None" ]) );
     }
 
-    Table::new( rows, [ Constraint::Length( KEY_WIDTH ), Constraint::Fill( 1 ) ])
+    Table::new( rows, [ Constraint::Length( TABLE_KEY_WIDTH ), Constraint::Fill( 1 ) ])
       .block( state_block )
       .render( state_area, buf );
   }
+}
 
-  // UI to render a form to connect to an Etherdream device
-  fn render_connect_pane( &mut self, area: Rect, buf: &mut Buffer ) {
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Connect Scene
+
+// Scene that renders a form to connect to an Etherdream device.
+struct ConnectFormScene<'a> {
+  input_selected: usize,
+  port_input: TextArea<'a>
+}
+
+impl<'a> Default for ConnectFormScene<'a> {
+  fn default() -> Self {
+    let mut port_input = TextArea::default();
+    port_input.set_cursor_line_style( Style::default() );
+    port_input.set_placeholder_text( etherdream::protocol::CLIENT_PORT.to_string() );
+
+    Self{
+      input_selected: INPUT_CONNECT_BUTTON,
+      port_input
+    }
+  }
+}
+
+impl<'a> Scene for ConnectFormScene<'a> {
+  fn on_scene_enter( &mut self ) {
+    self.input_selected = INPUT_CONNECT_BUTTON;
+  }
+
+  fn on_key_down( &mut self, ctx: &SceneContext, key: KeyEvent ) -> SceneEvent {
+    match key.code {
+      KeyCode::Up => {
+        self.input_selected = INPUT_PORT;
+        return SceneEvent::Handled;
+      },
+      KeyCode::Down => {
+        self.input_selected = INPUT_CONNECT_BUTTON;
+        return SceneEvent::Handled;
+      },
+      KeyCode::Enter => {
+        if self.input_selected == INPUT_CONNECT_BUTTON && let Some( device ) = ctx.selected_device() {
+          return SceneEvent::Connect( device.id() );
+        }
+      },
+      KeyCode::Esc | KeyCode::Char( 'q' ) => return SceneEvent::Exit,
+      _ => {
+        if self.input_selected == 0 && self.port_input.input( key ) {
+          let _is_valid = validate_port( &mut self.port_input );
+          return SceneEvent::Handled;
+        }
+      }
+    };
+
+    SceneEvent::NotHandled
+  }
+
+  fn render( &mut self, _ctx: &SceneContext, area: Rect, buf: &mut Buffer ) {
     let centered_area = area.centered_horizontally( Constraint::Length( 50 ) );
 
     let [ port_area, connect_area, _ ] = centered_area.layout( &Layout::vertical([
@@ -168,26 +189,76 @@ impl<'a> DeviceScene<'a> {
     let button_highlight_style = Style::default().fg( Color::Green );
 
     // Port input
-    let style = if self.connect_input_selected == 0 { button_highlight_style } else { Style::default() };
+    let style = if self.input_selected == 0 { button_highlight_style } else { Style::default() };
     let port_block = Block::bordered().title( " Port " ).border_style( style );
-    self.connect_port_input.set_block( port_block );
+    self.port_input.set_block( port_block );
 
-    Widget::render( &self.connect_port_input, port_area, buf );
+    Widget::render( &self.port_input, port_area, buf );
 
     // Connect button
-    let style = if self.connect_input_selected == CONNECT_BUTTON_INDEX { button_highlight_style } else { Style::default() };
+    let style = if self.input_selected == INPUT_CONNECT_BUTTON { button_highlight_style } else { Style::default() };
     let connect_block = Block::bordered().border_style( style );
-    let connect_btn = Paragraph::new( Span::styled( "<C>onnect", Style::default().bold() ) ).centered().block( connect_block );
-    Widget::render( connect_btn, connect_area, buf );
-  }
 
-  // UI to start a generator on a connected Etherdream device
-  fn render_generator_pane( &mut self, area: Rect, buf: &mut Buffer ) {
-    Paragraph::new( ">> Generate <<" ).render( area, buf );
+    Paragraph::new( Span::styled( "<C>onnect", Style::default().bold() ) )
+      .centered()
+      .block( connect_block )
+      .render( connect_area, buf );
   }
 }
 
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Generate Scene
 
+struct GeneratorListScene {
+  state: TableState
+}
+
+impl Default for GeneratorListScene {
+  fn default() -> Self {
+    Self{ state: TableState::new().with_selected( Some( 0 ) ) }
+  }
+}
+
+impl Scene for GeneratorListScene {
+  fn render( &mut self, _ctx: &SceneContext, area: Rect, buf: &mut Buffer ) {
+    let constraints = [ Constraint::Fill( 1 ) ];
+
+    let selected = self.state.selected().filter(| si |{ *si == i }).is_some();
+    let theme = if selected { HIGHLIGHT_STYLE } else { Style::new() };
+
+    let rows = Row::new([ Cell::new( "Demo" ) ]);
+    let rows: Vec<Row> = self.sorted_device_keys
+      .iter()
+      .enumerate()
+      .filter_map(|( i, id )|{
+        if let Some( device ) = ctx.device_map().get( *id ) {
+          let selected = self.state.selected().filter(| si |{ *si == i }).is_some();
+          let theme = if selected { HIGHLIGHT_STYLE } else { Style::new() };
+
+          Some( Row::new([
+            Cell::new( device.info().ip().to_string() ),
+            Cell::new( "-" ),
+            Cell::new( device.info().mac_address().to_string() ),
+            render_device_status_cell( device, selected )
+          ]).style( theme ) )
+        } else {
+          None
+        }
+      })
+      .collect();
+
+    let table = Table::new( rows, constraints )
+      .block( block )
+      .header( Row::new(vec![ "Generator Name" ]).style( Style::new().bold() ) )
+      .highlight_spacing( ratatui::widgets::HighlightSpacing::Always )
+      .highlight_symbol( "> " );
+
+    StatefulWidget::render( table, area, buf, &mut self.state );
+  }
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Helpers
+
+// Validates that the port input is a `u16`.
 fn validate_port( port: &mut TextArea ) -> bool {
   if let Err( _ ) = port.lines()[0].parse::<u16>() {
     port.set_style( Style::default().fg( Color::LightRed ) );
