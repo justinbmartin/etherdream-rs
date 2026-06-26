@@ -62,7 +62,7 @@ impl Scene for DeviceScene {
       ]) );
 
       // Render the test pane
-      let test_block = Block::bordered().title( " Connect " );
+      let test_block = Block::bordered();
       let test_inner_area = test_block.inner( test_area );
       test_block.render( test_area, buf );
 
@@ -209,50 +209,62 @@ impl<'a> Scene for ConnectFormScene<'a> {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Generate Scene
 
 struct GeneratorListScene {
+  generators: Vec<String>,
   state: TableState
 }
 
 impl Default for GeneratorListScene {
   fn default() -> Self {
-    Self{ state: TableState::new().with_selected( Some( 0 ) ) }
+    Self{
+      generators: vec![ "Demo".to_owned() ],
+      state: TableState::new().with_selected( Some( 0 ) )
+    }
   }
 }
 
 impl Scene for GeneratorListScene {
+  fn on_key_down( &mut self, ctx: &SceneContext, key: KeyEvent ) -> SceneEvent {
+    match key.code {
+      KeyCode::Up => {
+        self.state.select( Some( self.state.selected().unwrap().saturating_sub( 1 ) ) );
+        return SceneEvent::Handled;
+      },
+      KeyCode::Down => {
+        self.state.select( Some( self.state.selected().unwrap().saturating_add( 1 ) % self.generators.len() ) );
+        return SceneEvent::Handled;
+      },
+      KeyCode::Enter => {
+        if let Some( device ) = ctx.selected_device() {
+          return SceneEvent::Play( device.id() );
+        }
+      },
+      _ => {}
+    }
+
+    SceneEvent::NotHandled
+  }
+
   fn render( &mut self, _ctx: &SceneContext, area: Rect, buf: &mut Buffer ) {
     let constraints = [ Constraint::Fill( 1 ) ];
 
-    let selected = self.state.selected().filter(| si |{ *si == i }).is_some();
-    let theme = if selected { HIGHLIGHT_STYLE } else { Style::new() };
+    // temp
+    let selected = self.state.selected().unwrap();
 
-    let rows = Row::new([ Cell::new( "Demo" ) ]);
-    let rows: Vec<Row> = self.sorted_device_keys
+    let rows = self.generators
       .iter()
       .enumerate()
-      .filter_map(|( i, id )|{
-        if let Some( device ) = ctx.device_map().get( *id ) {
-          let selected = self.state.selected().filter(| si |{ *si == i }).is_some();
-          let theme = if selected { HIGHLIGHT_STYLE } else { Style::new() };
+      .map(|( i, name )|{
+        let theme = if selected == i { HIGHLIGHT_STYLE } else { Style::new() };
 
-          Some( Row::new([
-            Cell::new( device.info().ip().to_string() ),
-            Cell::new( "-" ),
-            Cell::new( device.info().mac_address().to_string() ),
-            render_device_status_cell( device, selected )
-          ]).style( theme ) )
-        } else {
-          None
-        }
-      })
-      .collect();
+        Row::new([ Cell::new( name.to_owned() ).style( theme ) ])
+      });
 
     let table = Table::new( rows, constraints )
-      .block( block )
       .header( Row::new(vec![ "Generator Name" ]).style( Style::new().bold() ) )
       .highlight_spacing( ratatui::widgets::HighlightSpacing::Always )
       .highlight_symbol( "> " );
 
-    StatefulWidget::render( table, area, buf, &mut self.state );
+    table.render( area, buf );
   }
 }
 
