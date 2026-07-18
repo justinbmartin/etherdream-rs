@@ -19,7 +19,7 @@ const LIST_SCENE_ID: &str = "list";
 
 pub struct ListScene {
   device_map_version: usize,
-  select_device_callback_fn: Box<dyn FnMut( usize /* device_id */ )>,
+  select_device_callback_fn: Box<dyn FnMut( usize /* device_id */ ) -> bool>,
   sorted_device_keys: Vec<usize>, // Scene cache of sorted device id's
   state: TableState
 }
@@ -31,7 +31,7 @@ impl ListScene {
 }
 
 impl ListScene {
-  pub fn new<F: FnMut( usize ) + 'static>( select_device_callback_fn: F ) -> Self {
+  pub fn new<F: FnMut( usize ) -> bool + 'static>( select_device_callback_fn: F ) -> Self {
     Self{
       device_map_version: 0,
       select_device_callback_fn: Box::new( select_device_callback_fn ),

@@ -79,6 +79,8 @@ impl Default for DeviceMap {
 }
 
 impl DeviceMap{
+  pub fn contains_key( &self, id: &usize ) -> bool { self.inner.contains_key( id ) }
+
   /// Returns an immutable reference to a device.
   pub fn get( &self, id: usize ) -> Option<&Device> { self.inner.get( &id ) }
 

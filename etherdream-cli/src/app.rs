@@ -22,12 +22,6 @@ pub struct App {
   scenes: scene::Controller<scenes::SceneContext>
 }
 
-fn select_device( _device_map: Rc<RefCell<DeviceMap>>, device_selected_id: Rc<RefCell<Option<usize>>> ) -> impl FnMut( usize ) {
-  move | device_id |{
-    *device_selected_id.borrow_mut() = Some( device_id )
-  }
-}
-
 impl App {
   pub fn new() -> Self {
     let device_map = Rc::new( RefCell::new( DeviceMap::default() ) );
@@ -36,8 +30,17 @@ impl App {
     // Scenes
     let scenes = scene::Builder::<scenes::SceneContext>::new()
       .add_scene( "list", {
+        let device_map = device_map.clone();
         let device_selected_id = device_selected_id.clone();
-        Box::new( scenes::ListScene::new( move | device_id |{ *device_selected_id.borrow_mut() = Some( device_id ) } ) )
+
+        Box::new( scenes::ListScene::new( move | device_id |{
+          if device_map.borrow().contains_key( &device_id ) {
+            *device_selected_id.borrow_mut() = Some( device_id );
+            true
+          } else {
+            false
+          }
+        } ) )
       })
       .build();
 
