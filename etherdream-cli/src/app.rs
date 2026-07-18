@@ -10,8 +10,8 @@ use tokio::sync::mpsc::Receiver;
 use crate::device::DeviceMap;
 use crate::event::{ Event, EventHandler };
 use crate::executors;
-use crate::scene::{ SceneContext, SceneEvent, SceneManager, SceneManagerBuilder };
-use crate::scenes::{ self, SceneKey };
+use crate::scene;
+use crate::scenes;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
 
@@ -19,7 +19,13 @@ pub struct App {
   device_map: Rc<RefCell<DeviceMap>>,
   device_selected_id: Rc<RefCell<Option<usize>>>,
   is_running: bool,
-  scenes: SceneManager<SceneKey>
+  scenes: scene::Controller<scenes::SceneContext>
+}
+
+fn select_device( _device_map: Rc<RefCell<DeviceMap>>, device_selected_id: Rc<RefCell<Option<usize>>> ) -> impl FnMut( usize ) {
+  move | device_id |{
+    *device_selected_id.borrow_mut() = Some( device_id )
+  }
 }
 
 impl App {
@@ -27,9 +33,29 @@ impl App {
     let device_map = Rc::new( RefCell::new( DeviceMap::default() ) );
     let device_selected_id = Rc::new( RefCell::new( None::<usize> ) );
 
-    let scenes = SceneManagerBuilder::<SceneKey>::new( SceneKey::List, Box::new( scenes::ListScene::default() ) )
-      .add_scene( SceneKey::Device, Box::new( scenes::DeviceScene::default() ) )
+    // Scenes
+    let scenes = scene::Builder::<scenes::SceneContext>::new()
+      .add_scene( "list", {
+        let device_selected_id = device_selected_id.clone();
+        Box::new( scenes::ListScene::new( move | device_id |{ *device_selected_id.borrow_mut() = Some( device_id ) } ) )
+      })
       .build();
+
+
+    //scenes.insert( "device_info", Box::new( scenes::DeviceScene::default() ) );
+
+    // Actions
+    //let mut actions = scene::ActionMap::new();
+    /*
+    actions.insert( "on_list_select", ( "list", "device", Box::new({
+      let device_selected_id = Rc::clone( &device_selected_id );
+
+      move ||{
+        *device_selected_id.borrow_mut() = Some( 4 );
+        Ok( () )
+      }
+    }) ) );
+    */
 
     Self{
       device_map,
@@ -42,7 +68,7 @@ impl App {
   pub async fn run( &mut self, mut terminal: DefaultTerminal, mut discovery_rx: Receiver<etherdream::DiscoveredDeviceInfo> ) {
     self.is_running = true;
 
-    let mut ctx = SceneContext::new( self.device_map.clone(), self.device_selected_id.clone() );
+    let mut ctx = scenes::SceneContext::new( self.device_map.clone(), self.device_selected_id.clone() );
 
     let ( events, mut events_rx ) = EventHandler::new();
     tokio::spawn( async move{ events.run().await } );
@@ -65,7 +91,7 @@ impl App {
     }
   }
 
-  async fn on_key_event( &mut self, ctx: &mut SceneContext, key: KeyEvent ) {
+  async fn on_key_event( &mut self, ctx: &mut scenes::SceneContext, key: KeyEvent ) {
     if key.kind == KeyEventKind::Press {
       match self.scenes.current_scene().on_key_down( ctx, key ) {
         SceneEvent::Connect( id ) => {
@@ -83,9 +109,14 @@ impl App {
             device.generate( Box::new( executors::Demo::new() ) ).await;
           }
         }
-        SceneEvent::Select( id ) => {
-          *self.device_selected_id.borrow_mut() = Some( id );
-          self.scenes.set_scene( SceneKey::Device )
+        scene::SceneEvent::Change( scene ) => {
+          match scene {
+            scene::SceneId::Device( id ) => {
+              *self.device_selected_id.borrow_mut() = Some( id );
+              self.scenes.change( "" );
+            }
+            _ => {}
+          }
         }
         SceneEvent::Exit => {
           *self.device_selected_id.borrow_mut() = None;
@@ -104,11 +135,11 @@ impl App {
     }
   }
 
-  fn render( &mut self, ctx: &SceneContext, frame: &mut Frame ) {
+  fn render( &mut self, ctx: &scenes::SceneContext, frame: &mut Frame ) {
     let main_layout = Layout::vertical([ Constraint::Fill( 1 ), Constraint::Length( 1 ) ]);
     let [ content_area, footer_area ] = frame.area().layout( &main_layout );
 
-    self.scenes.current_scene().render( ctx, content_area, frame.buffer_mut() );
+    //self.scenes.current_scene().on_render( ctx, content_area, frame.buffer_mut() );
 
     // Main > Footer
     Paragraph::new( "Use ↓↑ to move, <Enter> to select a device, 'q' to quit." )

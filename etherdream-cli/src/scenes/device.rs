@@ -15,7 +15,7 @@ const INPUT_PORT: usize = 0;
 const TABLE_KEY_WIDTH: u16 = 25;
 
 #[derive( Clone, Copy, Eq, Hash, PartialEq )]
-enum SceneKey{ ConnectForm, GeneratorList }
+enum SceneKey{ ConnectForm, Generator, GeneratorList }
 
 pub struct DeviceScene {
   scenes: SceneManager<SceneKey>,
@@ -26,6 +26,7 @@ impl Default for DeviceScene {
   fn default() -> Self {
     let scenes = SceneManagerBuilder::new( SceneKey::ConnectForm, Box::new( ConnectFormScene::default() ) )
       .add_scene( SceneKey::GeneratorList, Box::new( GeneratorListScene::default() ) )
+      .add_scene( SceneKey::Generator, Box::new( GeneratorScene::default() ) )
       .build();
 
     Self{
@@ -126,7 +127,7 @@ impl DeviceScene {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Connect Scene
 
 // Scene that renders a form to connect to an Etherdream device.
-struct ConnectFormScene<'a> {
+pub struct ConnectFormScene<'a> {
   input_selected: usize,
   port_input: TextArea<'a>
 }
@@ -206,7 +207,7 @@ impl<'a> Scene for ConnectFormScene<'a> {
   }
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Generate Scene
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Generate List Scene
 
 struct GeneratorListScene {
   generators: Vec<String>,
@@ -235,7 +236,8 @@ impl Scene for GeneratorListScene {
       },
       KeyCode::Enter => {
         if let Some( device ) = ctx.selected_device() {
-          return SceneEvent::Play( device.id() );
+          //return SceneEvent::Play( device.id() );
+          return SceneEvent::Change( SceneKey::Generator )
         }
       },
       _ => {}
@@ -246,25 +248,51 @@ impl Scene for GeneratorListScene {
 
   fn render( &mut self, _ctx: &SceneContext, area: Rect, buf: &mut Buffer ) {
     let constraints = [ Constraint::Fill( 1 ) ];
-
-    // temp
-    let selected = self.state.selected().unwrap();
+    let selected = self.state.selected().unwrap_or( 0 );
 
     let rows = self.generators
       .iter()
       .enumerate()
-      .map(|( i, name )|{
+      .map(| ( i, name ) | {
         let theme = if selected == i { HIGHLIGHT_STYLE } else { Style::new() };
-
         Row::new([ Cell::new( name.to_owned() ).style( theme ) ])
       });
 
     let table = Table::new( rows, constraints )
-      .header( Row::new(vec![ "Generator Name" ]).style( Style::new().bold() ) )
+      .header( Row::new( vec![ "Generator Name" ] ).style( Style::new().bold() ) )
       .highlight_spacing( ratatui::widgets::HighlightSpacing::Always )
       .highlight_symbol( "> " );
 
     table.render( area, buf );
+  }
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Generate Scene
+
+struct GeneratorScene {}
+
+impl Default for GeneratorScene {
+  fn default() -> Self {
+    Self{}
+  }
+}
+
+impl Scene for GeneratorScene {
+  fn on_key_down( &mut self, ctx: &SceneContext, key: KeyEvent ) -> SceneEvent {
+    match key.code {
+      KeyCode::Enter => {
+        if let Some( device ) = ctx.selected_device() {
+          return SceneEvent::Play( device.id() );
+        }
+      },
+      _ => {}
+    }
+
+    SceneEvent::NotHandled
+  }
+
+  fn render( &mut self, _ctx: &SceneContext, _area: Rect, _buf: &mut Buffer ) {
+
   }
 }
 

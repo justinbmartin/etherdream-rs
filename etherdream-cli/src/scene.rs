@@ -1,123 +1,77 @@
-use std::cell::{ Ref, RefCell };
 use std::collections::HashMap;
-use std::hash::Hash;
-use std::rc::Rc;
 
 use crossterm::event::KeyEvent;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 
-use crate::device::{ Device, DeviceMap };
+type SceneMap<Ctx> = HashMap<&'static str,Box<dyn Scene<Ctx>>>;
 
 #[derive( PartialEq )]
 pub enum SceneEvent {
-  Connect( usize ),    // Connect to a device
-  Disconnect( usize ), // Disconnect from a device
-  Play( usize ),       // Start playing point data for a device
-  Exit,                // The scene should be exited
+  Change( &'static str ),
   Handled,             // The event was handled internally by the scene
-  NotHandled,          // The event was not handled by the scene
-  Select( usize )      // A device was selected
+  NotHandled           // The event was not handled by the scene
 }
 
-pub trait Scene {
-  /// Called once when the scene is entered. (Optional)
-  fn on_scene_enter( &mut self ) { /* no-op */ }
+pub trait Scene<Ctx> {
+  /// Called once before any call to `on_render`. (Optional)
+  fn on_enter( &mut self ) { /* no-op */ }
 
-  /// Called once when the scene is exited. (Optional)
-  fn on_scene_exit( &mut self ) { /* no-op */ }
+  /// Called once after the last call to `on_render`. (Optional)
+  fn on_exit( &mut self ) { /* no-op */ }
 
-  /// Called each time a key-press is registered. (Optional)
-  fn on_key_down( &mut self, _ctx: &SceneContext, _key: KeyEvent ) -> SceneEvent {
+  /// Called each time a key-press is registered if this scene is active. (Optional)
+  fn on_key_down( &mut self, _ctx: &Ctx, _key: KeyEvent ) -> SceneEvent {
     SceneEvent::NotHandled
   }
 
-  /// Called on each frame. (Required)
-  fn render( &mut self, ctx: &SceneContext, area: Rect, buf: &mut Buffer );
+  /// Called on each frame if this scene is active. (Required)
+  fn on_render( &mut self, ctx: &Ctx, area: Rect, buf: &mut Buffer );
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene Context
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
-/// Read-only context provided to Scene-trait implementation functions.
-pub struct SceneContext {
-  device_map: Rc<RefCell<DeviceMap>>,
-  device_selected_id: Rc<RefCell<Option<usize>>>
+pub struct Builder<Ctx> {
+  active: &'static str,
+  scenes: SceneMap<Ctx>
 }
 
-impl SceneContext {
-  pub fn new( device_map: Rc<RefCell<DeviceMap>>, device_selected_id: Rc<RefCell<Option<usize>>> ) -> Self {
-    Self{ device_map, device_selected_id }
-  }
-
-  // Returns a read-only reference to the list of discovered device infos
-  pub fn device_map( &'_ self ) -> Ref<'_, DeviceMap> {
-    self.device_map.borrow()
-  }
-
-  // Returns the selected device, if one is set
-  pub fn selected_device( &'_ self ) -> Option<Ref<'_, Device>> {
-    if let Some( id ) = *self.device_selected_id.borrow() {
-      Ref::filter_map( self.device_map.borrow(), |dm|{ dm.get( id ) } ).ok()
-    } else {
-      None
-    }
-  }
-}
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene Manager + Builder
-
-pub struct SceneManagerBuilder<Key>
-  where Key: Copy + Eq + Hash + PartialEq
-{
-  scene: Key,
-  scenes: HashMap<Key,Box<dyn Scene>>
-}
-
-impl<Key> SceneManagerBuilder<Key>
-  where Key: Copy + Eq + Hash + PartialEq
-{
-  pub fn new( key: Key, scene: Box<dyn Scene> ) -> Self {
-    let mut scenes = HashMap::new();
-    scenes.insert( key, scene );
-
+impl<Ctx> Builder<Ctx> {
+  pub fn new() -> Self {
     Self{
-      scene: key,
-      scenes
+      active: "",
+      scenes: SceneMap::<Ctx>::new()
     }
   }
 
-  pub fn add_scene( mut self, key: Key, scene: Box<dyn Scene> ) -> Self {
-    self.scenes.insert( key, scene );
+  /// Adds a scene to the builder.
+  pub fn add_scene( mut self, name: &'static str, scene: Box<dyn Scene<Ctx>> ) -> Self {
+    if ! self.scenes.contains_key( name ) { self.scenes.insert( name, scene ); }
     self
   }
 
-  pub fn build( self ) -> SceneManager<Key> {
-    SceneManager::<Key>{
-      scene: self.scene,
+  pub fn build( self ) -> Controller<Ctx> {
+    Controller::<Ctx>{
+      current: self.active,
       scenes: self.scenes
     }
   }
 }
 
-pub struct SceneManager<Key>
-  where Key: Copy + Eq + Hash + PartialEq
-{
-  scene: Key,
-  scenes: HashMap<Key,Box<dyn Scene>>
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
+
+pub struct Controller<Ctx> {
+  current: &'static str,
+  scenes: SceneMap<Ctx>
 }
 
-impl<Key> SceneManager<Key>
-  where Key: Copy + Eq + Hash + PartialEq
-{
-  pub fn current_scene( &mut self ) -> &mut Box<dyn Scene> {
-    self.scenes.get_mut( &self.scene ).unwrap()
-  }
+impl<Ctx> Controller<Ctx> {
+  pub fn current_scene( &self ) -> &str { &self.current }
 
-  pub fn current_scene_key( &self ) -> Key { self.scene }
-
-  pub fn set_scene( &mut self, key: Key ) {
-    self.current_scene().on_scene_exit();
-    self.scene = key;
-    self.current_scene().on_scene_enter();
+  pub fn change( &mut self, scene_id: &str ) {
+    // TODO: validate
+    self.scenes.get_mut( &self.current ).unwrap().on_exit();
+    self.current = scene_id;
+    self.scenes.get_mut( &self.current ).unwrap().on_enter();
   }
 }

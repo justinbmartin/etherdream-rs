@@ -6,7 +6,8 @@ use ratatui::text::Line;
 use ratatui::widgets::{ Block, Cell, Paragraph, Row, StatefulWidget, Table, TableState, Widget };
 
 use crate::device::Device;
-use crate::scene::{ Scene, SceneContext, SceneEvent };
+use crate::scene::{ Scene, SceneEvent };
+use super::SceneContext;
 
 const CONNECTED: &str = " Connected ";
 const DISCONNECTED: &str = "Disconnected";
@@ -14,23 +15,33 @@ const PLAYING: &str = " Playing ";
 
 const HIGHLIGHT_STYLE: Style = Style::new().bg( SLATE.c800 );
 
+const LIST_SCENE_ID: &str = "list";
+
 pub struct ListScene {
   device_map_version: usize,
+  select_device_callback_fn: Box<dyn FnMut( usize /* device_id */ )>,
   sorted_device_keys: Vec<usize>, // Scene cache of sorted device id's
   state: TableState
 }
 
-impl Default for ListScene {
-  fn default() -> Self {
+impl ListScene {
+  fn get_selected_device_id( &self ) -> Option<usize> {
+    self.state.selected().and_then(| i |{ self.sorted_device_keys.get( i ) }).copied()
+  }
+}
+
+impl ListScene {
+  pub fn new<F: FnMut( usize ) + 'static>( select_device_callback_fn: F ) -> Self {
     Self{
       device_map_version: 0,
+      select_device_callback_fn: Box::new( select_device_callback_fn ),
       sorted_device_keys: Vec::new(),
       state: TableState::new().with_selected( Some( 0 ) )
     }
   }
 }
 
-impl Scene for ListScene {
+impl Scene::<SceneContext> for ListScene {
   fn on_key_down( &mut self, ctx: &SceneContext, key: KeyEvent ) -> SceneEvent {
     match key.code {
       KeyCode::Down => {
@@ -45,22 +56,8 @@ impl Scene for ListScene {
       }
       KeyCode::Enter => {
         if let Some( id ) = self.get_selected_device_id() {
-          return SceneEvent::Select( id );
-        }
-      }
-      KeyCode::Char( 'c' ) => {
-        if let Some( id ) = self.get_selected_device_id() {
-          return SceneEvent::Connect( id );
-        }
-      }
-      KeyCode::Char( 'd' ) => {
-        if let Some( id ) = self.get_selected_device_id() {
-          return SceneEvent::Disconnect( id );
-        }
-      }
-      KeyCode::Char( 'p' ) => {
-        if let Some( id ) = self.get_selected_device_id() {
-          return SceneEvent::Play( id );
+          ( self.select_device_callback_fn )( id );
+          return SceneEvent::Change( "device_info" );
         }
       }
       _ => {}
@@ -69,7 +66,7 @@ impl Scene for ListScene {
     SceneEvent::NotHandled
   }
 
-  fn render( &mut self, ctx: &SceneContext, area: Rect, buf: &mut Buffer ) {
+  fn on_render( &mut self, ctx: &SceneContext, area: Rect, buf: &mut Buffer ) {
     let block = Block::bordered().title( Line::raw( " Etherdream Devices " ).centered() );
 
     // Refresh our local sorted device cache if the remote device map has changed
@@ -123,12 +120,6 @@ impl Scene for ListScene {
       .highlight_symbol( "> " );
 
     StatefulWidget::render( table, area, buf, &mut self.state );
-  }
-}
-
-impl ListScene {
-  fn get_selected_device_id( &self ) -> Option<usize> {
-    self.state.selected().and_then(| i |{ self.sorted_device_keys.get( i ) }).copied()
   }
 }
 
