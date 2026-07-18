@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 
 mod device;
-mod list;
+pub(crate) mod list;
 
 // Export our scenes
 pub use device::DeviceScene;

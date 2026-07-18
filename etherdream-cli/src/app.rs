@@ -7,6 +7,7 @@ use ratatui::layout::{ Constraint, Layout };
 use ratatui::widgets::{ Paragraph, Widget };
 use tokio::sync::mpsc::Receiver;
 
+use crate::actions;
 use crate::device::DeviceMap;
 use crate::event::{ Event, EventHandler };
 use crate::executors;
@@ -28,43 +29,21 @@ impl App {
     let device_selected_id = Rc::new( RefCell::new( None::<usize> ) );
 
     // Scenes
-    let scenes = scene::Builder::<scenes::SceneContext>::new()
-      .add_scene( "list", {
-        let device_map = device_map.clone();
-        let device_selected_id = device_selected_id.clone();
+    let mut builder = scene::Builder::<scenes::SceneContext>::new();
 
-        Box::new( scenes::ListScene::new( move | device_id |{
-          if device_map.borrow().contains_key( &device_id ) {
-            *device_selected_id.borrow_mut() = Some( device_id );
-            true
-          } else {
-            false
-          }
-        } ) )
-      })
-      .build();
+    {
+      let device_map = device_map.clone();
+      let device_selected_id = device_selected_id.clone();
+      let assign_current_device = actions::AssignCurrentDevice::new( device_map, device_selected_id );
 
-
-    //scenes.insert( "device_info", Box::new( scenes::DeviceScene::default() ) );
-
-    // Actions
-    //let mut actions = scene::ActionMap::new();
-    /*
-    actions.insert( "on_list_select", ( "list", "device", Box::new({
-      let device_selected_id = Rc::clone( &device_selected_id );
-
-      move ||{
-        *device_selected_id.borrow_mut() = Some( 4 );
-        Ok( () )
-      }
-    }) ) );
-    */
+      builder.add_scene( "list", Box::new( scenes::ListScene::new( assign_current_device ) ) );
+    }
 
     Self{
       device_map,
       device_selected_id,
       is_running: false,
-      scenes
+      scenes: builder.build()
     }
   }
 

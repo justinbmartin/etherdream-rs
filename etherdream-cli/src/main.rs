@@ -1,4 +1,5 @@
 //! CLI tool to discover, connect and test Etherdream DAC's.
+mod actions;
 mod app;
 mod device;
 mod event;

@@ -45,9 +45,8 @@ impl<Ctx> Builder<Ctx> {
   }
 
   /// Adds a scene to the builder.
-  pub fn add_scene( mut self, name: &'static str, scene: Box<dyn Scene<Ctx>> ) -> Self {
-    if ! self.scenes.contains_key( name ) { self.scenes.insert( name, scene ); }
-    self
+  pub fn add_scene( &mut self, name: &'static str, scene: Box<dyn Scene<Ctx>> ) {
+    self.scenes.insert( name, scene );
   }
 
   pub fn build( self ) -> Controller<Ctx> {

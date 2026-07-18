@@ -5,6 +5,7 @@ use ratatui::style::{ Color, palette::tailwind::SLATE, Style };
 use ratatui::text::Line;
 use ratatui::widgets::{ Block, Cell, Paragraph, Row, StatefulWidget, Table, TableState, Widget };
 
+use crate::actions::AssignCurrentDevice;
 use crate::device::Device;
 use crate::scene::{ Scene, SceneEvent };
 use super::SceneContext;
@@ -18,8 +19,8 @@ const HIGHLIGHT_STYLE: Style = Style::new().bg( SLATE.c800 );
 const LIST_SCENE_ID: &str = "list";
 
 pub struct ListScene {
+  assign_current_device: AssignCurrentDevice,
   device_map_version: usize,
-  select_device_callback_fn: Box<dyn FnMut( usize /* device_id */ ) -> bool>,
   sorted_device_keys: Vec<usize>, // Scene cache of sorted device id's
   state: TableState
 }
@@ -31,10 +32,10 @@ impl ListScene {
 }
 
 impl ListScene {
-  pub fn new<F: FnMut( usize ) -> bool + 'static>( select_device_callback_fn: F ) -> Self {
+  pub fn new( assign_current_device: AssignCurrentDevice ) -> Self {
     Self{
+      assign_current_device,
       device_map_version: 0,
-      select_device_callback_fn: Box::new( select_device_callback_fn ),
       sorted_device_keys: Vec::new(),
       state: TableState::new().with_selected( Some( 0 ) )
     }
@@ -56,7 +57,7 @@ impl Scene::<SceneContext> for ListScene {
       }
       KeyCode::Enter => {
         if let Some( id ) = self.get_selected_device_id() {
-          ( self.select_device_callback_fn )( id );
+          self.assign_current_device.assign( id );
           return SceneEvent::Change( "device_info" );
         }
       }
