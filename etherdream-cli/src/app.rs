@@ -10,7 +10,6 @@ use tokio::sync::mpsc::Receiver;
 use crate::actions;
 use crate::device::DeviceMap;
 use crate::event::{ Event, EventHandler };
-use crate::executors;
 use crate::scene;
 use crate::scenes;
 
@@ -75,18 +74,14 @@ impl App {
 
   async fn on_key_event( &mut self, ctx: &mut scenes::SceneContext, key: KeyEvent ) {
     if key.kind == KeyEventKind::Press {
-      match self.scenes.current_scene().on_key_down( ctx, key ) {
-        scene::Event::Change( scene ) => {
-          self.scenes.change( scene );
-        }
+      match self.scenes.key_down( ctx, key ) {
+        scene::Event::Change( scene ) => { self.scenes.change( scene ); },
         scene::Event::NotHandled => {
           match key.code {
-            KeyCode::Char( 'q' ) | KeyCode::Esc => {
-              self.is_running = false;
-            },
+            KeyCode::Char( 'q' ) | KeyCode::Esc => { self.is_running = false; },
             _ => {}
           }
-        }
+        },
         scene::Event::Handled => { /* no-op */ }
       };
     }
@@ -94,9 +89,10 @@ impl App {
 
   fn render( &mut self, ctx: &scenes::SceneContext, frame: &mut Frame ) {
     let main_layout = Layout::vertical([ Constraint::Fill( 1 ), Constraint::Length( 1 ) ]);
-    let [ content_area, footer_area ] = frame.area().layout( &main_layout );
+    let [ body_area, footer_area ] = frame.area().layout( &main_layout );
 
-    self.scenes.current_scene().on_render( ctx, content_area, frame.buffer_mut() );
+    // Main > Body
+    self.scenes.render( ctx, body_area, frame.buffer_mut() );
 
     // Main > Footer
     Paragraph::new( "Use ↓↑ to move, <Enter> to select a device, 'q' to quit." )

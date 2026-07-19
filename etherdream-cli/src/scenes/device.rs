@@ -15,8 +15,8 @@ const INPUT_CONNECT_BUTTON: usize = 1;
 const INPUT_PORT: usize = 0;
 const TABLE_KEY_WIDTH: u16 = 25;
 
-#[derive( Clone, Copy, Eq, Hash, PartialEq )]
-enum SceneKey{ ConnectForm, Generator, GeneratorList }
+//#[derive( Clone, Copy, Eq, Hash, PartialEq )]
+//enum SceneKey{ ConnectForm, Generator, GeneratorList }
 
 pub struct DeviceScene {
   scenes: scene::Controller<SceneContext>,
@@ -36,13 +36,13 @@ impl Default for DeviceScene {
 }
 
 impl scene::Scene<SceneContext> for DeviceScene {
-  fn on_key_down( &mut self, ctx: &SceneContext, key: KeyEvent ) -> scene::SceneEvent {
-    let handled = self.scenes.current_scene().on_key_down( ctx, key );
+  fn on_key_down( &mut self, ctx: &SceneContext, key: KeyEvent ) -> scene::Event {
+    let handled = self.scenes.key_down( ctx, key );
 
     // Change scene if this is a connect event
-    if let SceneEvent::Connect( _ ) = handled {
-      self.scenes.set_scene( SceneKey::GeneratorList );
-    };
+    //if let scene::Event::Connect( _ ) = handled {
+    //  self.scenes.set_scene( SceneKey::GeneratorList );
+    //};
 
     handled
   }
@@ -67,7 +67,7 @@ impl scene::Scene<SceneContext> for DeviceScene {
       test_block.render( test_area, buf );
 
       //
-      self.scenes.current_scene().render( ctx, test_inner_area, buf );
+      self.scenes.render( ctx, test_inner_area, buf );
 
       // Render the info pane
       self.render_info( &device, info_area, buf );
@@ -144,39 +144,46 @@ impl<'a> Default for ConnectFormScene<'a> {
   }
 }
 
-impl<'a> Scene<SceneContext> for ConnectFormScene<'a> {
-  fn on_scene_enter( &mut self ) {
+impl<'a> scene::Scene<SceneContext> for ConnectFormScene<'a> {
+  fn on_enter( &mut self ) {
     self.input_selected = INPUT_CONNECT_BUTTON;
   }
 
-  fn on_key_down( &mut self, ctx: &SceneContext, key: KeyEvent ) -> scene::SceneEvent {
+  fn on_key_down( &mut self, ctx: &mut SceneContext, key: KeyEvent ) -> scene::Event {
     match key.code {
       KeyCode::Up => {
         self.input_selected = INPUT_PORT;
-        return SceneEvent::Handled;
+        return scene::Event::Handled;
       },
       KeyCode::Down => {
         self.input_selected = INPUT_CONNECT_BUTTON;
-        return SceneEvent::Handled;
+        return scene::Event::Handled;
       },
       KeyCode::Enter => {
-        if self.input_selected == INPUT_CONNECT_BUTTON && let Some( device ) = ctx.selected_device() {
-          return SceneEvent::Connect( device.id() );
+        if self.input_selected == INPUT_CONNECT_BUTTON && let Some( mut device ) = ctx.selected_device_mut() {
+          let handle = tokio::runtime::Handle::current();
+
+          match handle.block_on( async { device.connect().await }) {
+            Ok( () ) => scene::Event::Handled,
+            Err( _err ) => scene::Event::Handled
+          }
+        } else {
+          scene::Event::NotHandled
         }
       },
-      KeyCode::Esc | KeyCode::Char( 'q' ) => return SceneEvent::Exit,
+      //KeyCode::Esc | KeyCode::Char( 'q' ) => return sceneEvent::Exit,
       _ => {
         if self.input_selected == 0 && self.port_input.input( key ) {
           let _is_valid = validate_port( &mut self.port_input );
-          return SceneEvent::Handled;
+          return scene::Event::Handled;
         }
       }
     };
 
-    SceneEvent::NotHandled
+    scene::Event::NotHandled
   }
 
-  fn render( &mut self, _ctx: &SceneContext, area: Rect, buf: &mut Buffer ) {
+  fn on_render( &mut self, _ctx: &SceneContext, area: Rect, buf: &mut Buffer ) {
     let centered_area = area.centered_horizontally( Constraint::Length( 50 ) );
 
     let [ port_area, connect_area, _ ] = centered_area.layout( &Layout::vertical([
@@ -223,26 +230,26 @@ impl Default for GeneratorListScene {
 }
 
 impl scene::Scene<SceneContext> for GeneratorListScene {
-  fn on_key_down( &mut self, ctx: &SceneContext, key: KeyEvent ) -> scene::SceneEvent {
+  fn on_key_down( &mut self, ctx: &SceneContext, key: KeyEvent ) -> scene::Event {
     match key.code {
       KeyCode::Up => {
         self.state.select( Some( self.state.selected().unwrap().saturating_sub( 1 ) ) );
-        return SceneEvent::Handled;
+        return scene::Event::Handled;
       },
       KeyCode::Down => {
         self.state.select( Some( self.state.selected().unwrap().saturating_add( 1 ) % self.generators.len() ) );
-        return SceneEvent::Handled;
+        return scene::Event::Handled;
       },
       KeyCode::Enter => {
-        if let Some( device ) = ctx.selected_device() {
+        if let Some( _device ) = ctx.selected_device() {
           //return SceneEvent::Play( device.id() );
-          return SceneEvent::Change( SceneKey::Generator )
+          return scene::Event::Change( "generator" )
         }
       },
       _ => {}
     }
 
-    scene::SceneEvent::NotHandled
+    scene::Event::NotHandled
   }
 
   fn on_render( &mut self, _ctx: &SceneContext, area: Rect, buf: &mut Buffer ) {
@@ -277,17 +284,19 @@ impl Default for GeneratorScene {
 }
 
 impl scene::Scene<SceneContext> for GeneratorScene {
-  fn on_key_down( &mut self, ctx: &SceneContext, key: KeyEvent ) -> scene::SceneEvent {
+  fn on_key_down( &mut self, ctx: &SceneContext, key: KeyEvent ) -> scene::Event {
+    /*
     match key.code {
       KeyCode::Enter => {
         if let Some( device ) = ctx.selected_device() {
-          return SceneEvent::Play( device.id() );
+          return scene::Event::Play( device.id() );
         }
       },
       _ => {}
     }
+    */
 
-    SceneEvent::NotHandled
+    scene::Event::NotHandled
   }
 
   fn on_render( &mut self, _ctx: &SceneContext, _area: Rect, _buf: &mut Buffer ) {
@@ -297,7 +306,7 @@ impl scene::Scene<SceneContext> for GeneratorScene {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Helpers
 
-// Validates that the port input is a `u16`.
+// Validates that the port input is a `u16`.`
 fn validate_port( port: &mut TextArea ) -> bool {
   if let Err( _ ) = port.lines()[0].parse::<u16>() {
     port.set_style( Style::default().fg( Color::LightRed ) );

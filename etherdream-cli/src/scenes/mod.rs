@@ -1,4 +1,4 @@
-use std::cell::{ Ref, RefCell };
+use std::cell::{ Ref, RefCell, RefMut };
 use std::rc::Rc;
 
 pub(crate) mod list;
@@ -29,6 +29,14 @@ impl SceneContext {
   pub fn selected_device( &'_ self ) -> Option<Ref<'_, Device>> {
     if let Some( id ) = *self.device_selected_id.borrow() {
       Ref::filter_map( self.device_map.borrow(), |dm|{ dm.get( id ) } ).ok()
+    } else {
+      None
+    }
+  }
+
+  pub fn selected_device_mut( &mut self ) -> Option<RefMut<'_, Device>> {
+    if let Some( id ) = *self.device_selected_id.borrow() {
+      RefMut::filter_map( self.device_map.borrow_mut(), |dm|{ dm.get_mut( id ) } ).ok()
     } else {
       None
     }

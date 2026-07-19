@@ -7,7 +7,7 @@ use ratatui::widgets::{ Block, Cell, Paragraph, Row, StatefulWidget, Table, Tabl
 
 use crate::actions::AssignCurrentDevice;
 use crate::device::Device;
-use crate::scene::{ Scene, SceneEvent };
+use crate::scene::{ self, Scene };
 use super::SceneContext;
 
 const CONNECTED: &str = " Connected ";
@@ -42,29 +42,29 @@ impl ListScene {
   }
 }
 
-impl Scene::<SceneContext> for ListScene {
-  fn on_key_down( &mut self, ctx: &SceneContext, key: KeyEvent ) -> SceneEvent {
+impl Scene<SceneContext> for ListScene {
+  fn on_key_down( &mut self, ctx: &SceneContext, key: KeyEvent ) -> scene::Event {
     match key.code {
       KeyCode::Down => {
         let i = self.state.selected().unwrap_or( 0 ).saturating_add( 1 ) % ctx.device_map().len();
         self.state.select( Some( i ) );
-        return SceneEvent::Handled;
+        return scene::Event::Handled;
       }
       KeyCode::Up => {
         let i = self.state.selected().unwrap_or( 0 ).saturating_sub( 1 ) % ctx.device_map().len();
         self.state.select( Some( i ) );
-        return SceneEvent::Handled;
+        return scene::Event::Handled;
       }
       KeyCode::Enter => {
         if let Some( id ) = self.get_selected_device_id() {
           self.assign_current_device.assign( id );
-          return SceneEvent::Change( "device_info" );
+          return scene::Event::Change( "device_info" );
         }
       }
       _ => {}
     }
 
-    SceneEvent::NotHandled
+    scene::Event::NotHandled
   }
 
   fn on_render( &mut self, ctx: &SceneContext, area: Rect, buf: &mut Buffer ) {

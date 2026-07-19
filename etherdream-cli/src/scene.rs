@@ -21,7 +21,7 @@ pub trait Scene<Ctx> {
   fn on_exit( &mut self ) { /* no-op */ }
 
   /// Called each time a key-press is registered if this scene is active. (Optional)
-  fn on_key_down( &mut self, _ctx: &Ctx, _key: KeyEvent ) -> Event {
+  fn on_key_down( &mut self, _ctx: &mut Ctx, _key: KeyEvent ) -> Event {
     Event::NotHandled
   }
 
@@ -32,26 +32,27 @@ pub trait Scene<Ctx> {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
 pub struct Builder<Ctx> {
-  active: &'static str,
+  current: Option<&'static str>,
   scenes: SceneMap<Ctx>
 }
 
 impl<Ctx> Builder<Ctx> {
   pub fn new() -> Self {
     Self{
-      active: "",
+      current: None,
       scenes: SceneMap::<Ctx>::new()
     }
   }
 
   /// Adds a scene to the builder.
-  pub fn add_scene( &mut self, name: &'static str, scene: Box<dyn Scene<Ctx>> ) {
-    self.scenes.insert( name, scene );
+  pub fn add_scene( &mut self, scene_name: &'static str, scene: Box<dyn Scene<Ctx>> ) {
+    self.scenes.insert( scene_name, scene );
+    if self.current.is_none() { self.current = Some( scene_name ) }
   }
 
   pub fn build( self ) -> Controller<Ctx> {
     Controller::<Ctx>{
-      current: self.active,
+      current: self.current.unwrap(), // TODO
       scenes: self.scenes
     }
   }
@@ -65,12 +66,28 @@ pub struct Controller<Ctx> {
 }
 
 impl<Ctx> Controller<Ctx> {
-  pub fn current_scene( &self ) -> &str { &self.current }
+  pub fn _current_scene( &self ) -> &str { &self.current }
 
-  pub fn change( &mut self, scene_id: &str ) {
+  pub fn change( &mut self, scene_id: &'static str ) {
     // TODO: validate
     self.scenes.get_mut( &self.current ).unwrap().on_exit();
     self.current = scene_id;
     self.scenes.get_mut( &self.current ).unwrap().on_enter();
+  }
+
+  /// ...
+  pub fn key_down( &mut self, ctx: &mut Ctx, key: KeyEvent ) -> Event {
+    if let Some( scene ) = self.scenes.get_mut( self.current ) {
+      scene.on_key_down( ctx, key )
+    } else {
+      Event::NotHandled
+    }
+  }
+
+  /// ...
+  pub fn render( &mut self, ctx: &Ctx, area: Rect, buf: &mut Buffer ) {
+    if let Some( scene ) = self.scenes.get_mut( self.current ) {
+      scene.on_render( ctx, area, buf );
+    }
   }
 }
