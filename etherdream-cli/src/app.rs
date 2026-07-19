@@ -36,7 +36,7 @@ impl App {
       let device_selected_id = device_selected_id.clone();
       let assign_current_device = actions::AssignCurrentDevice::new( device_map, device_selected_id );
 
-      builder.add_scene( "list", Box::new( scenes::ListScene::new( assign_current_device ) ) );
+      builder.add_scene( "list", Box::new( scenes::list::ListScene::new( assign_current_device ) ) );
     }
 
     Self{
@@ -76,35 +76,10 @@ impl App {
   async fn on_key_event( &mut self, ctx: &mut scenes::SceneContext, key: KeyEvent ) {
     if key.kind == KeyEventKind::Press {
       match self.scenes.current_scene().on_key_down( ctx, key ) {
-        SceneEvent::Connect( id ) => {
-          if let Some( device ) = self.device_map.borrow_mut().get_mut( id ) {
-            let _ = device.connect().await;
-          }
+        scene::Event::Change( scene ) => {
+          self.scenes.change( scene );
         }
-        SceneEvent::Disconnect( id ) => {
-          if let Some( device ) = self.device_map.borrow_mut().get_mut( id ) {
-            let _ = device.disconnect().await;
-          }
-        }
-        SceneEvent::Play( id ) => {
-          if let Some( device ) = self.device_map.borrow_mut().get_mut( id ) {
-            device.generate( Box::new( executors::Demo::new() ) ).await;
-          }
-        }
-        scene::SceneEvent::Change( scene ) => {
-          match scene {
-            scene::SceneId::Device( id ) => {
-              *self.device_selected_id.borrow_mut() = Some( id );
-              self.scenes.change( "" );
-            }
-            _ => {}
-          }
-        }
-        SceneEvent::Exit => {
-          *self.device_selected_id.borrow_mut() = None;
-          self.scenes.set_scene( SceneKey::List )
-        }
-        SceneEvent::NotHandled => {
+        scene::Event::NotHandled => {
           match key.code {
             KeyCode::Char( 'q' ) | KeyCode::Esc => {
               self.is_running = false;
@@ -112,7 +87,7 @@ impl App {
             _ => {}
           }
         }
-        SceneEvent::Handled => { /* no-op */ }
+        scene::Event::Handled => { /* no-op */ }
       };
     }
   }
@@ -121,7 +96,7 @@ impl App {
     let main_layout = Layout::vertical([ Constraint::Fill( 1 ), Constraint::Length( 1 ) ]);
     let [ content_area, footer_area ] = frame.area().layout( &main_layout );
 
-    //self.scenes.current_scene().on_render( ctx, content_area, frame.buffer_mut() );
+    self.scenes.current_scene().on_render( ctx, content_area, frame.buffer_mut() );
 
     // Main > Footer
     Paragraph::new( "Use ↓↑ to move, <Enter> to select a device, 'q' to quit." )

@@ -7,7 +7,8 @@ use ratatui::widgets::{ Block, Cell, Padding, Paragraph, Row, Widget, Table, Tab
 use ratatui_textarea::TextArea;
 
 use crate::device::Device;
-use crate::scene::{ Scene, SceneContext, SceneManager, SceneManagerBuilder, SceneEvent };
+use crate::scene;
+use super::SceneContext;
 
 const HIGHLIGHT_STYLE: Style = Style::new().bg( SLATE.c800 );
 const INPUT_CONNECT_BUTTON: usize = 1;
@@ -18,26 +19,24 @@ const TABLE_KEY_WIDTH: u16 = 25;
 enum SceneKey{ ConnectForm, Generator, GeneratorList }
 
 pub struct DeviceScene {
-  scenes: SceneManager<SceneKey>,
+  scenes: scene::Controller<SceneContext>,
   state: etherdream::State
 }
 
 impl Default for DeviceScene {
   fn default() -> Self {
-    let scenes = SceneManagerBuilder::new( SceneKey::ConnectForm, Box::new( ConnectFormScene::default() ) )
-      .add_scene( SceneKey::GeneratorList, Box::new( GeneratorListScene::default() ) )
-      .add_scene( SceneKey::Generator, Box::new( GeneratorScene::default() ) )
-      .build();
+    let mut builder = scene::Builder::new();
+    builder.add_scene( "generator", Box::new( GeneratorListScene::default() ) );
 
     Self{
-      scenes,
+      scenes: builder.build(),
       state: etherdream::State::default()
     }
   }
 }
 
-impl Scene for DeviceScene {
-  fn on_key_down( &mut self, ctx: &SceneContext, key: KeyEvent ) -> SceneEvent {
+impl scene::Scene<SceneContext> for DeviceScene {
+  fn on_key_down( &mut self, ctx: &SceneContext, key: KeyEvent ) -> scene::SceneEvent {
     let handled = self.scenes.current_scene().on_key_down( ctx, key );
 
     // Change scene if this is a connect event
@@ -48,7 +47,7 @@ impl Scene for DeviceScene {
     handled
   }
 
-  fn render( &mut self, ctx: &SceneContext, area: Rect, buf: &mut Buffer ) {
+  fn on_render( &mut self, ctx: &SceneContext, area: Rect, buf: &mut Buffer ) {
     if let Some( device ) = ctx.selected_device() {
       let layout = Layout::vertical([ Constraint::Length( 3 ), Constraint::Fill( 1 ) ]);
       let [ header, body ] = area.layout( &layout );
@@ -145,12 +144,12 @@ impl<'a> Default for ConnectFormScene<'a> {
   }
 }
 
-impl<'a> Scene for ConnectFormScene<'a> {
+impl<'a> Scene<SceneContext> for ConnectFormScene<'a> {
   fn on_scene_enter( &mut self ) {
     self.input_selected = INPUT_CONNECT_BUTTON;
   }
 
-  fn on_key_down( &mut self, ctx: &SceneContext, key: KeyEvent ) -> SceneEvent {
+  fn on_key_down( &mut self, ctx: &SceneContext, key: KeyEvent ) -> scene::SceneEvent {
     match key.code {
       KeyCode::Up => {
         self.input_selected = INPUT_PORT;
@@ -223,8 +222,8 @@ impl Default for GeneratorListScene {
   }
 }
 
-impl Scene for GeneratorListScene {
-  fn on_key_down( &mut self, ctx: &SceneContext, key: KeyEvent ) -> SceneEvent {
+impl scene::Scene<SceneContext> for GeneratorListScene {
+  fn on_key_down( &mut self, ctx: &SceneContext, key: KeyEvent ) -> scene::SceneEvent {
     match key.code {
       KeyCode::Up => {
         self.state.select( Some( self.state.selected().unwrap().saturating_sub( 1 ) ) );
@@ -243,10 +242,10 @@ impl Scene for GeneratorListScene {
       _ => {}
     }
 
-    SceneEvent::NotHandled
+    scene::SceneEvent::NotHandled
   }
 
-  fn render( &mut self, _ctx: &SceneContext, area: Rect, buf: &mut Buffer ) {
+  fn on_render( &mut self, _ctx: &SceneContext, area: Rect, buf: &mut Buffer ) {
     let constraints = [ Constraint::Fill( 1 ) ];
     let selected = self.state.selected().unwrap_or( 0 );
 
@@ -277,8 +276,8 @@ impl Default for GeneratorScene {
   }
 }
 
-impl Scene for GeneratorScene {
-  fn on_key_down( &mut self, ctx: &SceneContext, key: KeyEvent ) -> SceneEvent {
+impl scene::Scene<SceneContext> for GeneratorScene {
+  fn on_key_down( &mut self, ctx: &SceneContext, key: KeyEvent ) -> scene::SceneEvent {
     match key.code {
       KeyCode::Enter => {
         if let Some( device ) = ctx.selected_device() {
@@ -291,7 +290,7 @@ impl Scene for GeneratorScene {
     SceneEvent::NotHandled
   }
 
-  fn render( &mut self, _ctx: &SceneContext, _area: Rect, _buf: &mut Buffer ) {
+  fn on_render( &mut self, _ctx: &SceneContext, _area: Rect, _buf: &mut Buffer ) {
 
   }
 }

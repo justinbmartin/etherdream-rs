@@ -1,31 +1,11 @@
-use std::collections::HashMap;
-use std::sync::LazyLock;
+use std::cell::{ Ref, RefCell };
+use std::rc::Rc;
 
-mod device;
 pub(crate) mod list;
+pub(crate) mod device;
 
 // Export our scenes
-pub use device::DeviceScene;
-pub use list::ListScene;
-
-use super::scene;
-
-#[derive( Clone, Copy, Eq, Hash, PartialEq )]
-pub enum Action {
-  OnListSelect( usize )
-}
-
-#[derive( Clone, Copy, Eq, Hash, PartialEq )]
-pub enum SceneAction {
-  Select( usize )
-}
-
-pub(crate) fn make_scenes() -> scene::SceneController {
-  let mut builder = scene::Builder::new( Box::new( ListScene::default() ) );
-  builder.add_scene( Box::new( device::ConnectFormScene::default() ) );
-
-  builder.build()
-}
+use crate::device::{ Device, DeviceMap };
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene Context
 

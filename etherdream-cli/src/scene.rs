@@ -7,7 +7,7 @@ use ratatui::layout::Rect;
 type SceneMap<Ctx> = HashMap<&'static str,Box<dyn Scene<Ctx>>>;
 
 #[derive( PartialEq )]
-pub enum SceneEvent {
+pub enum Event {
   Change( &'static str ),
   Handled,             // The event was handled internally by the scene
   NotHandled           // The event was not handled by the scene
@@ -21,8 +21,8 @@ pub trait Scene<Ctx> {
   fn on_exit( &mut self ) { /* no-op */ }
 
   /// Called each time a key-press is registered if this scene is active. (Optional)
-  fn on_key_down( &mut self, _ctx: &Ctx, _key: KeyEvent ) -> SceneEvent {
-    SceneEvent::NotHandled
+  fn on_key_down( &mut self, _ctx: &Ctx, _key: KeyEvent ) -> Event {
+    Event::NotHandled
   }
 
   /// Called on each frame if this scene is active. (Required)
