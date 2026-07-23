@@ -6,6 +6,7 @@ use ratatui::text::Line;
 use ratatui::widgets::{ Block, Cell, Paragraph, Row, StatefulWidget, Table, TableState, Widget };
 
 use crate::actions::AssignCurrentDevice;
+use crate::app;
 use crate::device::Device;
 use crate::scene::{ self, Scene };
 use super::SceneContext;
@@ -42,8 +43,8 @@ impl ListScene {
   }
 }
 
-impl Scene<SceneContext> for ListScene {
-  fn on_key_down( &mut self, ctx: &SceneContext, key: KeyEvent ) -> scene::Event {
+impl Scene<SceneContext,app::Event> for ListScene {
+  fn on_key_down( &mut self, ctx: &mut SceneContext, key: KeyEvent ) -> scene::Event<app::Event> {
     match key.code {
       KeyCode::Down => {
         let i = self.state.selected().unwrap_or( 0 ).saturating_add( 1 ) % ctx.device_map().len();
@@ -57,8 +58,7 @@ impl Scene<SceneContext> for ListScene {
       }
       KeyCode::Enter => {
         if let Some( id ) = self.get_selected_device_id() {
-          self.assign_current_device.assign( id );
-          return scene::Event::Change( "device_info" );
+          return scene::Event::Custom( app::Event::Connect( id ) );
         }
       }
       _ => {}

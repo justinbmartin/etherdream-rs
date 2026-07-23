@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crossterm::event::{ KeyCode, KeyEvent, KeyEventKind };
+use crossterm::event::{ KeyCode, KeyEvent };
 use ratatui::{ DefaultTerminal, Frame };
 use ratatui::layout::{ Constraint, Layout };
 use ratatui::widgets::{ Paragraph, Widget };
@@ -9,9 +9,15 @@ use tokio::sync::mpsc::Receiver;
 
 use crate::actions;
 use crate::device::DeviceMap;
-use crate::event::{ Event, EventHandler };
+use crate::event;
 use crate::scene;
 use crate::scenes;
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Events
+
+pub enum Event {
+  Connect( usize )
+}
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
 
@@ -19,7 +25,7 @@ pub struct App {
   device_map: Rc<RefCell<DeviceMap>>,
   device_selected_id: Rc<RefCell<Option<usize>>>,
   is_running: bool,
-  scenes: scene::Controller<scenes::SceneContext>
+  scenes: scene::Controller<scenes::SceneContext,Event>
 }
 
 impl App {
@@ -28,7 +34,7 @@ impl App {
     let device_selected_id = Rc::new( RefCell::new( None::<usize> ) );
 
     // Scenes
-    let mut builder = scene::Builder::<scenes::SceneContext>::new();
+    let mut builder = scene::Builder::<scenes::SceneContext,Event>::new();
 
     {
       let device_map = device_map.clone();
@@ -51,7 +57,7 @@ impl App {
 
     let mut ctx = scenes::SceneContext::new( self.device_map.clone(), self.device_selected_id.clone() );
 
-    let ( events, mut events_rx ) = EventHandler::new();
+    let ( events, mut events_rx ) = event::EventHandler::new();
     tokio::spawn( async move{ events.run().await } );
 
     while self.is_running {
@@ -65,26 +71,24 @@ impl App {
 
       // Handle any events
       match events_rx.recv().await {
-        Some( Event::KeyEvent( key ) ) => self.on_key_event( &mut ctx, key ).await,
-        Some( Event::Tick ) => (),
+        Some( event::Event::KeyEvent( key ) ) => self.on_key_event( &mut ctx, key ).await,
+        Some( event::Event::Tick ) => (),
         _ => ()
       }
     }
   }
 
   async fn on_key_event( &mut self, ctx: &mut scenes::SceneContext, key: KeyEvent ) {
-    if key.kind == KeyEventKind::Press {
-      match self.scenes.key_down( ctx, key ) {
-        scene::Event::Change( scene ) => { self.scenes.change( scene ); },
-        scene::Event::NotHandled => {
-          match key.code {
-            KeyCode::Char( 'q' ) | KeyCode::Esc => { self.is_running = false; },
-            _ => {}
-          }
-        },
-        scene::Event::Handled => { /* no-op */ }
-      };
-    }
+    match self.scenes.key_down( ctx, key ) {
+      scene::Event::NotHandled => {
+        match key.code {
+          KeyCode::Char( 'q' ) | KeyCode::Esc => { self.is_running = false; },
+          _ => {}
+        }
+      },
+      scene::Event::Handled => { /* no-op */ },
+      scene::Event::Custom( Event::Connect( _device_id ) ) => { /* no-op */ }
+    };
   }
 
   fn render( &mut self, ctx: &scenes::SceneContext, frame: &mut Frame ) {

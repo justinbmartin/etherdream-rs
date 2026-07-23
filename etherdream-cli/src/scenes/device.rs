@@ -36,7 +36,7 @@ impl Default for DeviceScene {
 }
 
 impl scene::Scene<SceneContext> for DeviceScene {
-  fn on_key_down( &mut self, ctx: &SceneContext, key: KeyEvent ) -> scene::Event {
+  fn on_key_down( &mut self, ctx: &mut SceneContext, key: KeyEvent ) -> scene::Event {
     let handled = self.scenes.key_down( ctx, key );
 
     // Change scene if this is a connect event
@@ -177,6 +177,8 @@ impl<'a> scene::Scene<SceneContext> for ConnectFormScene<'a> {
           let _is_valid = validate_port( &mut self.port_input );
           return scene::Event::Handled;
         }
+
+        return scene::Event::NotHandled;
       }
     };
 
@@ -230,7 +232,7 @@ impl Default for GeneratorListScene {
 }
 
 impl scene::Scene<SceneContext> for GeneratorListScene {
-  fn on_key_down( &mut self, ctx: &SceneContext, key: KeyEvent ) -> scene::Event {
+  fn on_key_down( &mut self, ctx: &mut SceneContext, key: KeyEvent ) -> scene::Event {
     match key.code {
       KeyCode::Up => {
         self.state.select( Some( self.state.selected().unwrap().saturating_sub( 1 ) ) );
@@ -284,7 +286,7 @@ impl Default for GeneratorScene {
 }
 
 impl scene::Scene<SceneContext> for GeneratorScene {
-  fn on_key_down( &mut self, ctx: &SceneContext, key: KeyEvent ) -> scene::Event {
+  fn on_key_down( &mut self, ctx: &mut SceneContext, key: KeyEvent ) -> scene::Event {
     /*
     match key.code {
       KeyCode::Enter => {
