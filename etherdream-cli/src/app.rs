@@ -34,11 +34,11 @@ impl App {
     let device_map = Rc::new( RefCell::new( device::DeviceMap::default() ) );
     let device_selected_id = Rc::new( RefCell::new( None::<usize> ) );
 
-    let scene_ctx = scenes::SceneContext::new( device_map.clone(), device_selected_id.clone() );
+    let shared_data = scenes::SharedData::new( device_map.clone(), device_selected_id.clone() );
 
     // Scenes
     let mut builder = scene::Builder::<Event>::new();
-    builder.add_scene( "list", Box::new( scenes::list::ListScene::new( scene_ctx.clone() ) ) );
+    builder.add_scene( "list", Box::new( scenes::list::ListScene::new( shared_data.clone() ) ) );
 
     Self{
       device_map,

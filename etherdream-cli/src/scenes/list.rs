@@ -8,7 +8,7 @@ use ratatui::widgets::{ Block, Cell, Paragraph, Row, StatefulWidget, Table, Tabl
 use crate::app;
 use crate::device::Device;
 use crate::scene;
-use super::SceneContext;
+use super::SharedData;
 
 const CONNECTED: &str = " Connected ";
 const DISCONNECTED: &str = "Disconnected";
@@ -21,13 +21,13 @@ const LIST_SCENE_ID: &str = "list";
 pub struct ListScene {
   device_map_version: usize,
   selected: Option<usize>,
-  shared: SceneContext,
+  shared: SharedData,
   sorted_device_keys: Vec<usize>, // Scene cache of sorted device id's
   state: TableState
 }
 
 impl ListScene {
-  pub fn new( shared: SceneContext ) -> Self {
+  pub fn new( shared: SharedData ) -> Self {
     Self{
       device_map_version: 0,
       selected: None,
