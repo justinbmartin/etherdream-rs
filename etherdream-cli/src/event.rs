@@ -3,48 +3,84 @@ use std::time::Duration;
 use crossterm::event::{ self, EventStream, KeyEvent, KeyEventKind };
 use futures::{ FutureExt, StreamExt };
 use tokio::sync::mpsc;
+use tokio::task::JoinSet;
+use tokio::time;
+use tokio_util::sync::CancellationToken;
 
-const FPS: f64 = 30.0;
+const FPS: f32 = 30.0;
 
 pub enum Event {
   KeyEvent( KeyEvent ),
-  Tick
+  Tick( f64 )
 }
 
-pub struct EventHandler {
-  tx: mpsc::Sender<Event>
+pub struct EventController {
+  cancellation_token: CancellationToken,
+  tasks: JoinSet<()>
 }
 
-impl EventHandler {
-  pub fn new() -> ( Self, mpsc::Receiver<Event> ) {
+impl EventController {
+  pub async fn start() -> ( EventController, mpsc::Receiver<Event> ) {
+    let cancellation_token = CancellationToken::new();
+    let mut tasks = JoinSet::new();
     let ( tx, rx ) = mpsc::channel( 16 );
-    ( Self{ tx }, rx )
-  }
 
-  pub async fn run( &self ) {
-    let mut crossterm_events = EventStream::new();
-    let fps = Duration::from_secs_f64( 1.0 / FPS );
-    let mut interval = tokio::time::interval( fps );
+    tasks.spawn({
+      let cancellation_token = cancellation_token.child_token();
+      let tx = tx.clone();
 
-    loop {
-      tokio::select! {
-        _ = self.tx.closed() => {
-          break
-        }
-        _ = interval.tick() => {
-          let _ = self.tx.send( Event::Tick ).await;
-        }
-        Some( Ok( crossterm_event ) ) = crossterm_events.next().fuse() => {
-          match crossterm_event {
-            event::Event::Key( key ) => {
-              if key.kind == KeyEventKind::Press {
-                let _ = self.tx.send( Event::KeyEvent( key ) ).await;
-              }
+      // Start interval tick for FPS
+      async move {
+        tokio::select!{
+          _ = cancellation_token.cancelled() => {}
+          _ = async move {
+            let fps = Duration::from_secs_f32( 1.0 / FPS );
+            let mut interval = time::interval( fps );
+            let start_time = time::Instant::now();
+
+            loop {
+              let now = interval.tick().await;
+              let _ = tx.send( Event::Tick( ( start_time - now ).as_secs_f64() ) ).await;
             }
-            _ => { /* no-op */ }
-          }
+          } => {}
         }
       }
-    }
+    });
+
+    // Start task to capture key events
+    tasks.spawn({
+      let cancellation_token = cancellation_token.child_token();
+      let tx = tx.clone();
+
+      async move {
+        tokio::select!{
+          _ = cancellation_token.cancelled() => {}
+          _ = async move {
+            let mut crossterm_events = EventStream::new();
+
+            loop {
+              if let Some( Ok( crossterm_event ) ) = crossterm_events.next().fuse().await {
+                match crossterm_event {
+                  event::Event::Key( key ) => {
+                    if key.kind == KeyEventKind::Press {
+                      let _ = tx.send( Event::KeyEvent( key ) ).await;
+                    }
+                  }
+                  _ => { /* no-op */ }
+                }
+              }
+            }
+          } => {}
+        }
+      }
+    });
+
+    let controller = EventController{ cancellation_token, tasks };
+    ( controller, rx )
+  }
+
+  pub async fn stop( self ) {
+    self.cancellation_token.cancel();
+    self.tasks.join_all().await;
   }
 }

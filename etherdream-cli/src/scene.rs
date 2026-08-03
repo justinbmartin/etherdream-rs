@@ -4,15 +4,16 @@ use crossterm::event::KeyEvent;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 
-type SceneMap<C,E> = HashMap<&'static str,Box<dyn Scene<C,E>>>;
+type SceneMap<E> = HashMap<&'static str,Box<dyn Scene<E>>>;
 
 pub enum Event<T> {
-  Handled,
-  NotHandled,
-  Custom( T )
+  NoChange,
+  Change( T ),
+  Push( T ),
+  Pop
 }
 
-pub trait Scene<SceneContext,SceneEvent> {
+pub trait Scene<SceneEvent> {
   /// Called once before any call to `on_render`. (Optional)
   fn on_enter( &mut self ) { /* no-op */ }
 
@@ -22,37 +23,44 @@ pub trait Scene<SceneContext,SceneEvent> {
   /// Called each time a key-press is registered for this scene. Return true
   /// if the scene handled the key event. Otherwise, return false to bubble the
   /// key event on the graph.
-  fn on_key_down( &mut self, _ctx: &SceneContext, _key: KeyEvent ) -> Event<SceneEvent> {
-    Event::NotHandled
+  ///
+  /// Should be light-weight. This is called inline with the key-event. Any
+  /// processing of that key-event should be handled in your update.
+  fn on_key_down( &mut self, _key: KeyEvent ) -> bool {
+    false
+  }
+
+  fn on_update( &mut self ) -> Event<SceneEvent> {
+    Event::NoChange
   }
 
   /// Called on each frame if this scene is active. (Required)
-  fn on_render( &mut self, ctx: &SceneContext, area: Rect, buf: &mut Buffer );
+  fn on_render( &mut self, area: Rect, buf: &mut Buffer );
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
-pub struct Builder<C,E> {
+pub struct Builder<E> {
   current: Option<&'static str>,
-  scenes: SceneMap<C,E>
+  scenes: SceneMap<E>
 }
 
-impl<C,E> Builder<C,E> {
+impl<E> Builder<E> {
   pub fn new() -> Self {
     Self{
       current: None,
-      scenes: SceneMap::<C,E>::new()
+      scenes: SceneMap::<E>::new()
     }
   }
 
   /// Adds a scene to the builder.
-  pub fn add_scene( &mut self, scene_name: &'static str, scene: Box<dyn Scene<C,E>> ) {
+  pub fn add_scene( &mut self, scene_name: &'static str, scene: Box<dyn Scene<E>> ) {
     self.scenes.insert( scene_name, scene );
     if self.current.is_none() { self.current = Some( scene_name ) }
   }
 
-  pub fn build( self ) -> Controller<C,E> {
-    Controller::<C,E>{
+  pub fn build( self ) -> Controller<E> {
+    Controller::<E>{
       current: self.current.unwrap(), // TODO
       scenes: self.scenes
     }
@@ -61,12 +69,12 @@ impl<C,E> Builder<C,E> {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
-pub struct Controller<C,E> {
+pub struct Controller<E> {
   current: &'static str,
-  scenes: SceneMap<C,E>
+  scenes: SceneMap<E>
 }
 
-impl<C,E> Controller<C,E> {
+impl<E> Controller<E> {
   pub fn _current_scene( &self ) -> &str { &self.current }
 
   pub fn change( &mut self, scene_id: &'static str ) {
@@ -77,18 +85,22 @@ impl<C,E> Controller<C,E> {
   }
 
   /// ...
-  pub fn key_down( &mut self, ctx: &mut C, key: KeyEvent ) -> Event<E> {
+  pub fn key_down( &mut self, key: KeyEvent ) -> bool {
     if let Some( scene ) = self.scenes.get_mut( self.current ) {
-      scene.on_key_down( ctx, key )
+      scene.on_key_down( key )
     } else {
-      Event::NotHandled
+      false
     }
   }
 
+  pub fn update( &mut self ) -> Event<E> {
+    Event::NoChange
+  }
+
   /// ...
-  pub fn render( &mut self, ctx: &C, area: Rect, buf: &mut Buffer ) {
+  pub fn render( &mut self, area: Rect, buf: &mut Buffer ) {
     if let Some( scene ) = self.scenes.get_mut( self.current ) {
-      scene.on_render( ctx, area, buf );
+      scene.on_render( area, buf );
     }
   }
 }

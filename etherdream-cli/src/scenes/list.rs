@@ -5,10 +5,9 @@ use ratatui::style::{ Color, palette::tailwind::SLATE, Style };
 use ratatui::text::Line;
 use ratatui::widgets::{ Block, Cell, Paragraph, Row, StatefulWidget, Table, TableState, Widget };
 
-use crate::actions::AssignCurrentDevice;
 use crate::app;
 use crate::device::Device;
-use crate::scene::{ self, Scene };
+use crate::scene;
 use super::SceneContext;
 
 const CONNECTED: &str = " Connected ";
@@ -20,65 +19,72 @@ const HIGHLIGHT_STYLE: Style = Style::new().bg( SLATE.c800 );
 const LIST_SCENE_ID: &str = "list";
 
 pub struct ListScene {
-  assign_current_device: AssignCurrentDevice,
   device_map_version: usize,
+  selected: Option<usize>,
+  shared: SceneContext,
   sorted_device_keys: Vec<usize>, // Scene cache of sorted device id's
   state: TableState
 }
 
 impl ListScene {
-  fn get_selected_device_id( &self ) -> Option<usize> {
-    self.state.selected().and_then(| i |{ self.sorted_device_keys.get( i ) }).copied()
-  }
-}
-
-impl ListScene {
-  pub fn new( assign_current_device: AssignCurrentDevice ) -> Self {
+  pub fn new( shared: SceneContext ) -> Self {
     Self{
-      assign_current_device,
       device_map_version: 0,
+      selected: None,
+      shared,
       sorted_device_keys: Vec::new(),
       state: TableState::new().with_selected( Some( 0 ) )
     }
   }
 }
 
-impl Scene<SceneContext,app::Event> for ListScene {
-  fn on_key_down( &mut self, ctx: &mut SceneContext, key: KeyEvent ) -> scene::Event<app::Event> {
+impl scene::Scene<app::Event> for ListScene {
+  fn on_key_down( &mut self, key: KeyEvent ) -> bool {
     match key.code {
       KeyCode::Down => {
-        let i = self.state.selected().unwrap_or( 0 ).saturating_add( 1 ) % ctx.device_map().len();
+        let i = self.state.selected().unwrap_or( 0 ).saturating_add( 1 ) % self.shared.device_map().len();
         self.state.select( Some( i ) );
-        return scene::Event::Handled;
+        return true;
       }
       KeyCode::Up => {
-        let i = self.state.selected().unwrap_or( 0 ).saturating_sub( 1 ) % ctx.device_map().len();
+        let i = self.state.selected().unwrap_or( 0 ).saturating_sub( 1 ) % self.shared.device_map().len();
         self.state.select( Some( i ) );
-        return scene::Event::Handled;
+        return true;
       }
       KeyCode::Enter => {
-        if let Some( id ) = self.get_selected_device_id() {
-          return scene::Event::Custom( app::Event::Connect( id ) );
+        if let Some( id ) = self.state.selected().and_then(| i |{ self.sorted_device_keys.get( i ) }) {
+          self.selected = Some( *id );
+          return true;
         }
       }
       _ => {}
     }
 
-    scene::Event::NotHandled
+    false
   }
 
-  fn on_render( &mut self, ctx: &SceneContext, area: Rect, buf: &mut Buffer ) {
+  fn on_update( &mut self ) -> scene::Event<app::Event> {
+    if let Some( id ) = self.selected.take() {
+      scene::Event::Change( app::Event::Connect( id ) )
+    } else {
+      scene::Event::NoChange
+    }
+  }
+
+  fn on_render( &mut self, area: Rect, buf: &mut Buffer ) {
+    let devices = self.shared.device_map();
+
     let block = Block::bordered().title( Line::raw( " Etherdream Devices " ).centered() );
 
     // Refresh our local sorted device cache if the remote device map has changed
-    if ctx.device_map().version() != self.device_map_version {
-      self.sorted_device_keys = ctx.device_map()
+    if devices.version() != self.device_map_version {
+      self.sorted_device_keys = devices
         .iter()
         .map( |( &addr, _ )|{ addr } )
         .collect();
 
       self.sorted_device_keys.sort();
-      self.device_map_version = ctx.device_map().version();
+      self.device_map_version = devices.version();
     }
 
     // If there are no devices, render a message saying as such
@@ -98,7 +104,7 @@ impl Scene<SceneContext,app::Event> for ListScene {
       .iter()
       .enumerate()
       .filter_map(|( i, id )|{
-        if let Some( device ) = ctx.device_map().get( *id ) {
+        if let Some( device ) = devices.get( *id ) {
           let selected = self.state.selected().filter(| si |{ *si == i }).is_some();
           let theme = if selected { HIGHLIGHT_STYLE } else { Style::new() };
 
@@ -106,7 +112,7 @@ impl Scene<SceneContext,app::Event> for ListScene {
             Cell::new( device.info().ip().to_string() ),
             Cell::new( "-" ),
             Cell::new( device.info().mac_address().to_string() ),
-            render_device_status_cell( device, selected )
+            render_device_status_cell( &device, selected )
           ]).style( theme ) )
         } else {
           None

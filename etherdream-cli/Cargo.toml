@@ -14,4 +14,5 @@ futures = { version = "0.3" }
 nalgebra = { version = "0.34.1" }
 ratatui = { version = "0.30.0" }
 ratatui-textarea = { version = "0.9.1" }
-tokio = { workspace = true, features = ["io-std", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["io-std", "rt-multi-thread", "time"] }
+tokio-util = { version = "0.7.19" }

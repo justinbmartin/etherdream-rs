@@ -10,6 +10,7 @@ use crate::device::{ Device, DeviceMap };
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene Context
 
 /// Read-only context provided to Scene-trait implementation functions.
+#[derive( Clone )]
 pub struct SceneContext {
   device_map: Rc<RefCell<DeviceMap>>,
   device_selected_id: Rc<RefCell<Option<usize>>>
@@ -21,22 +22,14 @@ impl SceneContext {
   }
 
   // Returns a read-only reference to the list of discovered device infos
-  pub fn device_map( &'_ self ) -> Ref<'_, DeviceMap> {
+  pub fn device_map( &self ) -> Ref<DeviceMap> {
     self.device_map.borrow()
   }
 
   // Returns the selected device, if one is set
-  pub fn selected_device( &'_ self ) -> Option<Ref<'_, Device>> {
+  pub fn selected_device( &self ) -> Option<Ref<Device>> {
     if let Some( id ) = *self.device_selected_id.borrow() {
       Ref::filter_map( self.device_map.borrow(), |dm|{ dm.get( id ) } ).ok()
-    } else {
-      None
-    }
-  }
-
-  pub fn selected_device_mut( &mut self ) -> Option<RefMut<'_, Device>> {
-    if let Some( id ) = *self.device_selected_id.borrow() {
-      RefMut::filter_map( self.device_map.borrow_mut(), |dm|{ dm.get_mut( id ) } ).ok()
     } else {
       None
     }
