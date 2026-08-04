@@ -20,7 +20,7 @@ const TABLE_KEY_WIDTH: u16 = 25;
 //enum SceneKey{ ConnectForm, Generator, GeneratorList }
 
 pub struct DeviceScene {
-  scenes: scene::Controller<SharedData>,
+  scenes: scene::Controller<app::Event>,
   shared: SharedData,
   state: etherdream::State
 }
@@ -28,7 +28,7 @@ pub struct DeviceScene {
 impl DeviceScene {
   fn new( shared: SharedData ) -> Self {
     let mut builder = scene::Builder::new();
-    builder.add_scene( "generator", Box::new( GeneratorListScene::default() ) );
+    builder.add_scene( "generator", Box::new( GeneratorListScene::new( shared.clone() ) ) );
 
     Self{
       scenes: builder.build(),
@@ -73,76 +73,78 @@ impl scene::Scene<SharedData> for DeviceScene {
       self.scenes.render( test_inner_area, buf );
 
       // Render the info pane
-      self.render_info( &device, info_area, buf );
+      render_info( &mut self.state, &device, info_area, buf );
     }
   }
 }
 
-impl DeviceScene {
-  // UI to render the Etherdream device intrinsic and run-time properties
-  fn render_info( &self, device: &Device, area: Rect, buf: &mut Buffer ) {
-    let [ intrinsics_area, state_area ] = area.layout( &Layout::vertical([
-      Constraint::Length( 10 ), Constraint::Fill( 1 ),
-    ]) );
+// UI to render the Etherdream device intrinsic and run-time properties
+fn render_info( state: &mut etherdream::State, device: &Device, area: Rect, buf: &mut Buffer ) {
+  let [ intrinsics_area, state_area ] = area.layout( &Layout::vertical([
+    Constraint::Length( 10 ), Constraint::Fill( 1 ),
+  ]) );
 
-    // Render intrinsics
-    let intrinsics_block = Block::bordered()
-      .title( " Intrinsics " )
-      .padding( Padding::uniform( 1 ) );
+  // Render intrinsics
+  let intrinsics_block = Block::bordered()
+    .title( " Intrinsics " )
+    .padding( Padding::uniform( 1 ) );
 
-    let intrinsic_rows = [
-      Row::new([ "IP address:".to_owned(), device.info().ip().to_string() ]),
-      Row::new([ "MAC address:".to_owned(), device.info().mac_address().to_string() ]),
-      Row::new([ "Hardware version:".to_owned(), device.info().version().hardware.to_string() ]),
-      Row::new([ "Software version:".to_owned(), device.info().version().software.to_string() ]),
-      Row::new([ "Point buffer capacity:".to_owned(), device.info().buffer_capacity().to_string() ]),
-      Row::new([ "Max points per second:".to_owned(), device.info().max_points_per_second().to_string() ])
-    ];
+  let intrinsic_rows = [
+    Row::new([ "IP address:".to_owned(), device.info().ip().to_string() ]),
+    Row::new([ "MAC address:".to_owned(), device.info().mac_address().to_string() ]),
+    Row::new([ "Hardware version:".to_owned(), device.info().version().hardware.to_string() ]),
+    Row::new([ "Software version:".to_owned(), device.info().version().software.to_string() ]),
+    Row::new([ "Point buffer capacity:".to_owned(), device.info().buffer_capacity().to_string() ]),
+    Row::new([ "Max points per second:".to_owned(), device.info().max_points_per_second().to_string() ])
+  ];
 
-    Table::new( intrinsic_rows, [ Constraint::Length( TABLE_KEY_WIDTH ), Constraint::Fill( 1 ) ])
-      .block( intrinsics_block )
-      .render( intrinsics_area, buf );
+  Table::new( intrinsic_rows, [ Constraint::Length( TABLE_KEY_WIDTH ), Constraint::Fill( 1 ) ])
+    .block( intrinsics_block )
+    .render( intrinsics_area, buf );
 
-    // Render state
-    let state_block = Block::bordered().title( " State " ).padding( Padding::horizontal( 1 ) );
-    let mut rows = Vec::with_capacity( 50 );
-    rows.push( Row::new([ "Connected:", if device.is_connected() { "Yes" } else { "No" } ]) );
+  // Render state
+  let state_block = Block::bordered().title( " State " ).padding( Padding::horizontal( 1 ) );
+  let mut rows = Vec::with_capacity( 50 );
+  rows.push( Row::new([ "Connected:", if device.is_connected() { "Yes" } else { "No" } ]) );
 
-    if let Some( generator ) = device.generator() {
-      generator.clone_state_into( &mut self.state );
+  if let Some( generator ) = device.generator() {
+    generator.clone_state_into( state );
 
-      rows.extend([
-        Row::new([ "Generator:", "Demo" ]),
-        Row::new([ "Points buffered:".to_owned(), self.state.points_buffered().to_string() ]),
-        Row::new([ "Points per second:".to_owned(), self.state.points_per_second().to_string() ])
-      ]);
-    } else {
-      rows.push( Row::new([ "Generator:", "None" ]) );
-    }
-
-    Table::new( rows, [ Constraint::Length( TABLE_KEY_WIDTH ), Constraint::Fill( 1 ) ])
-      .block( state_block )
-      .render( state_area, buf );
+    rows.extend([
+      Row::new([ "Generator:", "Demo" ]),
+      Row::new([ "Points buffered:".to_owned(), state.points_buffered().to_string() ]),
+      Row::new([ "Points per second:".to_owned(), state.points_per_second().to_string() ])
+    ]);
+  } else {
+    rows.push( Row::new([ "Generator:", "None" ]) );
   }
+
+  Table::new( rows, [ Constraint::Length( TABLE_KEY_WIDTH ), Constraint::Fill( 1 ) ])
+    .block( state_block )
+    .render( state_area, buf );
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Connect Scene
 
 // Scene that renders a form to connect to an Etherdream device.
 pub struct ConnectFormScene<'a> {
+  connect: bool,
   input_selected: usize,
-  port_input: TextArea<'a>
+  port_input: TextArea<'a>,
+  shared: SharedData
 }
 
-impl<'a> Default for ConnectFormScene<'a> {
-  fn default() -> Self {
+impl<'a> ConnectFormScene<'a> {
+  fn new( shared: SharedData ) -> Self {
     let mut port_input = TextArea::default();
     port_input.set_cursor_line_style( Style::default() );
     port_input.set_placeholder_text( etherdream::protocol::CLIENT_PORT.to_string() );
 
     Self{
+      connect: false,
       input_selected: INPUT_CONNECT_BUTTON,
-      port_input
+      port_input,
+      shared
     }
   }
 }
@@ -163,13 +165,9 @@ impl<'a> scene::Scene<app::Event> for ConnectFormScene<'a> {
         return true;
       },
       KeyCode::Enter => {
-        if self.input_selected == INPUT_CONNECT_BUTTON && let Some( mut device ) = ctx.selected_device_mut() {
-          let handle = tokio::runtime::Handle::current();
-
-          match handle.block_on( async { device.connect().await }) {
-            Ok( () ) => true,
-            Err( _err ) => true
-          }
+        if self.input_selected == INPUT_CONNECT_BUTTON  {
+          self.connect = true;
+          true
         } else {
           false
         }
@@ -185,7 +183,22 @@ impl<'a> scene::Scene<app::Event> for ConnectFormScene<'a> {
       }
     };
 
-    scene::Event::NotHandled
+    false
+  }
+
+  fn on_update( &mut self ) -> scene::Event<app::Event> {
+    if self.connect {
+      let handle = tokio::runtime::Handle::current();
+
+      match handle.block_on( async { device.connect().await }) {
+        Ok( () ) => true,
+        Err( _err ) => true
+      }
+      
+      self.connect = false;
+    }
+    
+    scene::Event::NoChange
   }
 
   fn on_render( &mut self, area: Rect, buf: &mut Buffer ) {
@@ -222,13 +235,15 @@ impl<'a> scene::Scene<app::Event> for ConnectFormScene<'a> {
 
 struct GeneratorListScene {
   generators: Vec<String>,
+  shared: SharedData,
   state: TableState
 }
 
-impl Default for GeneratorListScene {
-  fn default() -> Self {
+impl GeneratorListScene {
+  fn new( shared: SharedData ) -> Self {
     Self{
       generators: vec![ "Demo".to_owned() ],
+      shared,
       state: TableState::new().with_selected( Some( 0 ) )
     }
   }
@@ -246,9 +261,9 @@ impl scene::Scene<app::Event> for GeneratorListScene {
         return true;
       },
       KeyCode::Enter => {
-        if let Some( _device ) = ctx.selected_device() {
+        if let Some( _device ) = self.shared.selected_device() {
           //return SceneEvent::Play( device.id() );
-          return scene::Event::Change( "generator" )
+          return true
         }
       },
       _ => {}
