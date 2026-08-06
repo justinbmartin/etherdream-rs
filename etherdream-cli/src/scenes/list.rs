@@ -63,7 +63,7 @@ impl scene::Scene<app::Event> for ListScene {
     false
   }
 
-  fn on_update( &mut self ) -> scene::Event<app::Event> {
+  async fn on_update( &mut self ) -> scene::Event<app::Event> {
     if let Some( id ) = self.selected.take() {
       scene::Event::Change( app::Event::Connect( id ) )
     } else {

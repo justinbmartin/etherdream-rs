@@ -38,7 +38,10 @@ impl App {
 
     // Scenes
     let mut builder = scene::Builder::<Event>::new();
+
     builder.add_scene( "list", Box::new( scenes::list::ListScene::new( shared_data.clone() ) ) );
+
+    builder.add_scene( "list", Box::new( scenes::list::ListScene::new( shared_data.clone() ) ), scenes::list::update );
 
     Self{
       device_map,

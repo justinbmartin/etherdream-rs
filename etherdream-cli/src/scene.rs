@@ -30,12 +30,22 @@ pub trait Scene<SceneEvent> {
     false
   }
 
-  fn on_update( &mut self ) -> Event<SceneEvent> {
-    Event::NoChange
-  }
+  /// ...
+  fn on_update( &mut self ) -> Event<SceneEvent>;
 
   /// Called on each frame if this scene is active. (Required)
   fn on_render( &mut self, area: Rect, buf: &mut Buffer );
+}
+
+use std::pin::Pin;
+
+type OnKeyDownFn = dyn FnMut( KeyEvent ) -> Pin<bool>;
+type OnKeyDownFn2 = Box<dyn FnMut( KeyEvent ) -> Pin<Box<dyn Future<Output = bool>>>>;
+
+pub struct SceneDefinition {
+  pub name: &'static str,
+  pub on_key_down: Option<OnKeyDownFn2>,
+  pub on_render: Box<dyn Fn()>
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
@@ -94,7 +104,12 @@ impl<E> Controller<E> {
   }
 
   pub fn update( &mut self ) -> Event<E> {
-    Event::NoChange
+    if let Some( scene ) = self.scenes.get_mut( self.current ) {
+      scene.on_update()
+    } else {
+      Event::NoChange
+    }
+
   }
 
   /// ...

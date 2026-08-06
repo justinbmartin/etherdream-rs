@@ -188,16 +188,18 @@ impl<'a> scene::Scene<app::Event> for ConnectFormScene<'a> {
 
   fn on_update( &mut self ) -> scene::Event<app::Event> {
     if self.connect {
-      let handle = tokio::runtime::Handle::current();
-
+      let h = tokio::task::spawn( async move {
+        self.shared_mut.device().connect()
+      });
       match handle.block_on( async { device.connect().await }) {
         Ok( () ) => true,
         Err( _err ) => true
       }
-      
+      */
+
       self.connect = false;
     }
-    
+
     scene::Event::NoChange
   }
 
@@ -228,6 +230,50 @@ impl<'a> scene::Scene<app::Event> for ConnectFormScene<'a> {
       .centered()
       .block( connect_block )
       .render( connect_area, buf );
+  }
+}
+
+
+use std::sync::{ Arc, Mutex };
+
+mod connect {
+  use std::sync::{ Arc, Mutex };
+
+  use crossterm::event::{ KeyCode, KeyEvent };
+
+  pub struct State {
+    pub connecting: Option<bool>,
+  }
+
+  pub async fn on_key_down( key: KeyEvent, device_map: Arc<Mutex<crate::device::DeviceMap>> ) -> bool {
+    if key.code == KeyCode::Char( 'c' ) {
+
+      //state.connecting = Some( true );
+      return true;
+    }
+
+    false
+  }
+
+  pub fn update( state: &mut State ) {
+    if let Some( _yep ) = state.connecting {
+      // ...
+    }
+  }
+}
+
+fn make_connect_scene_definition( device_map: Arc<Mutex<crate::device::DeviceMap>> ) -> scene::SceneDefinition {
+  //let dm = device_map.clone();
+
+  scene::SceneDefinition{
+    name: "list",
+    on_key_down: Some(
+      Box::new( move | e: KeyEvent |{
+        let dm = device_map.clone();
+        Box::pin( connect::on_key_down( e, dm ) )
+      })
+    ),
+    on_render: Box::new( ||{} ),
   }
 }
 
