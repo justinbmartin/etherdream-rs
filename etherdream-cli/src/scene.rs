@@ -4,7 +4,7 @@ use crossterm::event::KeyEvent;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 
-type SceneMap<E> = HashMap<&'static str,Box<dyn Scene<E>>>;
+type SceneMap<E> = HashMap<&'static str,SceneDefinition<E>>;
 
 pub enum Event<T> {
   NoChange,
@@ -47,7 +47,7 @@ pub struct SceneDefinition<T> {
   pub name: &'static str,
   pub on_key_down: Option<OnKeyDownFn>,
   pub on_update: OnUpdateFn<T>,
-  pub on_render: Box<dyn Fn()>
+  pub on_render: Box<dyn Fn( Rect, &mut Buffer )>
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
@@ -66,9 +66,10 @@ impl<E> Builder<E> {
   }
 
   /// Adds a scene to the builder.
-  pub fn add_scene( &mut self, scene_name: &'static str, scene: Box<dyn Scene<E>> ) {
-    self.scenes.insert( scene_name, scene );
-    if self.current.is_none() { self.current = Some( scene_name ) }
+  pub fn add_scene( &mut self, scene_definition: SceneDefinition<E> ) {
+    let name = scene_definition.name;
+    self.scenes.insert( name, scene_definition );
+    if self.current.is_none() { self.current = Some( name ) }
   }
 
   pub fn build( self ) -> Controller<E> {
@@ -91,23 +92,25 @@ impl<E> Controller<E> {
 
   pub fn change( &mut self, scene_id: &'static str ) {
     // TODO: validate
-    self.scenes.get_mut( &self.current ).unwrap().on_exit();
+    //self.scenes.get_mut( &self.current ).unwrap().on_exit();
     self.current = scene_id;
-    self.scenes.get_mut( &self.current ).unwrap().on_enter();
+    //self.scenes.get_mut( &self.current ).unwrap().on_enter();
   }
 
   /// ...
-  pub fn key_down( &mut self, key: KeyEvent ) -> bool {
+  pub async fn key_down( &mut self, key: KeyEvent ) -> bool {
     if let Some( scene ) = self.scenes.get_mut( self.current ) {
-      scene.on_key_down( key )
-    } else {
-      false
+      if let Some( callback ) = &mut scene.on_key_down {
+        return callback( key ).await
+      }
     }
+
+    false
   }
 
-  pub fn update( &mut self ) -> Event<E> {
+  pub async fn update( &mut self ) -> Event<E> {
     if let Some( scene ) = self.scenes.get_mut( self.current ) {
-      scene.on_update()
+      ( scene.on_update )().await
     } else {
       Event::NoChange
     }
@@ -117,7 +120,7 @@ impl<E> Controller<E> {
   /// ...
   pub fn render( &mut self, area: Rect, buf: &mut Buffer ) {
     if let Some( scene ) = self.scenes.get_mut( self.current ) {
-      scene.on_render( area, buf );
+      ( scene.on_render )( area, buf );
     }
   }
 }

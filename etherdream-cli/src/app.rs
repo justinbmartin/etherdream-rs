@@ -1,5 +1,4 @@
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::sync::{ Arc, Mutex };
 
 use crossterm::event::KeyCode;
 use ratatui::{ DefaultTerminal, Frame };
@@ -23,22 +22,22 @@ pub enum Event {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
 
 pub struct App {
-  device_map: Rc<RefCell<device::DeviceMap>>,
-  device_selected_id: Rc<RefCell<Option<usize>>>,
+  device_map: Arc<Mutex<device::DeviceMap>>,
+  device_selected_id: Arc<Mutex<Option<usize>>>,
   is_running: bool,
   scenes: scene::Controller<Event>
 }
 
 impl App {
   pub fn new() -> Self {
-    let device_map = Rc::new( RefCell::new( device::DeviceMap::default() ) );
-    let device_selected_id = Rc::new( RefCell::new( None::<usize> ) );
+    let device_map = Arc::new( Mutex::new( device::DeviceMap::default() ) );
+    let device_selected_id = Arc::new( Mutex::new( None::<usize> ) );
 
-    let shared_data = scenes::SharedData::new( device_map.clone(), device_selected_id.clone() );
+    //let shared_data = scenes::SharedData::new( device_map.clone(), device_selected_id.clone() );
 
     // Scenes
     let mut builder = scene::Builder::<Event>::new();
-    builder.add_scene( "list", Box::new( scenes::list::ListScene::new( shared_data.clone() ) ) );
+    builder.add_scene( scenes::device::make_connect_scene_definition( device_map.clone() ) );
 
     Self{
       device_map,
@@ -57,13 +56,13 @@ impl App {
 
       // Persist any discovered devices from the Etherdream discovery service
       while let Ok( device_info ) = discovery_rx.try_recv() {
-        self.device_map.borrow_mut().insert( device_info.info().clone() );
+        self.device_map.lock().unwrap().insert( device_info.info().clone() );
       }
 
       if let Some( event ) = events_rx.recv().await {
         match event {
           event::Event::KeyEvent( key ) => {
-            if ! self.scenes.key_down( key ) {
+            if ! self.scenes.key_down( key ).await {
               match key.code {
                 KeyCode::Char( 'q' ) | KeyCode::Esc => { self.is_running = false; },
                 _ => {}
@@ -71,7 +70,7 @@ impl App {
             }
           },
           event::Event::Tick( _time ) => {
-            self.scenes.update();
+            let _ = self.scenes.update().await;
             let _ = terminal.draw(| frame |{ self.render( frame ) });
           }
         }

@@ -27,8 +27,8 @@ pub struct DeviceScene {
 
 impl DeviceScene {
   fn new( shared: SharedData ) -> Self {
-    let mut builder = scene::Builder::new();
-    builder.add_scene( "generator", Box::new( GeneratorListScene::new( shared.clone() ) ) );
+    let builder = scene::Builder::new();
+    //builder.add_scene( "generator", Box::new( GeneratorListScene::new( shared.clone() ) ) );
 
     Self{
       scenes: builder.build(),
@@ -39,15 +39,16 @@ impl DeviceScene {
 }
 
 impl scene::Scene<app::Event> for DeviceScene {
-  fn on_key_down( &mut self, key: KeyEvent ) -> bool {
-    let handled = self.scenes.key_down( key );
+  fn on_key_down( &mut self, _key: KeyEvent ) -> bool {
+    //let handled = self.scenes.key_down( key );
 
     // Change scene if this is a connect event
     //if let scene::Event::Connect( _ ) = handled {
     //  self.scenes.set_scene( SceneKey::GeneratorList );
     //};
 
-    handled
+    //handled
+    false
   }
 
   fn on_update( &mut self ) -> scene::Event<app::Event> {
@@ -254,7 +255,7 @@ mod connect {
   }
 }
 
-fn make_connect_scene_definition( device_map: Arc<Mutex<crate::device::DeviceMap>> ) -> scene::SceneDefinition<app::Event> {
+pub fn make_connect_scene_definition( device_map: Arc<Mutex<crate::device::DeviceMap>> ) -> scene::SceneDefinition<app::Event> {
   scene::SceneDefinition{
     name: "list",
     on_key_down: Some(
@@ -264,7 +265,7 @@ fn make_connect_scene_definition( device_map: Arc<Mutex<crate::device::DeviceMap
       })
     ),
     on_update: Box::new( move ||{ Box::pin( connect::on_update() ) }),
-    on_render: Box::new( ||{} ),
+    on_render: Box::new( | _area, _buf |{} ),
   }
 }
 
