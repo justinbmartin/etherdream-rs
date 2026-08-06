@@ -39,12 +39,14 @@ pub trait Scene<SceneEvent> {
 
 use std::pin::Pin;
 
-type OnKeyDownFn = dyn FnMut( KeyEvent ) -> Pin<bool>;
-type OnKeyDownFn2 = Box<dyn FnMut( KeyEvent ) -> Pin<Box<dyn Future<Output = bool>>>>;
+type OnKeyDownFn = Box<dyn FnMut( KeyEvent ) -> Pin<Box<dyn Future<Output = bool>>>>;
 
-pub struct SceneDefinition {
+type OnUpdateFn<T> = Box<dyn FnMut() -> Pin<Box<dyn Future<Output = Event<T>>>>>;
+
+pub struct SceneDefinition<T> {
   pub name: &'static str,
-  pub on_key_down: Option<OnKeyDownFn2>,
+  pub on_key_down: Option<OnKeyDownFn>,
+  pub on_update: OnUpdateFn<T>,
   pub on_render: Box<dyn Fn()>
 }
 

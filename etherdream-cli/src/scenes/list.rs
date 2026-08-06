@@ -16,7 +16,7 @@ const PLAYING: &str = " Playing ";
 
 const HIGHLIGHT_STYLE: Style = Style::new().bg( SLATE.c800 );
 
-const LIST_SCENE_ID: &str = "list";
+const _LIST_SCENE_ID: &str = "list";
 
 pub struct ListScene {
   device_map_version: usize,
@@ -63,7 +63,7 @@ impl scene::Scene<app::Event> for ListScene {
     false
   }
 
-  async fn on_update( &mut self ) -> scene::Event<app::Event> {
+  fn on_update( &mut self ) -> scene::Event<app::Event> {
     if let Some( id ) = self.selected.take() {
       scene::Event::Change( app::Event::Connect( id ) )
     } else {

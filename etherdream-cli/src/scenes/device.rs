@@ -38,7 +38,7 @@ impl DeviceScene {
   }
 }
 
-impl scene::Scene<SharedData> for DeviceScene {
+impl scene::Scene<app::Event> for DeviceScene {
   fn on_key_down( &mut self, key: KeyEvent ) -> bool {
     let handled = self.scenes.key_down( key );
 
@@ -48,6 +48,10 @@ impl scene::Scene<SharedData> for DeviceScene {
     //};
 
     handled
+  }
+
+  fn on_update( &mut self ) -> scene::Event<app::Event> {
+    scene::Event::NoChange
   }
 
   fn on_render( &mut self, area: Rect, buf: &mut Buffer ) {
@@ -187,19 +191,6 @@ impl<'a> scene::Scene<app::Event> for ConnectFormScene<'a> {
   }
 
   fn on_update( &mut self ) -> scene::Event<app::Event> {
-    if self.connect {
-      let h = tokio::task::spawn( async move {
-        self.shared_mut.device().connect()
-      });
-      match handle.block_on( async { device.connect().await }) {
-        Ok( () ) => true,
-        Err( _err ) => true
-      }
-      */
-
-      self.connect = false;
-    }
-
     scene::Event::NoChange
   }
 
@@ -241,11 +232,14 @@ mod connect {
 
   use crossterm::event::{ KeyCode, KeyEvent };
 
+  use crate::app;
+  use crate::scene;
+
   pub struct State {
     pub connecting: Option<bool>,
   }
 
-  pub async fn on_key_down( key: KeyEvent, device_map: Arc<Mutex<crate::device::DeviceMap>> ) -> bool {
+  pub async fn on_key_down( key: KeyEvent, _device_map: Arc<Mutex<crate::device::DeviceMap>> ) -> bool {
     if key.code == KeyCode::Char( 'c' ) {
 
       //state.connecting = Some( true );
@@ -255,24 +249,21 @@ mod connect {
     false
   }
 
-  pub fn update( state: &mut State ) {
-    if let Some( _yep ) = state.connecting {
-      // ...
-    }
+  pub async fn on_update() -> scene::Event<app::Event> {
+    scene::Event::NoChange
   }
 }
 
-fn make_connect_scene_definition( device_map: Arc<Mutex<crate::device::DeviceMap>> ) -> scene::SceneDefinition {
-  //let dm = device_map.clone();
-
+fn make_connect_scene_definition( device_map: Arc<Mutex<crate::device::DeviceMap>> ) -> scene::SceneDefinition<app::Event> {
   scene::SceneDefinition{
     name: "list",
     on_key_down: Some(
       Box::new( move | e: KeyEvent |{
-        let dm = device_map.clone();
+        let dm = device_map.clone(); // think...
         Box::pin( connect::on_key_down( e, dm ) )
       })
     ),
+    on_update: Box::new( move ||{ Box::pin( connect::on_update() ) }),
     on_render: Box::new( ||{} ),
   }
 }
@@ -316,6 +307,10 @@ impl scene::Scene<app::Event> for GeneratorListScene {
     }
 
     false
+  }
+
+  fn on_update( &mut self ) -> scene::Event<app::Event> {
+    scene::Event::NoChange
   }
 
   fn on_render( &mut self, area: Rect, buf: &mut Buffer ) {
@@ -363,6 +358,10 @@ impl scene::Scene<app::Event> for GeneratorScene {
     */
 
     false
+  }
+
+  fn on_update( &mut self ) -> scene::Event<app::Event> {
+    scene::Event::NoChange
   }
 
   fn on_render( &mut self, _area: Rect, _buf: &mut Buffer ) {
