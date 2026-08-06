@@ -37,7 +37,8 @@ impl App {
 
     // Scenes
     let mut builder = scene::Builder::<Event>::new();
-    builder.add_scene( scenes::device::make_connect_scene_definition( device_map.clone() ) );
+    builder.add_scene( scenes::list::make_list_scene_definition( device_map.clone(), device_selected_id.clone() ) );
+    //builder.add_scene( scenes::device::make_connect_scene_definition( device_map.clone() ) );
 
     Self{
       device_map,
