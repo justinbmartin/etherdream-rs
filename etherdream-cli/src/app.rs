@@ -22,27 +22,27 @@ pub enum Event {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
 
 pub struct App {
-  device_map: Arc<Mutex<device::DeviceMap>>,
-  device_selected_id: Arc<Mutex<Option<usize>>>,
+  devices: Arc<Mutex<Devices>>,
   is_running: bool,
   scenes: scene::Controller<Event>
 }
 
+pub struct Devices {
+  pub devices: device::DeviceMap,
+  pub selected_id: Option<usize>
+}
+
 impl App {
   pub fn new() -> Self {
-    let device_map = Arc::new( Mutex::new( device::DeviceMap::default() ) );
-    let device_selected_id = Arc::new( Mutex::new( None::<usize> ) );
-
-    //let shared_data = scenes::SharedData::new( device_map.clone(), device_selected_id.clone() );
+    let devices = Arc::new( Mutex::new( Devices{ devices: device::DeviceMap::default(), selected_id: None } ) );
 
     // Scenes
     let mut builder = scene::Builder::<Event>::new();
-    builder.add_scene( scenes::list::make_list_scene_definition( device_map.clone(), device_selected_id.clone() ) );
-    //builder.add_scene( scenes::device::make_connect_scene_definition( device_map.clone() ) );
+    builder.add_scene( "list", scenes::list::make_list_scene_definition( devices.clone() ) );
+    builder.add_scene( "device", scenes::device::make_device_scene_definition( devices.clone() ) );
 
     Self{
-      device_map,
-      device_selected_id,
+      devices,
       is_running: false,
       scenes: builder.build()
     }

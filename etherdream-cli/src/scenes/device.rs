@@ -1,90 +1,67 @@
-use crossterm::event::{ KeyCode, KeyEvent };
+use crossterm::event::{ /* KeyCode, */ KeyEvent };
 use ratatui::buffer::Buffer;
 use ratatui::layout::{ Constraint, Layout, Rect };
-use ratatui::style::{ Color, palette::tailwind::SLATE, Style };
-use ratatui::text::Span;
-use ratatui::widgets::{ Block, Cell, Padding, Paragraph, Row, Widget, Table, TableState };
-use ratatui_textarea::TextArea;
+use ratatui::style::{ /* Color, */ palette::tailwind::SLATE, Style };
+//use ratatui::text::Span;
+use ratatui::widgets::{ Block, /* Cell, */ Padding, Paragraph, Row, Widget, Table, /* TableState */ };
+//use ratatui_textarea::TextArea;
 
 use crate::app;
-use crate::device::Device;
+use crate::device;
 use crate::scene;
-use super::SharedData;
 
 const HIGHLIGHT_STYLE: Style = Style::new().bg( SLATE.c800 );
 const INPUT_CONNECT_BUTTON: usize = 1;
 const INPUT_PORT: usize = 0;
 const TABLE_KEY_WIDTH: u16 = 25;
 
-//#[derive( Clone, Copy, Eq, Hash, PartialEq )]
-//enum SceneKey{ ConnectForm, Generator, GeneratorList }
-
-pub struct DeviceScene {
-  scenes: scene::Controller<app::Event>,
-  shared: SharedData,
-  state: etherdream::State
-}
-
-impl DeviceScene {
-  fn new( shared: SharedData ) -> Self {
-    let builder = scene::Builder::new();
-    //builder.add_scene( "generator", Box::new( GeneratorListScene::new( shared.clone() ) ) );
-
-    Self{
-      scenes: builder.build(),
-      shared,
-      state: etherdream::State::default()
-    }
+pub fn make_device_scene_definition( device: Option<&device::Device> ) -> scene::SceneDefinition<app::Event> {
+  scene::SceneDefinition{
+    on_key_down: Some( Box::new( move | e: KeyEvent |{ Box::pin( on_key_down( e, device ) ) }) ),
+    on_update: None,
+    on_render: Box::new( | _area, _buf |{} )
   }
 }
 
-impl scene::Scene<app::Event> for DeviceScene {
-  fn on_key_down( &mut self, _key: KeyEvent ) -> bool {
-    //let handled = self.scenes.key_down( key );
+async fn on_key_down( _key: KeyEvent, _device: Option<&device::Device> ) -> bool {
+  //let handled = self.scenes.key_down( key );
 
-    // Change scene if this is a connect event
-    //if let scene::Event::Connect( _ ) = handled {
-    //  self.scenes.set_scene( SceneKey::GeneratorList );
-    //};
+  // Change scene if this is a connect event
+  //if let scene::Event::Connect( _ ) = handled {
+  //  self.scenes.set_scene( SceneKey::GeneratorList );
+  //};
 
-    //handled
-    false
-  }
+  //handled
+  false
+}
 
-  fn on_update( &mut self ) -> scene::Event<app::Event> {
-    scene::Event::NoChange
-  }
+fn on_render( device: &device::Device, area: Rect, buf: &mut Buffer ) {
+  let layout = Layout::vertical([ Constraint::Length( 3 ), Constraint::Fill( 1 ) ]);
+  let [ header, body ] = area.layout( &layout );
 
-  fn on_render( &mut self, area: Rect, buf: &mut Buffer ) {
-    if let Some( device ) = self.shared.selected_device() {
-      let layout = Layout::vertical([ Constraint::Length( 3 ), Constraint::Fill( 1 ) ]);
-      let [ header, body ] = area.layout( &layout );
+  // Render the header
+  Paragraph::new( format!( " Device: {} ", device.info().ip() ) ).render( header, buf );
 
-      // Render the header
-      Paragraph::new( format!( " Device: {} ", device.info().ip() ) ).render( header, buf );
+  //
+  let [ test_area, info_area ] = body.layout( &Layout::horizontal([
+    Constraint::Fill( 1 ),
+    Constraint::Length( 60 )
+  ]) );
 
-      //
-      let [ test_area, info_area ] = body.layout( &Layout::horizontal([
-        Constraint::Fill( 1 ),
-        Constraint::Length( 60 )
-      ]) );
+  // Render the test pane
+  let test_block = Block::bordered();
+  //let test_inner_area = test_block.inner( test_area );
+  test_block.render( test_area, buf );
 
-      // Render the test pane
-      let test_block = Block::bordered();
-      let test_inner_area = test_block.inner( test_area );
-      test_block.render( test_area, buf );
+  //
+  //self.scenes.render( test_inner_area, buf );
 
-      //
-      self.scenes.render( test_inner_area, buf );
-
-      // Render the info pane
-      render_info( &mut self.state, &device, info_area, buf );
-    }
-  }
+  // Render the info pane
+  render_info( &device, info_area, buf );
 }
 
 // UI to render the Etherdream device intrinsic and run-time properties
-fn render_info( state: &mut etherdream::State, device: &Device, area: Rect, buf: &mut Buffer ) {
+fn render_info( device: &device::Device, area: Rect, buf: &mut Buffer ) {
   let [ intrinsics_area, state_area ] = area.layout( &Layout::vertical([
     Constraint::Length( 10 ), Constraint::Fill( 1 ),
   ]) );
@@ -112,6 +89,7 @@ fn render_info( state: &mut etherdream::State, device: &Device, area: Rect, buf:
   let mut rows = Vec::with_capacity( 50 );
   rows.push( Row::new([ "Connected:", if device.is_connected() { "Yes" } else { "No" } ]) );
 
+  /*
   if let Some( generator ) = device.generator() {
     generator.clone_state_into( state );
 
@@ -123,12 +101,14 @@ fn render_info( state: &mut etherdream::State, device: &Device, area: Rect, buf:
   } else {
     rows.push( Row::new([ "Generator:", "None" ]) );
   }
+  */
 
   Table::new( rows, [ Constraint::Length( TABLE_KEY_WIDTH ), Constraint::Fill( 1 ) ])
     .block( state_block )
     .render( state_area, buf );
 }
 
+/*
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Connect Scene
 
 // Scene that renders a form to connect to an Etherdream device.
@@ -191,38 +171,6 @@ impl<'a> scene::Scene<app::Event> for ConnectFormScene<'a> {
     false
   }
 
-  fn on_update( &mut self ) -> scene::Event<app::Event> {
-    scene::Event::NoChange
-  }
-
-  fn on_render( &mut self, area: Rect, buf: &mut Buffer ) {
-    let centered_area = area.centered_horizontally( Constraint::Length( 50 ) );
-
-    let [ port_area, connect_area, _ ] = centered_area.layout( &Layout::vertical([
-      Constraint::Length( 3 ),
-      Constraint::Length( 3 ),
-      Constraint::Fill( 1 )
-    ]));
-
-    //
-    let button_highlight_style = Style::default().fg( Color::Green );
-
-    // Port input
-    let style = if self.input_selected == 0 { button_highlight_style } else { Style::default() };
-    let port_block = Block::bordered().title( " Port " ).border_style( style );
-    self.port_input.set_block( port_block );
-
-    Widget::render( &self.port_input, port_area, buf );
-
-    // Connect button
-    let style = if self.input_selected == INPUT_CONNECT_BUTTON { button_highlight_style } else { Style::default() };
-    let connect_block = Block::bordered().border_style( style );
-
-    Paragraph::new( Span::styled( "<C>onnect", Style::default().bold() ) )
-      .centered()
-      .block( connect_block )
-      .render( connect_area, buf );
-  }
 }
 
 
@@ -253,19 +201,47 @@ mod connect {
   pub async fn on_update() -> scene::Event<app::Event> {
     scene::Event::NoChange
   }
+
+  pub fn on_render( area: Rect, buf: &mut Buffer ) {
+    let centered_area = area.centered_horizontally( Constraint::Length( 50 ) );
+
+    let [ port_area, connect_area, _ ] = centered_area.layout( &Layout::vertical([
+      Constraint::Length( 3 ),
+      Constraint::Length( 3 ),
+      Constraint::Fill( 1 )
+    ]));
+
+    //
+    let button_highlight_style = Style::default().fg( Color::Green );
+
+    // Port input
+    let style = if self.input_selected == 0 { button_highlight_style } else { Style::default() };
+    let port_block = Block::bordered().title( " Port " ).border_style( style );
+    self.port_input.set_block( port_block );
+
+    Widget::render( &self.port_input, port_area, buf );
+
+    // Connect button
+    let style = if self.input_selected == INPUT_CONNECT_BUTTON { button_highlight_style } else { Style::default() };
+    let connect_block = Block::bordered().border_style( style );
+
+    Paragraph::new( Span::styled( "<C>onnect", Style::default().bold() ) )
+      .centered()
+      .block( connect_block )
+      .render( connect_area, buf );
+  }
 }
 
 pub fn make_connect_scene_definition( device_map: Arc<Mutex<crate::device::DeviceMap>> ) -> scene::SceneDefinition<app::Event> {
   scene::SceneDefinition{
-    name: "list",
     on_key_down: Some(
       Box::new( move | e: KeyEvent |{
         let dm = device_map.clone(); // think...
         Box::pin( connect::on_key_down( e, dm ) )
       })
     ),
-    on_update: Box::new( move ||{ Box::pin( connect::on_update() ) }),
-    on_render: Box::new( | _area, _buf |{} ),
+    on_update: Some( Box::new( move ||{ Box::pin( connect::on_update() ) }) ),
+    on_render: Box::new( | _area, _buf |{} )
   }
 }
 
@@ -361,13 +337,9 @@ impl scene::Scene<app::Event> for GeneratorScene {
     false
   }
 
-  fn on_update( &mut self ) -> scene::Event<app::Event> {
-    scene::Event::NoChange
-  }
+  fn on_update( &mut self ) -> scene::Event<app::Event> { scene::Event::NoChange }
 
-  fn on_render( &mut self, _area: Rect, _buf: &mut Buffer ) {
-
-  }
+  fn on_render( &mut self, _area: Rect, _buf: &mut Buffer ) { }
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Helpers
@@ -382,3 +354,4 @@ fn validate_port( port: &mut TextArea ) -> bool {
     true
   }
 }
+*/
