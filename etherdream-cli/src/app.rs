@@ -43,15 +43,15 @@ impl App {
     };
 
     let scene_device_id = {
-      let scoped_device = device::ScopedDeviceMap::new( device_id.clone(), device_map.clone() );
+      let scoped_device = device::ScopedDevice::new( device_id.clone(), device_map.clone() );
       builder.add_scene( Box::new( scenes::device::DeviceScene::new( scoped_device ) ) )
     };
 
     // Actions
-    {
+    let action_fn = {
       let device_id = device_id.clone();
 
-      builder.add_action( scene_list_id, Box::new( move | action |{
+      Box::new( move | action |{
         match action {
           Action::Device( id ) => {
             *device_id.lock().unwrap() = Some( id );
@@ -61,14 +61,14 @@ impl App {
             scene_list_id
           }
         }
-      } ) );
-    }
+      })
+    };
 
     Self{
       device_id,
       device_map,
       is_running: false,
-      scenes: builder.build()
+      scenes: builder.build( action_fn )
     }
   }
 

@@ -139,20 +139,26 @@ impl<'a> DeviceGuard<'a> {
   }
 }
 
-pub struct ScopedDeviceMap {
+pub struct ScopedDevice {
   device_map: Arc<Mutex<DeviceMap>>,
   device_id: Arc<Mutex<Option<usize>>>
 }
 
-impl ScopedDeviceMap {
+impl ScopedDevice {
   pub fn new( device_id: Arc<Mutex<Option<usize>>>, device_map: Arc<Mutex<DeviceMap>> ) -> Self {
     Self{ device_id, device_map }
   }
 
-  pub fn device( &'_ self ) -> DeviceGuard<'_> {
-    DeviceGuard{
-      guard: self.device_map.lock().unwrap(),
-      device_id: self.device_id.lock().unwrap().unwrap()
+  pub fn get( &'_ self ) -> Option<DeviceGuard<'_>> {
+    if let Ok( device_map ) = self.device_map.lock() {
+      if let Ok( guard ) = self.device_id.lock() && let Some( device_id ) = *guard {
+        return Some( DeviceGuard{
+          guard: device_map,
+          device_id
+        });
+      }
     }
+
+    None
   }
 }

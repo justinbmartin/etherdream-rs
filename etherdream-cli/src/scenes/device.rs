@@ -16,41 +16,41 @@ const INPUT_PORT: usize = 0;
 const TABLE_KEY_WIDTH: u16 = 25;
 
 pub struct DeviceScene {
-  device: device::ScopedDeviceMap
+  device: device::ScopedDevice
 }
 
 impl DeviceScene {
-  pub fn new( device: device::ScopedDeviceMap ) -> Self {
+  pub fn new( device: device::ScopedDevice ) -> Self {
     Self{ device }
   }
 }
 
 impl scene::Scene<app::Action> for DeviceScene {
   fn on_draw( &mut self, area: Rect, buf: &mut Buffer ) {
-    let device = self.device.device();
+    if let Some( device ) = self.device.get() {
+      let layout = Layout::vertical([ Constraint::Length( 3 ), Constraint::Fill( 1 ) ]);
+      let [ header, body ] = area.layout( &layout );
 
-    let layout = Layout::vertical([ Constraint::Length( 3 ), Constraint::Fill( 1 ) ]);
-    let [ header, body ] = area.layout( &layout );
+      // Render the header
+      Paragraph::new( format!( " Device: {} ", device.info().ip() ) ).render( header, buf );
 
-    // Render the header
-    Paragraph::new( format!( " Device: {} ", device.info().ip() ) ).render( header, buf );
+      //
+      let [ test_area, info_area ] = body.layout( &Layout::horizontal([
+        Constraint::Fill( 1 ),
+        Constraint::Length( 60 )
+      ]) );
 
-    //
-    let [ test_area, info_area ] = body.layout( &Layout::horizontal([
-      Constraint::Fill( 1 ),
-      Constraint::Length( 60 )
-    ]) );
+      // Render the test pane
+      let test_block = Block::bordered();
+      //let test_inner_area = test_block.inner( test_area );
+      test_block.render( test_area, buf );
 
-    // Render the test pane
-    let test_block = Block::bordered();
-    //let test_inner_area = test_block.inner( test_area );
-    test_block.render( test_area, buf );
+      //
+      //self.scenes.render( test_inner_area, buf );
 
-    //
-    //self.scenes.render( test_inner_area, buf );
-
-    // Render the info pane
-    render_info( &device, info_area, buf );
+      // Render the info pane
+      render_info( &device, info_area, buf );
+    }
   }
 }
 

@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crossterm::event::KeyEvent;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -20,7 +18,6 @@ pub trait Scene<T> {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
 pub struct Builder<Action> {
-  actions: HashMap<usize,Box<dyn FnMut( Action ) -> usize>>,
   current: Option<usize>,
   scenes: Vec<Box<dyn Scene<Action>>>
 }
@@ -28,7 +25,6 @@ pub struct Builder<Action> {
 impl<T> Builder<T> {
   pub fn new() -> Self {
     Self{
-      actions: HashMap::new(),
       current: None,
       scenes: Vec::new()
     }
@@ -42,14 +38,9 @@ impl<T> Builder<T> {
     id
   }
 
-  /// ...
-  pub fn add_action( &mut self, from: usize, callback: Box<dyn FnMut( T ) -> usize> ) {
-    self.actions.insert( from, callback );
-  }
-
-  pub fn build( self ) -> Controller<T> {
+  pub fn build( self, handler: Box<dyn Fn( T ) -> usize> ) -> Controller<T> {
     Controller::<T>{
-      actions: self.actions,
+      actions: handler,
       current: self.current.unwrap(), // TODO
       scenes: self.scenes
     }
@@ -59,7 +50,7 @@ impl<T> Builder<T> {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
 pub struct Controller<Action> {
-  actions: HashMap<usize,Box<dyn FnMut( Action ) -> usize>>,
+  actions: Box<dyn FnMut( Action ) -> usize>,
   current: usize,
   scenes: Vec<Box<dyn Scene<Action>>>
 }
@@ -80,11 +71,9 @@ impl<E> Controller<E> {
     if let Some( scene ) = self.scenes.get_mut( self.current ) {
       match scene.on_update() {
         Event::Change( action ) => {
-          if let Some( callback ) = self.actions.get_mut( &self.current ) {
-            scene.on_exit();
-            self.current = ( callback )( action );
-            self.scenes.get_mut( self.current ).unwrap().on_enter();
-          }
+          scene.on_exit();
+          self.current = ( self.actions )( action );
+          self.scenes.get_mut( self.current ).unwrap().on_enter();
         },
         Event::Noop => {}
       };
