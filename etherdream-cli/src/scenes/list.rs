@@ -50,7 +50,7 @@ impl scene::Scene<app::Action> for ListScene {
         return true;
       }
       KeyCode::Enter => {
-        if let Some( id ) = self.selected.and_then(| i |{ self.sorted_device_keys.get( i ) }) {
+        if let Some( id ) = self.state.selected().and_then(| i |{ self.sorted_device_keys.get( i ) }) {
           self.selected = Some( *id );
           return true;
         }
