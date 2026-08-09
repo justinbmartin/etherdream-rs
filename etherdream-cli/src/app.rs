@@ -16,8 +16,8 @@ const FPS: f32 = 30.0;
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Action
 
 pub enum Action {
-  Device( usize ),
-  List
+  Select( usize ),
+  Deselect
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
@@ -53,12 +53,21 @@ impl App {
 
       Box::new( move | action |{
         match action {
-          Action::Device( id ) => {
-            *device_id.lock().unwrap() = Some( id );
-            scene_device_id
+          Action::Select( id ) => {
+            if let Ok( mut guard ) = device_id.lock() {
+              *guard = Some( id );
+              Some( scene_device_id )
+            } else {
+              None
+            }
           },
-          Action::List => {
-            scene_list_id
+          Action::Deselect => {
+            if let Ok( mut guard ) = device_id.lock() {
+              *guard = None;
+              Some( scene_list_id )
+            } else {
+              None
+            }
           }
         }
       })

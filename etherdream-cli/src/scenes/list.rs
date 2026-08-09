@@ -75,8 +75,8 @@ impl scene::Scene<app::Action> for ListScene {
       self.device_map_version = devices.version();
     }
 
-    if let Some( id ) = self.selected.take() {
-      scene::Event::Change( app::Action::Device( id ) )
+    if let Some( device_id ) = self.selected.take() {
+      scene::Event::Change( app::Action::Select( device_id ) )
     } else {
       scene::Event::Noop
     }

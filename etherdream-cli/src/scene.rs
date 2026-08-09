@@ -38,7 +38,7 @@ impl<T> Builder<T> {
     id
   }
 
-  pub fn build( self, handler: Box<dyn Fn( T ) -> usize> ) -> Controller<T> {
+  pub fn build( self, handler: Box<dyn Fn( T ) -> Option<usize>> ) -> Controller<T> {
     Controller::<T>{
       actions: handler,
       current: self.current.unwrap(), // TODO
@@ -50,7 +50,7 @@ impl<T> Builder<T> {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
 pub struct Controller<Action> {
-  actions: Box<dyn FnMut( Action ) -> usize>,
+  actions: Box<dyn Fn( Action ) -> Option<usize>>,
   current: usize,
   scenes: Vec<Box<dyn Scene<Action>>>
 }
@@ -71,9 +71,11 @@ impl<E> Controller<E> {
     if let Some( scene ) = self.scenes.get_mut( self.current ) {
       match scene.on_update() {
         Event::Change( action ) => {
-          scene.on_exit();
-          self.current = ( self.actions )( action );
-          self.scenes.get_mut( self.current ).unwrap().on_enter();
+          if let Some( scene_id ) = ( self.actions )( action ) {
+            scene.on_exit();
+            self.current = scene_id;
+            self.scenes.get_mut( self.current ).unwrap().on_enter();
+          }
         },
         Event::Noop => {}
       };
