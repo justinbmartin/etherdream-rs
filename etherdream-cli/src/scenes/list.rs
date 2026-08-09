@@ -76,7 +76,7 @@ impl scene::Scene<app::Action> for ListScene {
     }
 
     if let Some( device_id ) = self.selected.take() {
-      scene::Event::Change( app::Action::Select( device_id ) )
+      scene::Event::Change( app::Action::SelectDevice( device_id ) )
     } else {
       scene::Event::Noop
     }
@@ -98,25 +98,29 @@ impl scene::Scene<app::Action> for ListScene {
       Constraint::Length( 30 ),
       Constraint::Fill( 1 ) ];
 
-    let rows: Vec<Row> = self.sorted_device_keys
-      .iter()
-      .enumerate()
-      .filter_map(|( i, id )|{
-        if let Some( device ) = self.devices.read().get( *id ) {
-          let selected = self.state.selected().filter(| si |{ *si == i }).is_some();
-          let theme = if selected { HIGHLIGHT_STYLE } else { Style::new() };
+    let rows: Vec<Row> = {
+      let devices = self.devices.read();
 
-          Some( Row::new([
-            Cell::new( device.info().ip().to_string() ),
-            Cell::new( "-" ),
-            Cell::new( device.info().mac_address().to_string() ),
-            render_device_status_cell( &device, selected )
-          ]).style( theme ) )
-        } else {
-          None
-        }
-      })
-      .collect();
+      self.sorted_device_keys
+        .iter()
+        .enumerate()
+        .filter_map(|( i, id )|{
+          if let Some( device ) = devices.get( *id ) {
+            let selected = self.state.selected().filter(| si |{ *si == i }).is_some();
+            let theme = if selected { HIGHLIGHT_STYLE } else { Style::new() };
+
+            Some( Row::new([
+              Cell::new( device.info().ip().to_string() ),
+              Cell::new( "-" ),
+              Cell::new( device.info().mac_address().to_string() ),
+              render_device_status_cell( &device, selected )
+            ]).style( theme ) )
+          } else {
+            None
+          }
+        })
+        .collect()
+    };
 
     let table = Table::new( rows, constraints )
       .block( block )

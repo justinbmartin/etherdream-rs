@@ -1,18 +1,16 @@
-use crossterm::event::{ /* KeyCode, */ KeyEvent };
+use crossterm::event::{ KeyCode, KeyEvent };
 use ratatui::buffer::Buffer;
 use ratatui::layout::{ Constraint, Layout, Rect };
-use ratatui::style::{ /* Color, */ palette::tailwind::SLATE, Style };
+use ratatui::style::{ Color, palette::tailwind::SLATE, Style };
 //use ratatui::text::Span;
 use ratatui::widgets::{ Block, /* Cell, */ Padding, Paragraph, Row, Widget, Table, /* TableState */ };
-//use ratatui_textarea::TextArea;
+use ratatui_textarea::TextArea;
 
 use crate::app;
 use crate::device;
 use crate::scene;
 
 const HIGHLIGHT_STYLE: Style = Style::new().bg( SLATE.c800 );
-const INPUT_CONNECT_BUTTON: usize = 1;
-const INPUT_PORT: usize = 0;
 const TABLE_KEY_WIDTH: u16 = 25;
 
 pub struct DeviceScene {
@@ -114,74 +112,8 @@ fn render_info( device: &device::DeviceGuard, area: Rect, buf: &mut Buffer ) {
     .render( state_area, buf );
 }
 
+
 /*
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Connect Scene
-
-// Scene that renders a form to connect to an Etherdream device.
-pub struct ConnectFormScene<'a> {
-  connect: bool,
-  input_selected: usize,
-  port_input: TextArea<'a>,
-  shared: SharedData
-}
-
-impl<'a> ConnectFormScene<'a> {
-  fn new( shared: SharedData ) -> Self {
-    let mut port_input = TextArea::default();
-    port_input.set_cursor_line_style( Style::default() );
-    port_input.set_placeholder_text( etherdream::protocol::CLIENT_PORT.to_string() );
-
-    Self{
-      connect: false,
-      input_selected: INPUT_CONNECT_BUTTON,
-      port_input,
-      shared
-    }
-  }
-}
-
-impl<'a> scene::Scene<app::Event> for ConnectFormScene<'a> {
-  fn on_enter( &mut self ) {
-    self.input_selected = INPUT_CONNECT_BUTTON;
-  }
-
-  fn on_key_down( &mut self, key: KeyEvent ) -> bool {
-    match key.code {
-      KeyCode::Up => {
-        self.input_selected = INPUT_PORT;
-        return true;
-      },
-      KeyCode::Down => {
-        self.input_selected = INPUT_CONNECT_BUTTON;
-        return true;
-      },
-      KeyCode::Enter => {
-        if self.input_selected == INPUT_CONNECT_BUTTON  {
-          self.connect = true;
-          true
-        } else {
-          false
-        }
-      },
-      //KeyCode::Esc | KeyCode::Char( 'q' ) => return sceneEvent::Exit,
-      _ => {
-        if self.input_selected == 0 && self.port_input.input( key ) {
-          let _is_valid = validate_port( &mut self.port_input );
-          return true;
-        }
-
-        return false;
-      }
-    };
-
-    false
-  }
-
-}
-
-
-use std::sync::{ Arc, Mutex };
-
 mod connect {
   use std::sync::{ Arc, Mutex };
 
@@ -346,18 +278,5 @@ impl scene::Scene<app::Event> for GeneratorScene {
   fn on_update( &mut self ) -> scene::Event<app::Event> { scene::Event::NoChange }
 
   fn on_render( &mut self, _area: Rect, _buf: &mut Buffer ) { }
-}
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Helpers
-
-// Validates that the port input is a `u16`.`
-fn validate_port( port: &mut TextArea ) -> bool {
-  if let Err( _ ) = port.lines()[0].parse::<u16>() {
-    port.set_style( Style::default().fg( Color::LightRed ) );
-    false
-  } else {
-    port.set_style( Style::default().fg( Color::LightGreen ) );
-    true
-  }
 }
 */

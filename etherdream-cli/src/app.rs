@@ -16,14 +16,14 @@ const FPS: f32 = 30.0;
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Action
 
 pub enum Action {
-  Select( usize ),
-  Deselect
+  Connect( u16 ),
+  SelectDevice( usize ),
+  DeselectDevice
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
 
 pub struct App {
-  device_id: Arc<Mutex<Option<usize>>>,
   device_map: Arc<Mutex<device::DeviceMap>>,
   is_running: bool,
   scenes: scene::Controller<Action>
@@ -47,13 +47,21 @@ impl App {
       builder.add_scene( Box::new( scenes::device::DeviceScene::new( scoped_device ) ) )
     };
 
+    let scene_connect_id = {
+      let scoped_device = device::ScopedDevice::new( device_id.clone(), device_map.clone() );
+      builder.add_scene( Box::new( scenes::connect::ConnectScene::new( scoped_device ) ) )
+    };
+
     // Actions
     let action_fn = {
       let device_id = device_id.clone();
 
       Box::new( move | action |{
         match action {
-          Action::Select( id ) => {
+          Action::Connect( port ) => {
+            Some( scene_device_id )
+          },
+          Action::SelectDevice( id ) => {
             if let Ok( mut guard ) = device_id.lock() {
               *guard = Some( id );
               Some( scene_device_id )
@@ -61,20 +69,19 @@ impl App {
               None
             }
           },
-          Action::Deselect => {
+          Action::DeselectDevice => {
             if let Ok( mut guard ) = device_id.lock() {
               *guard = None;
               Some( scene_list_id )
             } else {
               None
             }
-          }
+          },
         }
       })
     };
 
     Self{
-      device_id,
       device_map,
       is_running: false,
       scenes: builder.build( action_fn )

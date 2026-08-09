@@ -82,6 +82,7 @@ impl Default for DeviceMap {
 impl DeviceMap{
   /// Returns an immutable reference to a device.
   pub fn get( &self, id: usize ) -> Option<&Device> { self.inner.get( &id ) }
+  pub fn get_mut( &mut self, id: usize ) -> Option<&mut Device> { self.inner.get_mut( &id ) }
 
   /// Inserts a new device into the map, incrementing the map version.
   pub fn insert( &mut self, info: etherdream::DeviceInfo ) {
@@ -137,8 +138,15 @@ impl<'a> DeviceGuard<'a> {
   pub fn is_connected( &self ) -> bool {
     self.guard.get( self.device_id ).unwrap().is_connected()
   }
+
+  pub async fn connect( &mut self ) {
+    let _ = self.guard.get_mut( self.device_id ).unwrap().connect().await;
+  }
 }
 
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scoped Device
+
+#[derive( Clone )]
 pub struct ScopedDevice {
   device_map: Arc<Mutex<DeviceMap>>,
   device_id: Arc<Mutex<Option<usize>>>
@@ -150,6 +158,19 @@ impl ScopedDevice {
   }
 
   pub fn get( &'_ self ) -> Option<DeviceGuard<'_>> {
+    if let Ok( device_map ) = self.device_map.lock() {
+      if let Ok( guard ) = self.device_id.lock() && let Some( device_id ) = *guard {
+        return Some( DeviceGuard{
+          guard: device_map,
+          device_id
+        });
+      }
+    }
+
+    None
+  }
+
+  pub fn get_mut( &'_ self ) -> Option<DeviceGuard<'_>> {
     if let Ok( device_map ) = self.device_map.lock() {
       if let Ok( guard ) = self.device_id.lock() && let Some( device_id ) = *guard {
         return Some( DeviceGuard{
