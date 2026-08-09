@@ -13,10 +13,11 @@ use crate::scenes;
 
 const FPS: f32 = 30.0;
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Events
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Action
 
-pub enum Event {
-  Connect( usize )
+pub enum Action {
+  Device( usize ),
+  List
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
@@ -24,7 +25,8 @@ pub enum Event {
 pub struct App {
   devices: Arc<Mutex<Devices>>,
   is_running: bool,
-  scenes: scene::Controller<Event>
+  scenes: scene::Controller<Action>,
+  selected: Arc<Mutex<Option<usize>>>
 }
 
 pub struct Devices {
@@ -34,17 +36,45 @@ pub struct Devices {
 
 impl App {
   pub fn new() -> Self {
+    let device_map = Arc::new( Mutex::new( device::DeviceMap::default() ) );
     let devices = Arc::new( Mutex::new( Devices{ devices: device::DeviceMap::default(), selected_id: None } ) );
+    let selected = Arc::new( Mutex::new( None::<usize> ) );
 
     // Scenes
-    let mut builder = scene::Builder::<Event>::new();
-    builder.add_scene( "list", scenes::list::make_list_scene_definition( devices.clone() ) );
-    builder.add_scene( "device", scenes::device::make_device_scene_definition( devices.clone() ) );
+    let mut builder = scene::Builder::<Action>::new();
+
+    let scene_list_id = {
+      let device_map = device::ReadOnlyDeviceMap::new( device_map.clone() );
+      builder.add_scene( Box::new( scenes::list::ListScene::new( device_map ) ) )
+    };
+
+    let scene_device_id = {
+      let device = device::ScopedDeviceMap::new( selected.clone(), device_map.clone() );
+      builder.add_scene( Box::new( scenes::device::DeviceScene::new( device ) ) )
+    };
+
+    // Actions
+    {
+      let selected = selected.clone();
+
+      builder.add_action( scene_list_id, Box::new( move | action |{
+        match action {
+          Action::Device( device_id ) => {
+            *selected.lock().unwrap() = Some( device_id );
+            scene_device_id
+          },
+          Action::List => {
+            scene_list_id
+          }
+        }
+      } ) );
+    }
 
     Self{
       devices,
       is_running: false,
-      scenes: builder.build()
+      scenes: builder.build(),
+      selected
     }
   }
 
@@ -57,13 +87,14 @@ impl App {
 
       // Persist any discovered devices from the Etherdream discovery service
       while let Ok( device_info ) = discovery_rx.try_recv() {
-        self.device_map.lock().unwrap().insert( device_info.info().clone() );
+        println!("test");
+        self.devices.lock().unwrap().devices.insert( device_info.info().clone() );
       }
 
       if let Some( event ) = events_rx.recv().await {
         match event {
           event::Event::KeyEvent( key ) => {
-            if ! self.scenes.key_down( key ).await {
+            if ! self.scenes.key_down( key ) {
               match key.code {
                 KeyCode::Char( 'q' ) | KeyCode::Esc => { self.is_running = false; },
                 _ => {}
@@ -71,7 +102,7 @@ impl App {
             }
           },
           event::Event::Tick( _time ) => {
-            let _ = self.scenes.update().await;
+            let _ = self.scenes.update();
             let _ = terminal.draw(| frame |{ self.render( frame ) });
           }
         }
@@ -86,7 +117,7 @@ impl App {
     let [ body_area, footer_area ] = frame.area().layout( &main_layout );
 
     // Main > Body
-    self.scenes.render( body_area, frame.buffer_mut() );
+    self.scenes.draw( body_area, frame.buffer_mut() );
 
     // Main > Footer
     Paragraph::new( "Use ↓↑ to move, <Enter> to select a device, 'q' to quit." )

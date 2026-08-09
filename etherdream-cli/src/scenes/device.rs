@@ -15,11 +15,42 @@ const INPUT_CONNECT_BUTTON: usize = 1;
 const INPUT_PORT: usize = 0;
 const TABLE_KEY_WIDTH: u16 = 25;
 
-pub fn make_device_scene_definition( device: Option<&device::Device> ) -> scene::SceneDefinition<app::Event> {
-  scene::SceneDefinition{
-    on_key_down: Some( Box::new( move | e: KeyEvent |{ Box::pin( on_key_down( e, device ) ) }) ),
-    on_update: None,
-    on_render: Box::new( | _area, _buf |{} )
+pub struct DeviceScene {
+  device: device::ScopedDeviceMap
+}
+
+impl DeviceScene {
+  pub fn new( device: device::ScopedDeviceMap ) -> Self {
+    Self{ device }
+  }
+}
+
+impl scene::Scene<app::Action> for DeviceScene {
+  fn on_draw( &mut self, area: Rect, buf: &mut Buffer ) {
+    let device = self.device.device();
+
+    let layout = Layout::vertical([ Constraint::Length( 3 ), Constraint::Fill( 1 ) ]);
+    let [ header, body ] = area.layout( &layout );
+
+    // Render the header
+    Paragraph::new( format!( " Device: {} ", device.info().ip() ) ).render( header, buf );
+
+    //
+    let [ test_area, info_area ] = body.layout( &Layout::horizontal([
+      Constraint::Fill( 1 ),
+      Constraint::Length( 60 )
+    ]) );
+
+    // Render the test pane
+    let test_block = Block::bordered();
+    //let test_inner_area = test_block.inner( test_area );
+    test_block.render( test_area, buf );
+
+    //
+    //self.scenes.render( test_inner_area, buf );
+
+    // Render the info pane
+    render_info( &device, info_area, buf );
   }
 }
 
@@ -35,33 +66,8 @@ async fn on_key_down( _key: KeyEvent, _device: Option<&device::Device> ) -> bool
   false
 }
 
-fn on_render( device: &device::Device, area: Rect, buf: &mut Buffer ) {
-  let layout = Layout::vertical([ Constraint::Length( 3 ), Constraint::Fill( 1 ) ]);
-  let [ header, body ] = area.layout( &layout );
-
-  // Render the header
-  Paragraph::new( format!( " Device: {} ", device.info().ip() ) ).render( header, buf );
-
-  //
-  let [ test_area, info_area ] = body.layout( &Layout::horizontal([
-    Constraint::Fill( 1 ),
-    Constraint::Length( 60 )
-  ]) );
-
-  // Render the test pane
-  let test_block = Block::bordered();
-  //let test_inner_area = test_block.inner( test_area );
-  test_block.render( test_area, buf );
-
-  //
-  //self.scenes.render( test_inner_area, buf );
-
-  // Render the info pane
-  render_info( &device, info_area, buf );
-}
-
 // UI to render the Etherdream device intrinsic and run-time properties
-fn render_info( device: &device::Device, area: Rect, buf: &mut Buffer ) {
+fn render_info( device: &device::DeviceGuard, area: Rect, buf: &mut Buffer ) {
   let [ intrinsics_area, state_area ] = area.layout( &Layout::vertical([
     Constraint::Length( 10 ), Constraint::Fill( 1 ),
   ]) );

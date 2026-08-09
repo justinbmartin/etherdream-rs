@@ -1,9 +1,10 @@
 use std::collections::{ HashMap, hash_map::Iter };
+use std::sync::{ Arc, Mutex, MutexGuard };
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Device
 
 pub struct Device {
-  id: usize,
+  _id: usize,
   info: etherdream::DeviceInfo,
   client: Option<etherdream::Client>,
   generator: Option<etherdream::Generator>
@@ -14,14 +15,14 @@ impl Device {
   fn new( id: usize, info: etherdream::DeviceInfo ) -> Self {
     Self{
       client: None,
-      id,
+      _id: id,
       info,
       generator: None
     }
   }
 
   /// Returns the id of the device
-  pub fn id( &self ) -> usize { self.id }
+  pub fn _id( &self ) -> usize { self._id }
 
   /// Returns true if the device is connected.
   pub fn is_connected( &self ) -> bool { self.client.is_some() || self.generator.is_some() }
@@ -79,13 +80,8 @@ impl Default for DeviceMap {
 }
 
 impl DeviceMap{
-  pub fn contains_key( &self, id: &usize ) -> bool { self.inner.contains_key( id ) }
-
   /// Returns an immutable reference to a device.
   pub fn get( &self, id: usize ) -> Option<&Device> { self.inner.get( &id ) }
-
-  /// Returns a mutable reference to a device.
-  pub fn get_mut( &mut self, id: usize ) -> Option<&mut Device> { self.inner.get_mut( &id ) }
 
   /// Inserts a new device into the map, incrementing the map version.
   pub fn insert( &mut self, info: etherdream::DeviceInfo ) {
@@ -107,5 +103,56 @@ impl DeviceMap{
   /// Returns the current version of the map.
   pub fn version( &self ) -> usize {
     self.version
+  }
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - Read-only Device Map
+
+pub struct ReadOnlyDeviceMap {
+  inner: Arc<Mutex<DeviceMap>>
+}
+
+impl ReadOnlyDeviceMap {
+  pub fn new( device_map: Arc<Mutex<DeviceMap>> ) -> Self {
+    Self{ inner: device_map }
+  }
+
+  pub fn read( &'_ self ) -> MutexGuard<'_, DeviceMap> {
+    self.inner.lock().unwrap()
+  }
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Device Guard
+
+pub struct DeviceGuard<'a> {
+  guard: MutexGuard<'a, DeviceMap>,
+  device_id: usize
+}
+
+impl<'a> DeviceGuard<'a> {
+  pub fn info( &self ) -> &etherdream::DeviceInfo {
+    self.guard.get( self.device_id ).unwrap().info()
+  }
+
+  pub fn is_connected( &self ) -> bool {
+    self.guard.get( self.device_id ).unwrap().is_connected()
+  }
+}
+
+pub struct ScopedDeviceMap {
+  device_map: Arc<Mutex<DeviceMap>>,
+  device_id: Arc<Mutex<Option<usize>>>
+}
+
+impl ScopedDeviceMap {
+  pub fn new( device_id: Arc<Mutex<Option<usize>>>, device_map: Arc<Mutex<DeviceMap>> ) -> Self {
+    Self{ device_id, device_map }
+  }
+
+  pub fn device( &'_ self ) -> DeviceGuard<'_> {
+    DeviceGuard{
+      guard: self.device_map.lock().unwrap(),
+      device_id: self.device_id.lock().unwrap().unwrap()
+    }
   }
 }

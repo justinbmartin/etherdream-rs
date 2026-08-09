@@ -1,51 +1,55 @@
 use std::collections::HashMap;
-use std::pin::Pin;
 
 use crossterm::event::KeyEvent;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 
-type OnKeyDownFn = Box<dyn FnMut( KeyEvent ) -> Pin<Box<dyn Future<Output = bool>>>>;
-type OnUpdateFn<T> = Box<dyn FnMut() -> Pin<Box<dyn Future<Output = Event<T>>>>>;
-type OnRenderFn = Box<dyn Fn( Rect, &mut Buffer )>;
-type SceneMap<E> = HashMap<&'static str,SceneDefinition<E>>;
-
 pub enum Event<T> {
-  NoChange,
   Change( T ),
-  Push( T ),
-  Pop
+  Noop
 }
 
-pub struct SceneDefinition<T> {
-  pub on_key_down: Option<OnKeyDownFn>,
-  pub on_update: Option<OnUpdateFn<T>>,
-  pub on_render: OnRenderFn
+pub trait Scene<T> {
+  fn on_enter( &mut self ) {}
+  fn on_exit( &mut self ) {}
+  fn on_key_down( &mut self, _key: KeyEvent ) -> bool { false }
+  fn on_update( &mut self ) -> Event<T> { Event::Noop }
+  fn on_draw( &mut self, area: Rect, buf: &mut Buffer );
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
-pub struct Builder<E> {
-  current: Option<&'static str>,
-  scenes: SceneMap<E>
+pub struct Builder<Action> {
+  actions: HashMap<usize,Box<dyn FnMut( Action ) -> usize>>,
+  current: Option<usize>,
+  scenes: Vec<Box<dyn Scene<Action>>>
 }
 
-impl<E> Builder<E> {
+impl<T> Builder<T> {
   pub fn new() -> Self {
     Self{
+      actions: HashMap::new(),
       current: None,
-      scenes: SceneMap::<E>::new()
+      scenes: Vec::new()
     }
   }
 
   /// Adds a scene to the builder.
-  pub fn add_scene( &mut self, name: &'static str, scene_definition: SceneDefinition<E> ) {
-    self.scenes.insert( name, scene_definition );
-    if self.current.is_none() { self.current = Some( name ) }
+  pub fn add_scene( &mut self, scene: Box<dyn Scene<T>> ) -> usize {
+    self.scenes.push( scene );
+    let id = self.scenes.len() - 1;
+    if self.current.is_none() { self.current = Some( id ) }
+    id
   }
 
-  pub fn build( self ) -> Controller<E> {
-    Controller::<E>{
+  /// ...
+  pub fn add_action( &mut self, from: usize, callback: Box<dyn FnMut( T ) -> usize> ) {
+    self.actions.insert( from, callback );
+  }
+
+  pub fn build( self ) -> Controller<T> {
+    Controller::<T>{
+      actions: self.actions,
       current: self.current.unwrap(), // TODO
       scenes: self.scenes
     }
@@ -54,47 +58,43 @@ impl<E> Builder<E> {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
-pub struct Controller<E> {
-  current: &'static str,
-  scenes: SceneMap<E>
+pub struct Controller<Action> {
+  actions: HashMap<usize,Box<dyn FnMut( Action ) -> usize>>,
+  current: usize,
+  scenes: Vec<Box<dyn Scene<Action>>>
 }
 
 impl<E> Controller<E> {
-  pub fn _current_scene( &self ) -> &str { &self.current }
 
-  pub fn change( &mut self, scene_id: &'static str ) {
-    // TODO: validate
-    //self.scenes.get_mut( &self.current ).unwrap().on_exit();
-    self.current = scene_id;
-    //self.scenes.get_mut( &self.current ).unwrap().on_enter();
+  /// ...
+  pub fn key_down( &mut self, key: KeyEvent ) -> bool {
+    if let Some( scene ) = self.scenes.get_mut( self.current ) {
+      scene.on_key_down( key )
+    } else {
+      false
+    }
   }
 
   /// ...
-  pub async fn key_down( &mut self, key: KeyEvent ) -> bool {
+  pub fn update( &mut self ) {
     if let Some( scene ) = self.scenes.get_mut( self.current ) {
-      if let Some( callback ) = &mut scene.on_key_down {
-        return callback( key ).await
-      }
+      match scene.on_update() {
+        Event::Change( action ) => {
+          if let Some( callback ) = self.actions.get_mut( &self.current ) {
+            scene.on_exit();
+            self.current = ( callback )( action );
+            self.scenes.get_mut( self.current ).unwrap().on_enter();
+          }
+        },
+        Event::Noop => {}
+      };
     }
-
-    false
-  }
-
-  ///...
-  pub async fn update( &mut self ) -> Event<E> {
-    if let Some( scene ) = self.scenes.get_mut( self.current ) {
-      if let Some( callback ) = &mut scene.on_update {
-        return callback().await;
-      }
-    }
-
-    Event::NoChange
   }
 
   /// ...
-  pub fn render( &mut self, area: Rect, buf: &mut Buffer ) {
+  pub fn draw( &mut self, area: Rect, buf: &mut Buffer ) {
     if let Some( scene ) = self.scenes.get_mut( self.current ) {
-      ( scene.on_render )( area, buf );
+      scene.on_draw( area, buf );
     }
   }
 }
