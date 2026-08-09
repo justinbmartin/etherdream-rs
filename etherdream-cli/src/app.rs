@@ -23,22 +23,16 @@ pub enum Action {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
 
 pub struct App {
-  devices: Arc<Mutex<Devices>>,
+  device_id: Arc<Mutex<Option<usize>>>,
+  device_map: Arc<Mutex<device::DeviceMap>>,
   is_running: bool,
-  scenes: scene::Controller<Action>,
-  selected: Arc<Mutex<Option<usize>>>
-}
-
-pub struct Devices {
-  pub devices: device::DeviceMap,
-  pub selected_id: Option<usize>
+  scenes: scene::Controller<Action>
 }
 
 impl App {
   pub fn new() -> Self {
+    let device_id = Arc::new( Mutex::new( None::<usize> ) );
     let device_map = Arc::new( Mutex::new( device::DeviceMap::default() ) );
-    let devices = Arc::new( Mutex::new( Devices{ devices: device::DeviceMap::default(), selected_id: None } ) );
-    let selected = Arc::new( Mutex::new( None::<usize> ) );
 
     // Scenes
     let mut builder = scene::Builder::<Action>::new();
@@ -49,18 +43,18 @@ impl App {
     };
 
     let scene_device_id = {
-      let device = device::ScopedDeviceMap::new( selected.clone(), device_map.clone() );
-      builder.add_scene( Box::new( scenes::device::DeviceScene::new( device ) ) )
+      let scoped_device = device::ScopedDeviceMap::new( device_id.clone(), device_map.clone() );
+      builder.add_scene( Box::new( scenes::device::DeviceScene::new( scoped_device ) ) )
     };
 
     // Actions
     {
-      let selected = selected.clone();
+      let device_id = device_id.clone();
 
       builder.add_action( scene_list_id, Box::new( move | action |{
         match action {
-          Action::Device( device_id ) => {
-            *selected.lock().unwrap() = Some( device_id );
+          Action::Device( id ) => {
+            *device_id.lock().unwrap() = Some( id );
             scene_device_id
           },
           Action::List => {
@@ -71,10 +65,10 @@ impl App {
     }
 
     Self{
-      devices,
+      device_id,
+      device_map,
       is_running: false,
-      scenes: builder.build(),
-      selected
+      scenes: builder.build()
     }
   }
 
@@ -87,8 +81,7 @@ impl App {
 
       // Persist any discovered devices from the Etherdream discovery service
       while let Ok( device_info ) = discovery_rx.try_recv() {
-        println!("test");
-        self.devices.lock().unwrap().devices.insert( device_info.info().clone() );
+        self.device_map.lock().unwrap().insert( device_info.info().clone() );
       }
 
       if let Some( event ) = events_rx.recv().await {
