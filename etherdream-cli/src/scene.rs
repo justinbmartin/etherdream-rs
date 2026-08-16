@@ -39,8 +39,9 @@ pub struct UpdateContext<'a, T: Actionable> {
 }
 
 impl<'a, T: Actionable> UpdateContext<'a, T> {
-  pub fn invoke( &mut self, action: T::Action ) -> Event {
-    self.action.invoke( action )
+  pub fn invoke( &mut self, action: T::Action ) -> bool {
+    self.next_action = self.action.invoke( action );
+    true
   }
 }
 
@@ -69,10 +70,13 @@ impl<T: Actionable> Builder<T> {
   }
 
   pub fn build( self ) -> Controller<T> {
+    let mut stack = Vec::new();
+    stack.push( self.current.unwrap() );
+
     Controller::<T>{
       action: self.action,
       scenes: self.scenes,
-      stack: Vec::with_capacity( 10 )
+      stack
     }
   }
 }
@@ -98,6 +102,8 @@ impl<T: Actionable> Controller<T> {
   /// ...
   pub fn update( &mut self ) {
     if let Some( scene ) = self.scenes.get_mut( *self.stack.last().unwrap() ) {
+
+      // NEXT: I need to capture the requested event here...
       let mut update_ctx = UpdateContext{ action: &mut self.action, next_action: Event::None };
       scene.on_update( &mut update_ctx );
 

@@ -7,23 +7,47 @@ use ratatui::widgets::{ Block, /* Cell, */ Padding, Paragraph, Row, Widget, Tabl
 use ratatui_textarea::TextArea;
 
 use crate::app;
+use crate::app::MainScene;
 use crate::device;
 use crate::scene;
+use crate::scene::UpdateContext;
+
+pub const ID: &str = "device";
 
 const HIGHLIGHT_STYLE: Style = Style::new().bg( SLATE.c800 );
 const TABLE_KEY_WIDTH: u16 = 25;
 
 pub struct DeviceScene {
-  device: device::ScopedDevice
+  device: device::ScopedDevice,
+  deselect: bool
 }
 
 impl DeviceScene {
   pub fn new( device: device::ScopedDevice ) -> Self {
-    Self{ device }
+    Self{ device, deselect: false }
   }
 }
 
 impl scene::Scene<app::MainScene> for DeviceScene {
+  fn on_key_down( &mut self, key: KeyEvent ) -> bool {
+    match key.code {
+      KeyCode::Char( 'q' ) => {
+        self.deselect = true;
+        true
+      }
+      _ => {
+        false
+      }
+    }
+  }
+
+  fn on_update( &mut self, ctx: &mut UpdateContext<MainScene> ) {
+    if self.deselect {
+      self.deselect = false;
+      ctx.invoke( app::Action::DeselectDevice );
+    }
+  }
+
   fn on_draw( &mut self, area: Rect, buf: &mut Buffer ) {
     if let Some( device ) = self.device.get() {
       let layout = Layout::vertical([ Constraint::Length( 3 ), Constraint::Fill( 1 ) ]);
@@ -50,18 +74,6 @@ impl scene::Scene<app::MainScene> for DeviceScene {
       render_info( &device, info_area, buf );
     }
   }
-}
-
-async fn on_key_down( _key: KeyEvent, _device: Option<&device::Device> ) -> bool {
-  //let handled = self.scenes.key_down( key );
-
-  // Change scene if this is a connect event
-  //if let scene::Event::Connect( _ ) = handled {
-  //  self.scenes.set_scene( SceneKey::GeneratorList );
-  //};
-
-  //handled
-  false
 }
 
 // UI to render the Etherdream device intrinsic and run-time properties

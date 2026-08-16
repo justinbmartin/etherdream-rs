@@ -9,6 +9,8 @@ use crate::app;
 use crate::device;
 use crate::scene;
 
+pub const ID: &str = "list";
+
 const CONNECTED: &str = " Connected ";
 const DISCONNECTED: &str = "Disconnected";
 const PLAYING: &str = " Playing ";

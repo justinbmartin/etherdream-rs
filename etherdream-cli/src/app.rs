@@ -124,13 +124,13 @@ impl scene::Actionable for MainScene {
       Action::SelectDevice( id ) => {
         if let Ok( mut guard ) = self.device_id.lock() {
           *guard = Some( id );
-          return scene::Event::Switch( "device" )
+          return scene::Event::Switch( scenes::device::ID )
         }
       },
       Action::DeselectDevice => {
         if let Ok( mut guard ) = self.device_id.lock() {
           *guard = None;
-          return scene::Event::Switch( "list" );
+          return scene::Event::Switch( scenes::list::ID );
         }
       },
     }
