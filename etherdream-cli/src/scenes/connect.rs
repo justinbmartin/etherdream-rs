@@ -34,7 +34,7 @@ impl<'a> ConnectScene<'a> {
   }
 }
 
-impl<'a> scene::Scene<app::Action> for ConnectScene<'a> {
+impl<'a> scene::Scene<app::Handler> for ConnectScene<'a> {
   fn on_enter( &mut self ) {
     self.input_selected = INPUT_CONNECT_BUTTON;
   }
@@ -71,12 +71,10 @@ impl<'a> scene::Scene<app::Action> for ConnectScene<'a> {
     false
   }
 
-  fn on_update( &mut self ) -> scene::Event<app::Action> {
+  fn on_update( &mut self, ctx: &mut scene::UpdateContext<app::Handler> ) {
     if self.connect {
       self.connect = false;
-      scene::Event::Change( app::Action::Connect( self.port_input.lines()[0].parse::<u16>().unwrap() ) )
-    } else {
-      scene::Event::Noop
+      ctx.invoke( app::Action::Connect( self.port_input.lines()[0].parse::<u16>().unwrap() ) );
     }
   }
 

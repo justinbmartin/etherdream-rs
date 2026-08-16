@@ -1,65 +1,91 @@
+use std::collections::HashMap;
+
 use crossterm::event::KeyEvent;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 
-pub enum Event<T> {
-  Change( T ),
-  Noop
+pub enum Event {
+  Push( &'static str ),
+  Pop,
+  Switch( &'static str ),
+  None
 }
 
-pub trait Scene<T> {
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene
+
+pub trait Scene<A: ActionHandler> {
   fn on_enter( &mut self ) {}
   fn on_exit( &mut self ) {}
   fn on_key_down( &mut self, _key: KeyEvent ) -> bool { false }
-  fn on_update( &mut self ) -> Event<T> { Event::Noop }
+  fn on_update( &mut self, _ctx: &mut UpdateContext<A> ) { }
   fn on_draw( &mut self, area: Rect, buf: &mut Buffer );
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Action Handler
+
+pub trait ActionHandler {
+  type Event;
+
+  fn invoke( &mut self, action: Self::Event ) -> Event;
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Update Context
+
+pub struct UpdateContext<'a, A: ActionHandler> {
+  handler: &'a mut A,
+  next_action: Event
+}
+
+impl<'a, A: ActionHandler> UpdateContext<'a, A> {
+  pub fn invoke( &mut self, action: A::Event ) -> Event {
+    self.handler.invoke( action )
+  }
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
-pub struct Builder<Action> {
-  current: Option<usize>,
-  scenes: Vec<Box<dyn Scene<Action>>>
+pub struct Builder<A: ActionHandler> {
+  current: Option<&'static str>,
+  scenes: HashMap<&'static str, Box<dyn Scene<A>>>
 }
 
-impl<T> Builder<T> {
+impl<A: ActionHandler> Builder<A> {
   pub fn new() -> Self {
     Self{
       current: None,
-      scenes: Vec::new()
+      scenes: HashMap::new()
     }
   }
 
   /// Adds a scene to the builder.
-  pub fn add_scene( &mut self, scene: Box<dyn Scene<T>> ) -> usize {
-    self.scenes.push( scene );
-    let id = self.scenes.len() - 1;
+  pub fn add_scene( &mut self, id: &'static str, scene: Box<dyn Scene<A>> ) -> bool {
+    self.scenes.insert( id, scene );
     if self.current.is_none() { self.current = Some( id ) }
-    id
+    true
   }
 
-  pub fn build( self, handler: Box<dyn Fn( T ) -> Option<usize>> ) -> Controller<T> {
-    Controller::<T>{
-      actions: handler,
-      current: self.current.unwrap(), // TODO
-      scenes: self.scenes
+  pub fn build( self, handler: A ) -> Controller<A> {
+    Controller::<A>{
+      handler,
+      scenes: self.scenes,
+      stack: Vec::with_capacity( 10 )
     }
   }
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
-pub struct Controller<Action> {
-  actions: Box<dyn Fn( Action ) -> Option<usize>>,
-  current: usize,
-  scenes: Vec<Box<dyn Scene<Action>>>
+pub struct Controller<A: ActionHandler> {
+  handler: A,
+  scenes: HashMap<&'static str, Box<dyn Scene<A>>>,
+  stack: Vec<&'static str>
 }
 
-impl<E> Controller<E> {
+impl<A: ActionHandler> Controller<A> {
 
   /// ...
   pub fn key_down( &mut self, key: KeyEvent ) -> bool {
-    if let Some( scene ) = self.scenes.get_mut( self.current ) {
+    if let Some( scene ) = self.scenes.get_mut( *self.stack.last().unwrap() ) {
       scene.on_key_down( key )
     } else {
       false
@@ -68,23 +94,35 @@ impl<E> Controller<E> {
 
   /// ...
   pub fn update( &mut self ) {
-    if let Some( scene ) = self.scenes.get_mut( self.current ) {
-      match scene.on_update() {
-        Event::Change( action ) => {
-          if let Some( scene_id ) = ( self.actions )( action ) {
-            scene.on_exit();
-            self.current = scene_id;
-            self.scenes.get_mut( self.current ).unwrap().on_enter();
-          }
+    if let Some( scene ) = self.scenes.get_mut( *self.stack.last().unwrap() ) {
+      let mut update_ctx = UpdateContext{ handler: &mut self.handler, next_action: Event::None };
+      scene.on_update( &mut update_ctx );
+
+      match update_ctx.next_action {
+        Event::Push( next_scene ) => {
+          scene.on_exit();
+          self.stack.push( next_scene );
+          self.scenes.get_mut( *self.stack.last().unwrap() ).unwrap().on_enter();
         },
-        Event::Noop => {}
-      };
+        Event::Pop => {
+          scene.on_exit();
+          self.stack.pop();
+          self.scenes.get_mut( *self.stack.last().unwrap() ).unwrap().on_enter();
+        }
+        Event::Switch( next_scene ) => {
+          scene.on_exit();
+          self.stack.clear();
+          self.stack.push( next_scene );
+          self.scenes.get_mut( *self.stack.last().unwrap() ).unwrap().on_enter();
+        }
+        Event::None => {}
+      }
     }
   }
 
   /// ...
   pub fn draw( &mut self, area: Rect, buf: &mut Buffer ) {
-    if let Some( scene ) = self.scenes.get_mut( self.current ) {
+    if let Some( scene ) = self.scenes.get_mut( *self.stack.last().unwrap() ) {
       scene.on_draw( area, buf );
     }
   }

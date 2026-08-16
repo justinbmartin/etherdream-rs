@@ -15,10 +15,42 @@ const FPS: f32 = 30.0;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Action
 
+const ACTION_CONNECT: &str = "connect";
+const ACTION_SELECT_DEVICE: &str = "select_device";
+const ACTION_DESELECT_DEVICE: &str = "deselect_device";
+
 pub enum Action {
   Connect( u16 ),
   SelectDevice( usize ),
   DeselectDevice
+}
+
+pub struct Handler;
+
+impl scene::ActionHandler for Handler {
+  type Event = Action;
+
+  fn invoke(&mut self, action: Self::Event) -> scene::Event {
+    match action {
+      Action::Connect( _port ) => {
+        return scene::Event::Pop;
+      },
+      Action::SelectDevice( id ) => {
+        if let Ok( mut guard ) = device_id.lock() {
+          *guard = Some( id );
+          return scene::Event::Switch( "device" )
+        }
+      },
+      Action::DeselectDevice => {
+        if let Ok( mut guard ) = device_id.lock() {
+          *guard = None;
+          return scene::Event::Switch( "list" );
+        }
+      },
+    }
+
+    scene::Event::None
+  }
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
@@ -26,7 +58,7 @@ pub enum Action {
 pub struct App {
   device_map: Arc<Mutex<device::DeviceMap>>,
   is_running: bool,
-  scenes: scene::Controller<Action>
+  scenes: scene::Controller<Handler>
 }
 
 impl App {
@@ -35,56 +67,30 @@ impl App {
     let device_map = Arc::new( Mutex::new( device::DeviceMap::default() ) );
 
     // Scenes
-    let mut builder = scene::Builder::<Action>::new();
+    let mut builder = scene::Builder::<Handler>::new();
 
-    let scene_list_id = {
+    {
       let device_map = device::ReadOnlyDeviceMap::new( device_map.clone() );
-      builder.add_scene( Box::new( scenes::list::ListScene::new( device_map ) ) )
+      builder.add_scene( "list", Box::new( scenes::list::ListScene::new( device_map ) ) )
     };
 
-    let scene_device_id = {
+    {
       let scoped_device = device::ScopedDevice::new( device_id.clone(), device_map.clone() );
-      builder.add_scene( Box::new( scenes::device::DeviceScene::new( scoped_device ) ) )
+      builder.add_scene( "device", Box::new( scenes::device::DeviceScene::new( scoped_device ) ) )
     };
 
-    let scene_connect_id = {
+    {
       let scoped_device = device::ScopedDevice::new( device_id.clone(), device_map.clone() );
-      builder.add_scene( Box::new( scenes::connect::ConnectScene::new( scoped_device ) ) )
+      builder.add_scene( "connect", Box::new( scenes::connect::ConnectScene::new( scoped_device ) ) )
     };
 
-    // Actions
-    let action_fn = {
-      let device_id = device_id.clone();
-
-      Box::new( move | action |{
-        match action {
-          Action::Connect( port ) => {
-            Some( scene_device_id )
-          },
-          Action::SelectDevice( id ) => {
-            if let Ok( mut guard ) = device_id.lock() {
-              *guard = Some( id );
-              Some( scene_device_id )
-            } else {
-              None
-            }
-          },
-          Action::DeselectDevice => {
-            if let Ok( mut guard ) = device_id.lock() {
-              *guard = None;
-              Some( scene_list_id )
-            } else {
-              None
-            }
-          },
-        }
-      })
-    };
+    // Handler
+    let handler = Handler{};
 
     Self{
       device_map,
       is_running: false,
-      scenes: builder.build( action_fn )
+      scenes: builder.build( handler )
     }
   }
 
