@@ -8,6 +8,8 @@ use crate::app;
 use crate::device;
 use crate::scene;
 
+pub const ID: &str = "connect";
+
 const INPUT_CONNECT_BUTTON: usize = 1;
 const INPUT_PORT: usize = 0;
 

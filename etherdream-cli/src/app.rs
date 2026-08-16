@@ -11,8 +11,6 @@ use crate::event;
 use crate::scene;
 use crate::scenes;
 
-const FPS: f32 = 30.0;
-
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Action
 
 pub enum Action {
@@ -25,7 +23,6 @@ pub enum Action {
 
 pub struct App {
   device_map: Arc<Mutex<device::DeviceMap>>,
-  is_running: bool,
   scenes: scene::Controller<MainScene>
 }
 
@@ -35,37 +32,36 @@ impl App {
     let device_map = Arc::new( Mutex::new( device::DeviceMap::default() ) );
 
     // Scenes
-    let main_scene = MainScene{ device_id: device_id.clone() };
+    let main_scene = MainScene{ device_id: device_id.clone(), device_map: device_map.clone() };
     let mut builder = scene::Builder::new( main_scene );
 
     {
       let device_map = device::ReadOnlyDeviceMap::new( device_map.clone() );
-      builder.add_scene( "list", Box::new( scenes::list::ListScene::new( device_map ) ) );
+      builder.add_scene( scenes::list::ID, Box::new( scenes::list::ListScene::new( device_map ) ) );
     }
 
     {
       let scoped_device = device::ScopedDevice::new( device_id.clone(), device_map.clone() );
-      builder.add_scene( "device", Box::new( scenes::device::DeviceScene::new( scoped_device ) ) );
+      builder.add_scene( scenes::device::ID, Box::new( scenes::device::DeviceScene::new( scoped_device ) ) );
     }
 
     {
       let scoped_device = device::ScopedDevice::new( device_id.clone(), device_map.clone() );
-      builder.add_scene( "connect", Box::new( scenes::connect::ConnectScene::new( scoped_device ) ) );
+      builder.add_scene( scenes::connect::ID, Box::new( scenes::connect::ConnectScene::new( scoped_device ) ) );
     }
 
     Self{
       device_map,
-      is_running: false,
       scenes: builder.build()
     }
   }
 
   pub async fn run( &mut self, mut terminal: DefaultTerminal, mut discovery_rx: Receiver<etherdream::DiscoveredDeviceInfo> ) {
+    let mut is_running = true;
+
     let ( events_controller, mut events_rx ) = event::EventController::start().await;
 
-    //
-    self.is_running = true;
-    while self.is_running {
+    while is_running {
 
       // Persist any discovered devices from the Etherdream discovery service
       while let Ok( device_info ) = discovery_rx.try_recv() {
@@ -77,7 +73,7 @@ impl App {
           event::Event::KeyEvent( key ) => {
             if ! self.scenes.key_down( key ) {
               match key.code {
-                KeyCode::Char( 'q' ) | KeyCode::Esc => { self.is_running = false; },
+                KeyCode::Char( 'q' ) | KeyCode::Esc => { is_running = false; },
                 _ => {}
               }
             }
@@ -110,6 +106,7 @@ impl App {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
 pub struct MainScene {
+  device_map: Arc<Mutex<device::DeviceMap>>,
   device_id: Arc<Mutex<Option<usize>>>
 }
 
@@ -119,6 +116,12 @@ impl scene::Actionable for MainScene {
   fn invoke( &mut self, action: Action ) -> scene::Event {
     match action {
       Action::Connect( _port ) => {
+        if let Ok( guard ) = self.device_id.lock() && let Some( device_id ) = *guard {
+          if let Ok( mut guard ) = self.device_map.lock() && let Some( _device ) = guard.get_mut( device_id ) {
+            //tokio::spawn( device.connect() );
+          }
+        }
+
         return scene::Event::Pop;
       },
       Action::SelectDevice( id ) => {

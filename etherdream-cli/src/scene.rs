@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use crossterm::event::KeyEvent;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
+use tokio::sync::mpsc;
 
 pub enum Event {
   Push( &'static str ),
@@ -13,12 +14,12 @@ pub enum Event {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Actionable
 
-pub trait Actionable {
+pub trait Actionable: 'static + Send {
   /// ...
-  type Action;
+  type Action: 'static + Send;
 
   /// ...
-  fn invoke( &mut self, action: Self::Action ) -> Event;
+  async fn invoke( &mut self, action: Self::Action ) -> Event;
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene
@@ -35,7 +36,8 @@ pub trait Scene<T: Actionable> {
 
 pub struct UpdateContext<'a, T: Actionable> {
   action: &'a mut T,
-  next_action: Event
+  next_action: Event,
+  action_tx: mpsc::Sender<T::Action>
 }
 
 impl<'a, T: Actionable> UpdateContext<'a, T> {
@@ -69,12 +71,24 @@ impl<T: Actionable> Builder<T> {
     true
   }
 
-  pub fn build( self ) -> Controller<T> {
+  pub async fn build( self ) -> Controller<T> {
     let mut stack = Vec::new();
     stack.push( self.current.unwrap() );
 
+    let ( action_tx, mut action_rx ) = mpsc::channel::<T::Action>( 16 );
+
+    tokio::spawn({
+      let mut action = self.action;
+
+      async move {
+        while let Some( action2 ) = action_rx.recv().await {
+          let _ = action.invoke( action2 ).await;
+        }
+      }
+    });
+
     Controller::<T>{
-      action: self.action,
+      action_tx,
       scenes: self.scenes,
       stack
     }
@@ -84,7 +98,7 @@ impl<T: Actionable> Builder<T> {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
 pub struct Controller<T: Actionable> {
-  action: T,
+  action_tx: mpsc::Sender<T::Action>,
   scenes: HashMap<&'static str, Box<dyn Scene<T>>>,
   stack: Vec<&'static str>
 }
