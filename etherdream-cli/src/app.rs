@@ -24,8 +24,9 @@ pub enum Action {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
 
 pub struct App {
+  device_map: Arc<Mutex<device::DeviceMap>>,
   is_running: bool,
-  scenes: SceneController
+  scenes: scene::Controller<MainScene>
 }
 
 impl App {
@@ -34,26 +35,28 @@ impl App {
     let device_map = Arc::new( Mutex::new( device::DeviceMap::default() ) );
 
     // Scenes
-    let mut builder = scene::Builder::<Self>::new();
+    let main_scene = MainScene{ device_id: device_id.clone() };
+    let mut builder = scene::Builder::new( main_scene );
 
     {
       let device_map = device::ReadOnlyDeviceMap::new( device_map.clone() );
-      builder.add_scene( "list", Box::new( scenes::list::ListScene::new( device_map ) ) )
-    };
+      builder.add_scene( "list", Box::new( scenes::list::ListScene::new( device_map ) ) );
+    }
 
     {
       let scoped_device = device::ScopedDevice::new( device_id.clone(), device_map.clone() );
-      builder.add_scene( "device", Box::new( scenes::device::DeviceScene::new( scoped_device ) ) )
-    };
+      builder.add_scene( "device", Box::new( scenes::device::DeviceScene::new( scoped_device ) ) );
+    }
 
     {
       let scoped_device = device::ScopedDevice::new( device_id.clone(), device_map.clone() );
-      builder.add_scene( "connect", Box::new( scenes::connect::ConnectScene::new( scoped_device ) ) )
-    };
+      builder.add_scene( "connect", Box::new( scenes::connect::ConnectScene::new( scoped_device ) ) );
+    }
 
     Self{
+      device_map,
       is_running: false,
-      scenes: builder.build(  )
+      scenes: builder.build()
     }
   }
 
@@ -106,15 +109,14 @@ impl App {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
-pub struct SceneController {
-  device_id: Arc<Mutex<Option<usize>>>,
-  device_map: Arc<Mutex<device::DeviceMap>>
+pub struct MainScene {
+  device_id: Arc<Mutex<Option<usize>>>
 }
 
-impl scene::ActionHandler for SceneController {
-  type Event = Action;
+impl scene::Actionable for MainScene {
+  type Action = Action;
 
-  fn invoke(&mut self, action: Self::Event) -> scene::Event {
+  fn invoke( &mut self, action: Action ) -> scene::Event {
     match action {
       Action::Connect( _port ) => {
         return scene::Event::Pop;

@@ -11,62 +11,66 @@ pub enum Event {
   None
 }
 
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Actionable
+
+pub trait Actionable {
+  /// ...
+  type Action;
+
+  /// ...
+  fn invoke( &mut self, action: Self::Action ) -> Event;
+}
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene
 
-pub trait Scene<A: ActionHandler> {
+pub trait Scene<T: Actionable> {
   fn on_enter( &mut self ) {}
   fn on_exit( &mut self ) {}
   fn on_key_down( &mut self, _key: KeyEvent ) -> bool { false }
-  fn on_update( &mut self, _ctx: &mut UpdateContext<A> ) { }
+  fn on_update( &mut self, _ctx: &mut UpdateContext<T> ) { }
   fn on_draw( &mut self, area: Rect, buf: &mut Buffer );
-}
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Action Handler
-
-pub trait ActionHandler {
-  type Event;
-
-  fn invoke( &mut self, action: Self::Event ) -> Event;
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Update Context
 
-pub struct UpdateContext<'a, A: ActionHandler> {
-  handler: &'a mut A,
+pub struct UpdateContext<'a, T: Actionable> {
+  action: &'a mut T,
   next_action: Event
 }
 
-impl<'a, A: ActionHandler> UpdateContext<'a, A> {
-  pub fn invoke( &mut self, action: A::Event ) -> Event {
-    self.handler.invoke( action )
+impl<'a, T: Actionable> UpdateContext<'a, T> {
+  pub fn invoke( &mut self, action: T::Action ) -> Event {
+    self.action.invoke( action )
   }
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
-pub struct Builder<A: ActionHandler> {
+pub struct Builder<T: Actionable> {
+  action: T,
   current: Option<&'static str>,
-  scenes: HashMap<&'static str, Box<dyn Scene<A>>>
+  scenes: HashMap<&'static str, Box<dyn Scene<T>>>
 }
 
-impl<A: ActionHandler> Builder<A> {
-  pub fn new() -> Self {
+impl<T: Actionable> Builder<T> {
+  pub fn new( action: T ) -> Self {
     Self{
+      action,
       current: None,
       scenes: HashMap::new()
     }
   }
 
   /// Adds a scene to the builder.
-  pub fn add_scene( &mut self, id: &'static str, scene: Box<dyn Scene<A>> ) -> bool {
+  pub fn add_scene( &mut self, id: &'static str, scene: Box<dyn Scene<T>> ) -> bool {
     self.scenes.insert( id, scene );
     if self.current.is_none() { self.current = Some( id ) }
     true
   }
 
-  pub fn build( self, handler: A ) -> Controller<A> {
-    Controller::<A>{
-      handler,
+  pub fn build( self ) -> Controller<T> {
+    Controller::<T>{
+      action: self.action,
       scenes: self.scenes,
       stack: Vec::with_capacity( 10 )
     }
@@ -75,14 +79,13 @@ impl<A: ActionHandler> Builder<A> {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
-pub struct Controller<A: ActionHandler> {
-  handler: A,
-  scenes: HashMap<&'static str, Box<dyn Scene<A>>>,
+pub struct Controller<T: Actionable> {
+  action: T,
+  scenes: HashMap<&'static str, Box<dyn Scene<T>>>,
   stack: Vec<&'static str>
 }
 
-impl<A: ActionHandler> Controller<A> {
-
+impl<T: Actionable> Controller<T> {
   /// ...
   pub fn key_down( &mut self, key: KeyEvent ) -> bool {
     if let Some( scene ) = self.scenes.get_mut( *self.stack.last().unwrap() ) {
@@ -95,7 +98,7 @@ impl<A: ActionHandler> Controller<A> {
   /// ...
   pub fn update( &mut self ) {
     if let Some( scene ) = self.scenes.get_mut( *self.stack.last().unwrap() ) {
-      let mut update_ctx = UpdateContext{ handler: &mut self.handler, next_action: Event::None };
+      let mut update_ctx = UpdateContext{ action: &mut self.action, next_action: Event::None };
       scene.on_update( &mut update_ctx );
 
       match update_ctx.next_action {

@@ -35,7 +35,7 @@ impl ListScene {
   }
 }
 
-impl scene::Scene<app::App> for ListScene {
+impl scene::Scene<app::MainScene> for ListScene {
   fn on_key_down( &mut self, key: KeyEvent ) -> bool {
     match key.code {
       dir @ ( KeyCode::Up | KeyCode::Down ) => {
@@ -61,7 +61,7 @@ impl scene::Scene<app::App> for ListScene {
     false
   }
 
-  fn on_update( &mut self, ctx: &mut scene::UpdateContext<app::App> ) {
+  fn on_update( &mut self, ctx: &mut scene::UpdateContext<app::MainScene> ) {
     let devices = self.devices.read();
 
     // Refresh our local sorted device cache if the remote device map has changed
