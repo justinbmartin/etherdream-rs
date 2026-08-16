@@ -113,12 +113,14 @@ pub struct MainScene {
 impl scene::Actionable for MainScene {
   type Action = Action;
 
-  fn invoke( &mut self, action: Action ) -> scene::Event {
+  async fn invoke( &mut self, action: Action ) -> scene::Event {
+    /*
     match action {
       Action::Connect( _port ) => {
         if let Ok( guard ) = self.device_id.lock() && let Some( device_id ) = *guard {
           if let Ok( mut guard ) = self.device_map.lock() && let Some( _device ) = guard.get_mut( device_id ) {
             //tokio::spawn( device.connect() );
+            return scene::Event::None;
           }
         }
 
@@ -137,6 +139,8 @@ impl scene::Actionable for MainScene {
         }
       },
     }
+    */
+
 
     scene::Event::None
   }

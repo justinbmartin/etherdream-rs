@@ -14,12 +14,12 @@ pub enum Event {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Actionable
 
-pub trait Actionable: 'static + Send {
+pub trait Actionable {
   /// ...
   type Action: 'static + Send;
 
   /// ...
-  async fn invoke( &mut self, action: Self::Action ) -> impl Future<Output=Event> + Send;
+  fn invoke( &mut self, action: Self::Action ) -> impl Future<Output=Event> + Send;
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene
@@ -41,21 +41,23 @@ pub struct UpdateContext<'a, T: Actionable> {
 }
 
 impl<'a, T: Actionable> UpdateContext<'a, T> {
-  pub fn invoke( &mut self, action: T::Action ) -> bool {
-    self.next_action = self.action.invoke( action );
+  pub fn invoke( &mut self, _action: T::Action ) -> bool {
+    //self.next_action = self.action.invoke( action );
     true
   }
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
-pub struct Builder<T: Actionable> {
+pub struct Builder<T: Actionable + 'static + Send> {
   action: T,
   current: Option<&'static str>,
   scenes: HashMap<&'static str, Box<dyn Scene<T>>>
 }
 
-impl<T: Actionable> Builder<T> {
+impl<T> Builder<T>
+  where T: Actionable + Send + 'static
+{
   pub fn new( action: T ) -> Self {
     Self{
       action,
@@ -71,7 +73,8 @@ impl<T: Actionable> Builder<T> {
     true
   }
 
-  pub async fn build( self ) -> Controller<T> {
+  pub async fn build( self ) -> Controller<T>
+  {
     let mut stack = Vec::new();
     stack.push( self.current.unwrap() );
 
