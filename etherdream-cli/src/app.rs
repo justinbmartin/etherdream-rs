@@ -15,50 +15,17 @@ const FPS: f32 = 30.0;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Action
 
-const ACTION_CONNECT: &str = "connect";
-const ACTION_SELECT_DEVICE: &str = "select_device";
-const ACTION_DESELECT_DEVICE: &str = "deselect_device";
-
 pub enum Action {
   Connect( u16 ),
   SelectDevice( usize ),
   DeselectDevice
 }
 
-pub struct Handler;
-
-impl scene::ActionHandler for Handler {
-  type Event = Action;
-
-  fn invoke(&mut self, action: Self::Event) -> scene::Event {
-    match action {
-      Action::Connect( _port ) => {
-        return scene::Event::Pop;
-      },
-      Action::SelectDevice( id ) => {
-        if let Ok( mut guard ) = device_id.lock() {
-          *guard = Some( id );
-          return scene::Event::Switch( "device" )
-        }
-      },
-      Action::DeselectDevice => {
-        if let Ok( mut guard ) = device_id.lock() {
-          *guard = None;
-          return scene::Event::Switch( "list" );
-        }
-      },
-    }
-
-    scene::Event::None
-  }
-}
-
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
 
 pub struct App {
-  device_map: Arc<Mutex<device::DeviceMap>>,
   is_running: bool,
-  scenes: scene::Controller<Handler>
+  scenes: SceneController
 }
 
 impl App {
@@ -67,7 +34,7 @@ impl App {
     let device_map = Arc::new( Mutex::new( device::DeviceMap::default() ) );
 
     // Scenes
-    let mut builder = scene::Builder::<Handler>::new();
+    let mut builder = scene::Builder::<Self>::new();
 
     {
       let device_map = device::ReadOnlyDeviceMap::new( device_map.clone() );
@@ -84,13 +51,9 @@ impl App {
       builder.add_scene( "connect", Box::new( scenes::connect::ConnectScene::new( scoped_device ) ) )
     };
 
-    // Handler
-    let handler = Handler{};
-
     Self{
-      device_map,
       is_running: false,
-      scenes: builder.build( handler )
+      scenes: builder.build(  )
     }
   }
 
@@ -138,5 +101,38 @@ impl App {
     Paragraph::new( "Use ↓↑ to move, <Enter> to select a device, 'q' to quit." )
       .centered()
       .render( footer_area, frame.buffer_mut() );
+  }
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
+
+pub struct SceneController {
+  device_id: Arc<Mutex<Option<usize>>>,
+  device_map: Arc<Mutex<device::DeviceMap>>
+}
+
+impl scene::ActionHandler for SceneController {
+  type Event = Action;
+
+  fn invoke(&mut self, action: Self::Event) -> scene::Event {
+    match action {
+      Action::Connect( _port ) => {
+        return scene::Event::Pop;
+      },
+      Action::SelectDevice( id ) => {
+        if let Ok( mut guard ) = self.device_id.lock() {
+          *guard = Some( id );
+          return scene::Event::Switch( "device" )
+        }
+      },
+      Action::DeselectDevice => {
+        if let Ok( mut guard ) = self.device_id.lock() {
+          *guard = None;
+          return scene::Event::Switch( "list" );
+        }
+      },
+    }
+
+    scene::Event::None
   }
 }

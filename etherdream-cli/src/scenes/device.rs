@@ -23,7 +23,7 @@ impl DeviceScene {
   }
 }
 
-impl scene::Scene<app::Handler> for DeviceScene {
+impl scene::Scene<app::App> for DeviceScene {
   fn on_draw( &mut self, area: Rect, buf: &mut Buffer ) {
     if let Some( device ) = self.device.get() {
       let layout = Layout::vertical([ Constraint::Length( 3 ), Constraint::Fill( 1 ) ]);
