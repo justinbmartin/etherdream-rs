@@ -19,7 +19,7 @@ pub trait Actionable: 'static + Send {
   type Action: 'static + Send;
 
   /// ...
-  async fn invoke( &mut self, action: Self::Action ) -> Event;
+  async fn invoke( &mut self, action: Self::Action ) -> impl Future<Output=Event> + Send;
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene
@@ -77,7 +77,7 @@ impl<T: Actionable> Builder<T> {
 
     let ( action_tx, mut action_rx ) = mpsc::channel::<T::Action>( 16 );
 
-    tokio::spawn({
+    let _ = tokio::spawn({
       let mut action = self.action;
 
       async move {
