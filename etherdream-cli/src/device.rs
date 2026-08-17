@@ -28,14 +28,17 @@ impl Device {
   pub fn is_connected( &self ) -> bool { self.client.is_some() || self.generator.is_some() }
 
   //
-  pub async fn connect( &mut self ) -> Result<(), etherdream::client::Error> {
+  pub fn connect( &mut self ) -> Result<(), etherdream::client::Error> {
     if self.generator.is_some() { return Ok( () ); }
 
-    etherdream::connect( self.info ).await
-      .and_then(| client |{
-        self.client = Some( client );
-        Ok( () )
-      })
+    let handle = tokio::runtime::Handle::current();
+
+    let result = handle.block_on( etherdream::connect( self.info ) );
+
+    result.and_then(| client |{
+      self.client = Some( client );
+      Ok( () )
+    })
   }
 
   //
@@ -137,10 +140,6 @@ impl<'a> DeviceGuard<'a> {
 
   pub fn is_connected( &self ) -> bool {
     self.guard.get( self.device_id ).unwrap().is_connected()
-  }
-
-  pub async fn connect( &mut self ) {
-    let _ = self.guard.get_mut( self.device_id ).unwrap().connect().await;
   }
 }
 

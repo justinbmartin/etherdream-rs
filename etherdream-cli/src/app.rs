@@ -124,7 +124,7 @@ impl scene::Actionable for MainScene {
       Action::Connect( _port ) => {
         if let Ok( guard ) = self.device_id.lock() && let Some( device_id ) = *guard {
           if let Ok( mut guard ) = self.device_map.lock() && let Some( device ) = guard.get_mut( device_id ) {
-            //let _ = device.connect().await;
+            let _ = device.connect();
             return scene::SceneEvent::None;
           }
         }
