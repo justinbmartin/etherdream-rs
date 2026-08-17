@@ -22,18 +22,13 @@ pub enum Action {
 
 pub struct App {
   device_map: Arc<Mutex<device::DeviceMap>>,
-  events_controller: scene::EventController,
-  events_rx: Receiver<scene::Event>,
   scenes: scene::Controller<MainScene>
 }
 
 impl App {
-  pub async fn new() -> Self {
+  pub fn new( action_tx: tokio::sync::mpsc::Sender<Action> ) -> Self {
     let device_id = Arc::new( Mutex::new( None::<usize> ) );
     let device_map = Arc::new( Mutex::new( device::DeviceMap::default() ) );
-
-    let main_scene = MainScene{ device_id: device_id.clone(), device_map: device_map.clone() };
-    let ( events_controller, events_rx, action_tx ) = scene::EventController::start( main_scene ).await;
 
     // Scenes
     let mut builder = scene::Builder::new( action_tx );
@@ -55,13 +50,11 @@ impl App {
 
     Self{
       device_map,
-      events_controller,
-      events_rx,
-      scenes: builder.build().await
+      scenes: builder.build()
     }
   }
 
-  pub async fn run( mut self, mut terminal: DefaultTerminal, mut discovery_rx: Receiver<etherdream::DiscoveredDeviceInfo> ) {
+  pub fn run( mut self, mut terminal: DefaultTerminal, mut discovery_rx: Receiver<etherdream::DiscoveredDeviceInfo>, mut event_rx: Receiver<scene::Event> ) {
     let mut is_running = true;
 
     while is_running {
@@ -71,7 +64,7 @@ impl App {
         self.device_map.lock().unwrap().insert( device_info.info().clone() );
       }
 
-      if let Some( event ) = self.events_rx.recv().await {
+      if let Some( event ) = event_rx.blocking_recv() {
         match event {
           scene::Event::Key( key ) => {
             if ! self.scenes.key_down( key ) {
@@ -91,8 +84,6 @@ impl App {
         }
       }
     }
-
-    self.events_controller.stop().await;
   }
 
   fn render( &mut self, frame: &mut Frame ) {
@@ -112,8 +103,14 @@ impl App {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
 pub struct MainScene {
-  device_map: Arc<Mutex<device::DeviceMap>>,
-  device_id: Arc<Mutex<Option<usize>>>
+  device_id: Arc<Mutex<Option<usize>>>,
+  device_map: Arc<Mutex<device::DeviceMap>>
+}
+
+impl MainScene {
+  pub fn new( device_id: Arc<Mutex<Option<usize>>>, device_map: Arc<Mutex<device::DeviceMap>> ) -> Self {
+    Self{ device_id, device_map }
+  }
 }
 
 impl scene::Actionable for MainScene {

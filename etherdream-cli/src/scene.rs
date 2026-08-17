@@ -32,8 +32,8 @@ pub trait Actionable {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene
 
 pub trait Scene<T: Actionable> {
-  fn on_enter( &mut self ) {}
-  fn on_exit( &mut self ) {}
+  fn on_enter( &mut self ) { }
+  fn on_exit( &mut self ) { }
   fn on_key_down( &mut self, _key: KeyEvent ) -> bool { false }
   fn on_update( &mut self, _ctx: &mut UpdateContext<T> ) { }
   fn on_draw( &mut self, area: Rect, buf: &mut Buffer );
@@ -79,7 +79,7 @@ impl<T> Builder<T>
     true
   }
 
-  pub async fn build( self ) -> Controller<T>
+  pub fn build( self ) -> Controller<T>
   {
     let mut stack = Vec::new();
     stack.push( self.current.unwrap() );
@@ -170,15 +170,12 @@ pub struct EventController {
 }
 
 impl EventController {
-  pub async fn start<T: Actionable + Send + 'static>( mut action_handler: T ) -> ( EventController, mpsc::Receiver<Event>, mpsc::Sender<T::Action> ) {
-    let cancellation_token = CancellationToken::new();
+  pub async fn start( event_tx: mpsc::Sender<Event>, cancellation_token: CancellationToken ) -> EventController {
     let mut tasks = JoinSet::new();
-    let ( tx, rx ) = mpsc::channel( 16 );
-    let ( action_tx, mut action_rx ) = mpsc::channel::<T::Action>( 16 );
 
     tasks.spawn({
       let cancellation_token = cancellation_token.child_token();
-      let tx = tx.clone();
+      let tx = event_tx.clone();
 
       // Start interval tick for FPS
       async move {
@@ -201,8 +198,8 @@ impl EventController {
     // Start task to capture key events
     tasks.spawn({
       let cancellation_token = cancellation_token.child_token();
-      let tx1 = tx.clone();
-      let tx2 = tx.clone();
+      let tx1 = event_tx.clone();
+      let tx2 = event_tx.clone();
 
       async move {
         tokio::select!{
@@ -223,18 +220,11 @@ impl EventController {
               }
             }
           } => {}
-          _ = async move {
-            while let Some( action ) = action_rx.recv().await {
-              let event = action_handler.invoke( action ).await;
-              let _ = tx2.send( Event::Scene( event ) ).await;
-            }
-          } => {}
         }
       }
     });
 
-    let controller = EventController{ cancellation_token, tasks };
-    ( controller, rx, action_tx )
+    EventController{ cancellation_token, tasks }
   }
 
   pub async fn stop( self ) {
