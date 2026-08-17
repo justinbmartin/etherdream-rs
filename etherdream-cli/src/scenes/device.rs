@@ -18,13 +18,14 @@ const HIGHLIGHT_STYLE: Style = Style::new().bg( SLATE.c800 );
 const TABLE_KEY_WIDTH: u16 = 25;
 
 pub struct DeviceScene {
+  connect: bool,
   device: device::ScopedDevice,
   deselect: bool
 }
 
 impl DeviceScene {
   pub fn new( device: device::ScopedDevice ) -> Self {
-    Self{ device, deselect: false }
+    Self{ connect: false, device, deselect: false }
   }
 }
 
@@ -33,6 +34,10 @@ impl scene::Scene<app::MainScene> for DeviceScene {
     match key.code {
       KeyCode::Char( 'q' ) => {
         self.deselect = true;
+        true
+      }
+      KeyCode::Char( 'c' ) => {
+        self.connect = true;
         true
       }
       _ => {
@@ -45,6 +50,9 @@ impl scene::Scene<app::MainScene> for DeviceScene {
     if self.deselect {
       self.deselect = false;
       ctx.invoke( app::Action::DeselectDevice );
+    } else if self.connect {
+      self.connect = false;
+      ctx.invoke( app::Action::Connect( 7765 ) );
     }
   }
 

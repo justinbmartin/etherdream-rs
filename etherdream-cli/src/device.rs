@@ -31,14 +31,9 @@ impl Device {
   pub fn connect( &mut self ) -> Result<(), etherdream::client::Error> {
     if self.generator.is_some() { return Ok( () ); }
 
-    let handle = tokio::runtime::Handle::current();
-
-    let result = handle.block_on( etherdream::connect( self.info ) );
-
-    result.and_then(| client |{
-      self.client = Some( client );
-      Ok( () )
-    })
+    let info = self.info;
+    let _handle = tokio::task::spawn_blocking( async move ||{ etherdream::connect( info ) });
+    Ok( () )
   }
 
   //
@@ -157,19 +152,6 @@ impl ScopedDevice {
   }
 
   pub fn get( &'_ self ) -> Option<DeviceGuard<'_>> {
-    if let Ok( device_map ) = self.device_map.lock() {
-      if let Ok( guard ) = self.device_id.lock() && let Some( device_id ) = *guard {
-        return Some( DeviceGuard{
-          guard: device_map,
-          device_id
-        });
-      }
-    }
-
-    None
-  }
-
-  pub fn get_mut( &'_ self ) -> Option<DeviceGuard<'_>> {
     if let Ok( device_map ) = self.device_map.lock() {
       if let Ok( guard ) = self.device_id.lock() && let Some( device_id ) = *guard {
         return Some( DeviceGuard{
