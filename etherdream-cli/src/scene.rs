@@ -1,11 +1,18 @@
 use std::collections::HashMap;
+use std::time::Duration;
 
-use crossterm::event::KeyEvent;
+use crossterm::event::{ self, EventStream, KeyEvent, KeyEventKind };
+use futures::{ FutureExt, StreamExt };
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use tokio::sync::mpsc;
+use tokio::task::JoinSet;
+use tokio::time;
+use tokio_util::sync::CancellationToken;
 
-pub enum Event {
+const DEFAULT_FPS: f32 = 30.0;
+
+pub enum SceneEvent {
   Push( &'static str ),
   Pop,
   Switch( &'static str ),
@@ -19,7 +26,7 @@ pub trait Actionable {
   type Action: 'static + Send;
 
   /// ...
-  fn invoke( &mut self, action: Self::Action ) -> impl Future<Output=Event> + Send;
+  fn invoke( &mut self, action: Self::Action ) -> impl Future<Output=SceneEvent> + Send;
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene
@@ -34,15 +41,14 @@ pub trait Scene<T: Actionable> {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Update Context
 
-pub struct UpdateContext<'a, T: Actionable> {
-  action: &'a mut T,
-  next_action: Event,
-  action_tx: mpsc::Sender<T::Action>
+pub struct UpdateContext<T: Actionable> {
+  action_tx: mpsc::Sender<T::Action>,
+  next_action: SceneEvent
 }
 
-impl<'a, T: Actionable> UpdateContext<'a, T> {
-  pub fn invoke( &mut self, _action: T::Action ) -> bool {
-    //self.next_action = self.action.invoke( action );
+impl<T: Actionable> UpdateContext<T> {
+  pub fn invoke( &mut self, action: T::Action ) -> bool {
+    let _ = self.action_tx.try_send( action );
     true
   }
 }
@@ -50,7 +56,7 @@ impl<'a, T: Actionable> UpdateContext<'a, T> {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
 pub struct Builder<T: Actionable + 'static + Send> {
-  action: T,
+  action_tx: mpsc::Sender<T::Action>,
   current: Option<&'static str>,
   scenes: HashMap<&'static str, Box<dyn Scene<T>>>
 }
@@ -58,9 +64,9 @@ pub struct Builder<T: Actionable + 'static + Send> {
 impl<T> Builder<T>
   where T: Actionable + Send + 'static
 {
-  pub fn new( action: T ) -> Self {
+  pub fn new( action_tx: mpsc::Sender<T::Action> ) -> Self {
     Self{
-      action,
+      action_tx,
       current: None,
       scenes: HashMap::new()
     }
@@ -78,20 +84,8 @@ impl<T> Builder<T>
     let mut stack = Vec::new();
     stack.push( self.current.unwrap() );
 
-    let ( action_tx, mut action_rx ) = mpsc::channel::<T::Action>( 16 );
-
-    let _ = tokio::spawn({
-      let mut action = self.action;
-
-      async move {
-        while let Some( action2 ) = action_rx.recv().await {
-          let _ = action.invoke( action2 ).await;
-        }
-      }
-    });
-
     Controller::<T>{
-      action_tx,
+      action_tx: self.action_tx,
       scenes: self.scenes,
       stack
     }
@@ -121,28 +115,8 @@ impl<T: Actionable> Controller<T> {
     if let Some( scene ) = self.scenes.get_mut( *self.stack.last().unwrap() ) {
 
       // NEXT: I need to capture the requested event here...
-      let mut update_ctx = UpdateContext{ action: &mut self.action, next_action: Event::None };
+      let mut update_ctx = UpdateContext{ action_tx: self.action_tx.clone(), next_action: SceneEvent::None };
       scene.on_update( &mut update_ctx );
-
-      match update_ctx.next_action {
-        Event::Push( next_scene ) => {
-          scene.on_exit();
-          self.stack.push( next_scene );
-          self.scenes.get_mut( *self.stack.last().unwrap() ).unwrap().on_enter();
-        },
-        Event::Pop => {
-          scene.on_exit();
-          self.stack.pop();
-          self.scenes.get_mut( *self.stack.last().unwrap() ).unwrap().on_enter();
-        }
-        Event::Switch( next_scene ) => {
-          scene.on_exit();
-          self.stack.clear();
-          self.stack.push( next_scene );
-          self.scenes.get_mut( *self.stack.last().unwrap() ).unwrap().on_enter();
-        }
-        Event::None => {}
-      }
     }
   }
 
@@ -151,5 +125,120 @@ impl<T: Actionable> Controller<T> {
     if let Some( scene ) = self.scenes.get_mut( *self.stack.last().unwrap() ) {
       scene.on_draw( area, buf );
     }
+  }
+
+  pub fn on_event( &mut self, event: SceneEvent ) {
+    match event {
+      SceneEvent::Push( next_scene ) => {
+        if let Some( scene_id ) = self.stack.last() && let Some( scene ) = self.scenes.get_mut( scene_id ) {
+          scene.on_exit();
+          self.stack.push( next_scene );
+          self.scenes.get_mut( *self.stack.last().unwrap() ).unwrap().on_enter();
+        }
+      },
+      SceneEvent::Pop => {
+        if let Some( scene_id ) = self.stack.last() && let Some( scene ) = self.scenes.get_mut( scene_id ) {
+          scene.on_exit();
+          self.stack.pop();
+          self.scenes.get_mut( *self.stack.last().unwrap() ).unwrap().on_enter();
+        }
+      }
+      SceneEvent::Switch( next_scene ) => {
+        if let Some( scene_id ) = self.stack.last() && let Some( scene ) = self.scenes.get_mut( scene_id ) {
+          scene.on_exit();
+          self.stack.clear();
+          self.stack.push( next_scene );
+          self.scenes.get_mut( *self.stack.last().unwrap() ).unwrap().on_enter();
+        }
+      }
+      SceneEvent::None => {}
+    }
+  }
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Event Context
+
+pub enum Event {
+  Key( KeyEvent ),
+  Scene( SceneEvent ),
+  Tick( f64 )
+}
+
+pub struct EventController {
+  cancellation_token: CancellationToken,
+  tasks: JoinSet<()>
+}
+
+impl EventController {
+  pub async fn start<T: Actionable + Send + 'static>( mut action_handler: T ) -> ( EventController, mpsc::Receiver<Event>, mpsc::Sender<T::Action> ) {
+    let cancellation_token = CancellationToken::new();
+    let mut tasks = JoinSet::new();
+    let ( tx, rx ) = mpsc::channel( 16 );
+    let ( action_tx, mut action_rx ) = mpsc::channel::<T::Action>( 16 );
+
+    tasks.spawn({
+      let cancellation_token = cancellation_token.child_token();
+      let tx = tx.clone();
+
+      // Start interval tick for FPS
+      async move {
+        tokio::select!{
+          _ = cancellation_token.cancelled() => {}
+          _ = async move {
+            let fps = Duration::from_secs_f32( 1.0 / DEFAULT_FPS );
+            let mut interval = time::interval( fps );
+            let start_time = time::Instant::now();
+
+            loop {
+              let now = interval.tick().await;
+              let _ = tx.send( Event::Tick( ( start_time - now ).as_secs_f64() ) ).await;
+            }
+          } => {}
+        }
+      }
+    });
+
+    // Start task to capture key events
+    tasks.spawn({
+      let cancellation_token = cancellation_token.child_token();
+      let tx1 = tx.clone();
+      let tx2 = tx.clone();
+
+      async move {
+        tokio::select!{
+          _ = cancellation_token.cancelled() => {}
+          _ = async move {
+            let mut crossterm_events = EventStream::new();
+
+            loop {
+              if let Some( Ok( crossterm_event ) ) = crossterm_events.next().fuse().await {
+                match crossterm_event {
+                  event::Event::Key( key ) => {
+                    if key.kind == KeyEventKind::Press {
+                      let _ = tx1.send( Event::Key( key ) ).await;
+                    }
+                  }
+                  _ => { /* no-op */ }
+                }
+              }
+            }
+          } => {}
+          _ = async move {
+            while let Some( action ) = action_rx.recv().await {
+              let event = action_handler.invoke( action ).await;
+              let _ = tx2.send( Event::Scene( event ) ).await;
+            }
+          } => {}
+        }
+      }
+    });
+
+    let controller = EventController{ cancellation_token, tasks };
+    ( controller, rx, action_tx )
+  }
+
+  pub async fn stop( self ) {
+    self.cancellation_token.cancel();
+    self.tasks.join_all().await;
   }
 }

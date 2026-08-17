@@ -7,7 +7,6 @@ use ratatui::widgets::{ Paragraph, Widget };
 use tokio::sync::mpsc::Receiver;
 
 use crate::device;
-use crate::event;
 use crate::scene;
 use crate::scenes;
 
@@ -23,17 +22,21 @@ pub enum Action {
 
 pub struct App {
   device_map: Arc<Mutex<device::DeviceMap>>,
+  events_controller: scene::EventController,
+  events_rx: Receiver<scene::Event>,
   scenes: scene::Controller<MainScene>
 }
 
 impl App {
-  pub fn new() -> Self {
+  pub async fn new() -> Self {
     let device_id = Arc::new( Mutex::new( None::<usize> ) );
     let device_map = Arc::new( Mutex::new( device::DeviceMap::default() ) );
 
-    // Scenes
     let main_scene = MainScene{ device_id: device_id.clone(), device_map: device_map.clone() };
-    let mut builder = scene::Builder::new( main_scene );
+    let ( events_controller, events_rx, action_tx ) = scene::EventController::start( main_scene ).await;
+
+    // Scenes
+    let mut builder = scene::Builder::new( action_tx );
 
     {
       let device_map = device::ReadOnlyDeviceMap::new( device_map.clone() );
@@ -52,14 +55,14 @@ impl App {
 
     Self{
       device_map,
-      scenes: builder.build()
+      events_controller,
+      events_rx,
+      scenes: builder.build().await
     }
   }
 
-  pub async fn run( &mut self, mut terminal: DefaultTerminal, mut discovery_rx: Receiver<etherdream::DiscoveredDeviceInfo> ) {
+  pub async fn run( mut self, mut terminal: DefaultTerminal, mut discovery_rx: Receiver<etherdream::DiscoveredDeviceInfo> ) {
     let mut is_running = true;
-
-    let ( events_controller, mut events_rx ) = event::EventController::start().await;
 
     while is_running {
 
@@ -68,9 +71,9 @@ impl App {
         self.device_map.lock().unwrap().insert( device_info.info().clone() );
       }
 
-      if let Some( event ) = events_rx.recv().await {
+      if let Some( event ) = self.events_rx.recv().await {
         match event {
-          event::Event::KeyEvent( key ) => {
+          scene::Event::Key( key ) => {
             if ! self.scenes.key_down( key ) {
               match key.code {
                 KeyCode::Char( 'q' ) | KeyCode::Esc => { is_running = false; },
@@ -78,15 +81,18 @@ impl App {
               }
             }
           },
-          event::Event::Tick( _time ) => {
+          scene::Event::Tick( _time ) => {
             let _ = self.scenes.update();
             let _ = terminal.draw(| frame |{ self.render( frame ) });
+          }
+          scene::Event::Scene( event ) => {
+            self.scenes.on_event( event )
           }
         }
       }
     }
 
-    events_controller.stop().await;
+    self.events_controller.stop().await;
   }
 
   fn render( &mut self, frame: &mut Frame ) {
@@ -113,35 +119,32 @@ pub struct MainScene {
 impl scene::Actionable for MainScene {
   type Action = Action;
 
-  async fn invoke( &mut self, action: Action ) -> scene::Event {
-    /*
+  async fn invoke( &mut self, action: Action ) -> scene::SceneEvent {
     match action {
       Action::Connect( _port ) => {
         if let Ok( guard ) = self.device_id.lock() && let Some( device_id ) = *guard {
-          if let Ok( mut guard ) = self.device_map.lock() && let Some( _device ) = guard.get_mut( device_id ) {
-            //tokio::spawn( device.connect() );
-            return scene::Event::None;
+          if let Ok( mut guard ) = self.device_map.lock() && let Some( device ) = guard.get_mut( device_id ) {
+            //let _ = device.connect().await;
+            return scene::SceneEvent::None;
           }
         }
 
-        return scene::Event::Pop;
+        return scene::SceneEvent::Pop;
       },
       Action::SelectDevice( id ) => {
         if let Ok( mut guard ) = self.device_id.lock() {
           *guard = Some( id );
-          return scene::Event::Switch( scenes::device::ID )
+          return scene::SceneEvent::Switch( scenes::device::ID )
         }
       },
       Action::DeselectDevice => {
         if let Ok( mut guard ) = self.device_id.lock() {
           *guard = None;
-          return scene::Event::Switch( scenes::list::ID );
+          return scene::SceneEvent::Switch( scenes::list::ID );
         }
       },
     }
-    */
 
-
-    scene::Event::None
+    scene::SceneEvent::None
   }
 }
