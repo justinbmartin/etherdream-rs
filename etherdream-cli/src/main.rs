@@ -62,7 +62,7 @@ fn main() -> Result<(),String> {
 
   // [Blocks] Create and run the app
   let terminal = ratatui::init();
-  app::App::new( action_tx ).run( terminal, discovery_rx, event_rx );
+  app::App::new( action_tx, device_id.clone(), device_map.clone() ).run( terminal, discovery_rx, event_rx );
   cancellation_token.cancel();
   ratatui::restore();
 

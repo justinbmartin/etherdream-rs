@@ -57,9 +57,10 @@ impl scene::Scene<app::MainScene> for DeviceScene {
   }
 
   fn on_draw( &mut self, area: Rect, buf: &mut Buffer ) {
+    let layout = Layout::vertical([ Constraint::Length( 3 ), Constraint::Fill( 1 ) ]);
+    let [ header, body ] = area.layout( &layout );
+    
     if let Some( device ) = self.device.get() {
-      let layout = Layout::vertical([ Constraint::Length( 3 ), Constraint::Fill( 1 ) ]);
-      let [ header, body ] = area.layout( &layout );
 
       // Render the header
       Paragraph::new( format!( " Device: {} ", device.info().ip() ) ).render( header, buf );
@@ -80,6 +81,8 @@ impl scene::Scene<app::MainScene> for DeviceScene {
 
       // Render the info pane
       render_info( &device, info_area, buf );
+    } else {
+      Paragraph::new( " No Device " ).render( header, buf );
     }
   }
 }

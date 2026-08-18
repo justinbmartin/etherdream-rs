@@ -27,10 +27,12 @@ pub struct App {
 }
 
 impl App {
-  pub fn new( action_tx: tokio::sync::mpsc::Sender<Action> ) -> Self {
-    let device_id = Arc::new( Mutex::new( None::<usize> ) );
-    let device_map = Arc::new( Mutex::new( device::DeviceMap::default() ) );
-
+  pub fn new(
+    action_tx: tokio::sync::mpsc::Sender<Action>,
+    device_id: Arc<Mutex<Option<usize>>>,
+    device_map: Arc<Mutex<device::DeviceMap>>
+  ) -> Self {
+    
     // Scenes
     let mut builder = scene::Builder::new( action_tx );
 
