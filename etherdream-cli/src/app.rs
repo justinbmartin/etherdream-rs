@@ -22,7 +22,6 @@ pub enum Action {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
 
 pub struct App {
-  device_map: Arc<Mutex<device::DeviceMap>>,
   scenes: scene::Controller<MainScene>
 }
 
@@ -30,7 +29,7 @@ impl App {
   pub fn new(
     action_tx: tokio::sync::mpsc::Sender<Action>,
     device_id: Arc<Mutex<Option<usize>>>,
-    device_map: Arc<Mutex<device::DeviceMap>>
+    device_map: Arc<tokio::sync::Mutex<device::DeviceMap>>
   ) -> Self {
     
     // Scenes
@@ -51,21 +50,13 @@ impl App {
       builder.add_scene( scenes::connect::ID, Box::new( scenes::connect::ConnectScene::new( scoped_device ) ) );
     }
 
-    Self{
-      device_map,
-      scenes: builder.build()
-    }
+    Self{ scenes: builder.build() }
   }
 
-  pub fn run( mut self, mut terminal: DefaultTerminal, mut discovery_rx: Receiver<etherdream::DiscoveredDeviceInfo>, mut event_rx: Receiver<scene::Event> ) {
+  pub fn run( mut self, mut terminal: DefaultTerminal, mut event_rx: Receiver<scene::Event> ) {
     let mut is_running = true;
 
     while is_running {
-
-      // Persist any discovered devices from the Etherdream discovery service
-      while let Ok( device_info ) = discovery_rx.try_recv() {
-        self.device_map.lock().unwrap().insert( device_info.info().clone() );
-      }
 
       if let Some( event ) = event_rx.blocking_recv() {
         match event {
@@ -73,7 +64,7 @@ impl App {
             if ! self.scenes.key_down( key ) {
               match key.code {
                 KeyCode::Char( 'q' ) | KeyCode::Esc => { is_running = false; },
-                _ => {}
+                _ => { }
               }
             }
           },
@@ -107,11 +98,11 @@ impl App {
 
 pub struct MainScene {
   device_id: Arc<Mutex<Option<usize>>>,
-  device_map: Arc<Mutex<device::DeviceMap>>
+  device_map: Arc<tokio::sync::Mutex<device::DeviceMap>>
 }
 
 impl MainScene {
-  pub fn new( device_id: Arc<Mutex<Option<usize>>>, device_map: Arc<Mutex<device::DeviceMap>> ) -> Self {
+  pub fn new( device_id: Arc<Mutex<Option<usize>>>, device_map: Arc<tokio::sync::Mutex<device::DeviceMap>> ) -> Self {
     Self{ device_id, device_map }
   }
 }
@@ -122,11 +113,11 @@ impl scene::Actionable for MainScene {
   async fn invoke( &mut self, action: Action ) -> scene::SceneEvent {
     match action {
       Action::Connect( _port ) => {
-        if let Ok( guard ) = self.device_id.lock() && let Some( device_id ) = *guard {
-          if let Ok( mut guard ) = self.device_map.lock() && let Some( device ) = guard.get_mut( device_id ) {
-            let _ = device.connect();
-            return scene::SceneEvent::None;
-          }
+        let device_id = self.device_id.lock().unwrap().unwrap();
+
+        if let Some( device ) = self.device_map.lock().await.get_mut( device_id ) {
+          let _ = device.connect().await;
+          return scene::SceneEvent::None;
         }
 
         return scene::SceneEvent::Pop;

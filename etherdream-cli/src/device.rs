@@ -28,12 +28,16 @@ impl Device {
   pub fn is_connected( &self ) -> bool { self.client.is_some() || self.generator.is_some() }
 
   //
-  pub fn connect( &mut self ) -> Result<(), etherdream::client::Error> {
+  pub async fn connect( &mut self ) -> Result<(), etherdream::client::Error> {
     if self.generator.is_some() { return Ok( () ); }
 
-    let info = self.info;
-    let _handle = tokio::task::spawn_blocking( async move ||{ etherdream::connect( info ) });
-    Ok( () )
+    match etherdream::connect( self.info ).await {
+      Ok( client ) => {
+        self.client = Some( client );
+        Ok( () )
+      }
+      Err( err ) => Err( err )
+    }
   }
 
   //
@@ -108,23 +112,23 @@ impl DeviceMap{
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - Read-only Device Map
 
 pub struct ReadOnlyDeviceMap {
-  inner: Arc<Mutex<DeviceMap>>
+  inner: Arc<tokio::sync::Mutex<DeviceMap>>
 }
 
 impl ReadOnlyDeviceMap {
-  pub fn new( device_map: Arc<Mutex<DeviceMap>> ) -> Self {
+  pub fn new( device_map: Arc<tokio::sync::Mutex<DeviceMap>> ) -> Self {
     Self{ inner: device_map }
   }
 
-  pub fn read( &'_ self ) -> MutexGuard<'_, DeviceMap> {
-    self.inner.lock().unwrap()
+  pub fn read( &'_ self ) -> tokio::sync::MutexGuard<'_, DeviceMap> {
+    self.inner.blocking_lock()
   }
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Device Guard
 
 pub struct DeviceGuard<'a> {
-  guard: MutexGuard<'a, DeviceMap>,
+  guard: tokio::sync::MutexGuard<'a, DeviceMap>,
   device_id: usize
 }
 
@@ -142,25 +146,28 @@ impl<'a> DeviceGuard<'a> {
 
 #[derive( Clone )]
 pub struct ScopedDevice {
-  device_map: Arc<Mutex<DeviceMap>>,
+  device_map: Arc<tokio::sync::Mutex<DeviceMap>>,
   device_id: Arc<Mutex<Option<usize>>>
 }
 
 impl ScopedDevice {
-  pub fn new( device_id: Arc<Mutex<Option<usize>>>, device_map: Arc<Mutex<DeviceMap>> ) -> Self {
+  pub fn new( device_id: Arc<Mutex<Option<usize>>>, device_map: Arc<tokio::sync::Mutex<DeviceMap>> ) -> Self {
     Self{ device_id, device_map }
   }
 
   pub fn get( &'_ self ) -> Option<DeviceGuard<'_>> {
-    if let Ok( device_map ) = self.device_map.lock() {
-      if let Ok( guard ) = self.device_id.lock() && let Some( device_id ) = *guard {
-        return Some( DeviceGuard{
-          guard: device_map,
-          device_id
-        });
-      }
-    }
+    let device_id =
+      match self.device_id.lock() {
+        Ok( guard ) => *guard,
+        Err( _ ) => None
+      };
 
-    None
+    match device_id {
+      Some( device_id ) => {
+        let device_map = self.device_map.blocking_lock();
+        Some( DeviceGuard{ guard: device_map, device_id })
+      }
+      None => None
+    }
   }
 }

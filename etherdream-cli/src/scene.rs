@@ -178,7 +178,7 @@ impl EventController {
 
     tasks.spawn({
       let cancellation_token = cancellation_token.child_token();
-      let tx1 = event_tx.clone();
+      let event_tx = event_tx.clone();
 
       // Start interval tick for FPS
       async move {
@@ -191,18 +191,16 @@ impl EventController {
 
             loop {
               let now = interval.tick().await;
-              let _ = tx1.send( Event::Tick( ( start_time - now ).as_secs_f64() ) ).await;
+              let _ = event_tx.send( Event::Tick( ( start_time - now ).as_secs_f64() ) ).await;
             }
-          } => {
-            println!( "event tick exit..." )
-          }
+          } => { }
         }
       }
     });
 
     tasks.spawn({
       let cancellation_token = cancellation_token.child_token();
-      let tx2 = event_tx.clone();
+      let event_tx = event_tx.clone();
 
       // Start interval tick for FPS
       async move {
@@ -211,9 +209,9 @@ impl EventController {
           _ = async move {
             while let Some( action ) = action_rx.recv().await {
               let event = actionable.invoke( action ).await;
-              let _ = tx2.send( Event::Scene( event ) ).await;
+              let _ = event_tx.send( Event::Scene( event ) ).await;
             }
-          } => { println!( "actionable exit..." ) }
+          } => { }
         }
       }
     });
@@ -221,7 +219,7 @@ impl EventController {
     // Start task to capture key events
     tasks.spawn({
       let cancellation_token = cancellation_token.child_token();
-      let tx1 = event_tx.clone();
+      let event_tx = event_tx.clone();
 
       async move {
         tokio::select!{
@@ -234,19 +232,18 @@ impl EventController {
                 match crossterm_event {
                   event::Event::Key( key ) => {
                     if key.kind == KeyEventKind::Press {
-                      let _ = tx1.send( Event::Key( key ) ).await;
+                      let _ = event_tx.send( Event::Key( key ) ).await;
                     }
                   }
                   _ => { /* no-op */ }
                 }
               }
             }
-          } => { println!( "crossterm exit..." ) }
+          } => { }
         }
       }
     });
-
-    println!( "test" );
+    
     tasks.join_all().await;
   }
 }
