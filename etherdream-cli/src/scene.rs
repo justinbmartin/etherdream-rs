@@ -42,8 +42,7 @@ pub trait Scene<T: Actionable> {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Update Context
 
 pub struct UpdateContext<T: Actionable> {
-  action_tx: mpsc::Sender<T::Action>,
-  next_action: SceneEvent
+  action_tx: mpsc::Sender<T::Action>
 }
 
 impl<T: Actionable> UpdateContext<T> {
@@ -115,7 +114,7 @@ impl<T: Actionable> Controller<T> {
     if let Some( scene ) = self.scenes.get_mut( *self.stack.last().unwrap() ) {
 
       // NEXT: I need to capture the requested event here...
-      let mut update_ctx = UpdateContext{ action_tx: self.action_tx.clone(), next_action: SceneEvent::None };
+      let mut update_ctx = UpdateContext{ action_tx: self.action_tx.clone() };
       scene.on_update( &mut update_ctx );
     }
   }
@@ -164,23 +163,20 @@ pub enum Event {
   Tick( f64 )
 }
 
-pub struct EventController {
-  cancellation_token: CancellationToken,
-  tasks: JoinSet<()>
-}
+pub struct EventController;
 
 impl EventController {
-  pub async fn start( event_tx: mpsc::Sender<Event>, cancellation_token: CancellationToken ) -> EventController {
+  pub async fn run<T: Actionable + Send + 'static>( event_tx: mpsc::Sender<Event>, cancellation_token: CancellationToken, mut action_rx: mpsc::Receiver<T::Action>, mut actionable: T ) {
     let mut tasks = JoinSet::new();
 
     tasks.spawn({
       let cancellation_token = cancellation_token.child_token();
-      let tx = event_tx.clone();
+      let tx1 = event_tx.clone();
 
       // Start interval tick for FPS
       async move {
         tokio::select!{
-          _ = cancellation_token.cancelled() => {}
+          _ = cancellation_token.cancelled() => { println!( "cancellation token exit..." ) }
           _ = async move {
             let fps = Duration::from_secs_f32( 1.0 / DEFAULT_FPS );
             let mut interval = time::interval( fps );
@@ -188,9 +184,29 @@ impl EventController {
 
             loop {
               let now = interval.tick().await;
-              let _ = tx.send( Event::Tick( ( start_time - now ).as_secs_f64() ) ).await;
+              let _ = tx1.send( Event::Tick( ( start_time - now ).as_secs_f64() ) ).await;
             }
-          } => {}
+          } => {
+            println!( "event tick exit..." )
+          }
+        }
+      }
+    });
+
+    tasks.spawn({
+      let cancellation_token = cancellation_token.child_token();
+      let tx2 = event_tx.clone();
+
+      // Start interval tick for FPS
+      async move {
+        tokio::select!{
+          _ = cancellation_token.cancelled() => { println!( "cancellation token exit..." ) }
+          _ = async move {
+              while let Some( action ) = action_rx.recv().await {
+                let event = actionable.invoke( action ).await;
+                let _ = tx2.send( Event::Scene( event ) ).await;
+              }
+            } => { println!( "actionable exit..." ) }
         }
       }
     });
@@ -199,11 +215,10 @@ impl EventController {
     tasks.spawn({
       let cancellation_token = cancellation_token.child_token();
       let tx1 = event_tx.clone();
-      let tx2 = event_tx.clone();
 
       async move {
         tokio::select!{
-          _ = cancellation_token.cancelled() => {}
+          _ = cancellation_token.cancelled() => { println!( "cancellation token exit..." ) }
           _ = async move {
             let mut crossterm_events = EventStream::new();
 
@@ -219,16 +234,12 @@ impl EventController {
                 }
               }
             }
-          } => {}
+          } => { println!( "crossterm exit..." ) }
         }
       }
     });
 
-    EventController{ cancellation_token, tasks }
-  }
-
-  pub async fn stop( self ) {
-    self.cancellation_token.cancel();
-    self.tasks.join_all().await;
+    println!( "test" );
+    tasks.join_all().await;
   }
 }
