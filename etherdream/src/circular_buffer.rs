@@ -13,6 +13,7 @@ use std::sync::{ Arc, atomic::{ AtomicUsize, Ordering } };
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Circular Buffer
 
+#[derive( Debug )]
 pub struct CircularBuffer<T> {
   capacity: usize,
   data: *mut T,
@@ -47,6 +48,7 @@ impl<T> Drop for CircularBuffer<T> {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Reader
 
+#[derive( Debug )]
 pub struct Reader<T>
 {
   buffer: Arc<CircularBuffer<T>>,
@@ -88,6 +90,7 @@ unsafe impl<T: Sync> Sync for Reader<T> { }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Writer
 
+#[derive( Debug )]
 pub struct Writer<T>
 {
   buffer: Arc<CircularBuffer<T>>,

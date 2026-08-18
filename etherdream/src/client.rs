@@ -254,6 +254,7 @@ impl Builder {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Client
 
+#[derive( Debug )]
 pub struct Client {
   // The address that the remote device is communicating on.
   address: SocketAddr,
@@ -663,6 +664,7 @@ impl ReadOnlyClient {
 
 type CommandTxWaitForRef = Arc<Mutex<Option<CommandTxWaitFor>>>;
 
+#[derive( Debug )]
 struct CommandTxWaitFor {
   callback: Option<oneshot::Sender<ResponseMsg>>,
   cmd: protocol::Command,
@@ -670,6 +672,7 @@ struct CommandTxWaitFor {
 
 /// Provides functionality for sending commands to the `<Writer>` task and
 /// validating acknowledgments.
+#[derive( Debug )]
 pub(crate) struct CommandTx {
   // ...
   cancellation_token: CancellationToken,
