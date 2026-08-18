@@ -12,6 +12,7 @@ use crate::scenes;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Action
 
+#[derive( Debug )]
 pub enum Action {
   Connect( u16 ),
   SelectDevice( usize ),

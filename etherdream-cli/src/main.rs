@@ -11,9 +11,9 @@ fn main() -> Result<(),String> {
   let cancellation_token = tokio_util::sync::CancellationToken::new();
   let device_id = std::sync::Arc::new( std::sync::Mutex::new( None::<usize> ) );
   let device_map = std::sync::Arc::new( std::sync::Mutex::new( device::DeviceMap::default() ) );
-  let ( action_tx, action_rx ) = tokio::sync::mpsc::channel( 16 );
+  let ( action_tx, action_rx ) = tokio::sync::mpsc::channel( 1024 );
   let ( discovery_tx, discovery_rx ) = tokio::sync::mpsc::channel( 16 );
-  let ( event_tx, event_rx ) = tokio::sync::mpsc::channel( 16 );
+  let ( event_tx, event_rx ) = tokio::sync::mpsc::channel( 1024 );
   let main_scene = app::MainScene::new( device_id.clone(), device_map.clone() );
 
   let cancellation_token8 = cancellation_token.child_token();

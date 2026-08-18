@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::time::Duration;
 
 use crossterm::event::{ self, EventStream, KeyEvent, KeyEventKind };
@@ -12,6 +13,7 @@ use tokio_util::sync::CancellationToken;
 
 const DEFAULT_FPS: f32 = 30.0;
 
+#[derive( Debug )]
 pub enum SceneEvent {
   Push( &'static str ),
   Pop,
@@ -23,7 +25,7 @@ pub enum SceneEvent {
 
 pub trait Actionable {
   /// ...
-  type Action: 'static + Send;
+  type Action: 'static + Send + Debug;
 
   /// ...
   fn invoke( &mut self, action: Self::Action ) -> impl Future<Output=SceneEvent> + Send;
@@ -166,7 +168,12 @@ pub enum Event {
 pub struct EventController;
 
 impl EventController {
-  pub async fn run<T: Actionable + Send + 'static>( event_tx: mpsc::Sender<Event>, cancellation_token: CancellationToken, mut action_rx: mpsc::Receiver<T::Action>, mut actionable: T ) {
+  pub async fn run<T: Actionable + Send + 'static>(
+    event_tx: mpsc::Sender<Event>,
+    cancellation_token: CancellationToken,
+    mut action_rx: mpsc::Receiver<T::Action>,
+    mut actionable: T
+  ) {
     let mut tasks = JoinSet::new();
 
     tasks.spawn({
@@ -202,11 +209,11 @@ impl EventController {
         tokio::select!{
           _ = cancellation_token.cancelled() => { println!( "cancellation token exit..." ) }
           _ = async move {
-              while let Some( action ) = action_rx.recv().await {
-                let event = actionable.invoke( action ).await;
-                let _ = tx2.send( Event::Scene( event ) ).await;
-              }
-            } => { println!( "actionable exit..." ) }
+            while let Some( action ) = action_rx.recv().await {
+              let event = actionable.invoke( action ).await;
+              let _ = tx2.send( Event::Scene( event ) ).await;
+            }
+          } => { println!( "actionable exit..." ) }
         }
       }
     });
