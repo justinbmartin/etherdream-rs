@@ -6,8 +6,8 @@ use ratatui::style::{ Color, palette::tailwind::SLATE, Style };
 use ratatui::widgets::{ Block, /* Cell, */ Padding, Paragraph, Row, Widget, Table, /* TableState */ };
 use ratatui_textarea::TextArea;
 
-use crate::app;
-use crate::app::MainScene;
+use crate::ui;
+use crate::ui::MainScene;
 use crate::device;
 use crate::scene;
 use crate::scene::UpdateContext;
@@ -29,7 +29,7 @@ impl DeviceScene {
   }
 }
 
-impl scene::Scene<app::MainScene> for DeviceScene {
+impl scene::Scene<ui::MainScene> for DeviceScene {
   fn on_key_down( &mut self, key: KeyEvent ) -> bool {
     match key.code {
       KeyCode::Char( 'q' ) => {
@@ -49,10 +49,10 @@ impl scene::Scene<app::MainScene> for DeviceScene {
   fn on_update( &mut self, ctx: &mut UpdateContext<MainScene> ) {
     if self.deselect {
       self.deselect = false;
-      ctx.invoke( app::Action::DeselectDevice );
+      ctx.invoke( ui::Action::DeselectDevice );
     } else if self.connect {
       self.connect = false;
-      ctx.invoke( app::Action::Connect( 7765 ) );
+      ctx.invoke( ui::Action::Connect( 7765 ) );
     }
   }
 

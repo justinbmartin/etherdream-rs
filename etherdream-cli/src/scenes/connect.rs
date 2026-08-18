@@ -4,7 +4,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{ Color, Style };
 use ratatui_textarea::TextArea;
 
-use crate::app;
+use crate::ui;
 use crate::device;
 use crate::scene;
 
@@ -36,7 +36,7 @@ impl<'a> ConnectScene<'a> {
   }
 }
 
-impl<'a> scene::Scene<app::MainScene> for ConnectScene<'a> {
+impl<'a> scene::Scene<ui::MainScene> for ConnectScene<'a> {
   fn on_enter( &mut self ) {
     self.input_selected = INPUT_CONNECT_BUTTON;
   }
@@ -73,10 +73,10 @@ impl<'a> scene::Scene<app::MainScene> for ConnectScene<'a> {
     false
   }
 
-  fn on_update( &mut self, ctx: &mut scene::UpdateContext<app::MainScene> ) {
+  fn on_update( &mut self, ctx: &mut scene::UpdateContext<ui::MainScene> ) {
     if self.connect {
       self.connect = false;
-      ctx.invoke( app::Action::Connect( self.port_input.lines()[0].parse::<u16>().unwrap() ) );
+      ctx.invoke( ui::Action::Connect( self.port_input.lines()[0].parse::<u16>().unwrap() ) );
     }
   }
 

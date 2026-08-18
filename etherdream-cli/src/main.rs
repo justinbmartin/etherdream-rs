@@ -1,5 +1,5 @@
 //! CLI tool to discover, connect and test Etherdream DAC's.
-mod app;
+mod ui;
 mod device;
 mod executors;
 mod scene;
@@ -12,7 +12,7 @@ fn main() -> Result<(),String> {
   let ( action_tx, action_rx ) = tokio::sync::mpsc::channel( 1024 );
   let ( discovery_tx, mut discovery_rx ) = tokio::sync::mpsc::channel( 16 );
   let ( event_tx, event_rx ) = tokio::sync::mpsc::channel( 1024 );
-  let main_scene = app::MainScene::new( device_id.clone(), device_map.clone() );
+  let main_scene = ui::MainScene::new(device_id.clone(), device_map.clone() );
 
   let cancellation_token8 = cancellation_token.child_token();
   let device_map2 = device_map.clone();
@@ -75,7 +75,7 @@ fn main() -> Result<(),String> {
 
   // [Blocks] Create and run the app
   let terminal = ratatui::init();
-  app::App::new( action_tx, device_id.clone(), device_map.clone() ).run( terminal, event_rx );
+  ui::UI::new(action_tx, device_id.clone(), device_map.clone() ).run(terminal, event_rx );
   cancellation_token.cancel();
   ratatui::restore();
 

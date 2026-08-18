@@ -5,7 +5,7 @@ use ratatui::style::{ Color, palette::tailwind::SLATE, Style };
 use ratatui::text::Line;
 use ratatui::widgets::{ Block, Cell, Paragraph, Row, StatefulWidget, Table, TableState, Widget };
 
-use crate::app;
+use crate::ui;
 use crate::device;
 use crate::scene;
 
@@ -37,7 +37,7 @@ impl ListScene {
   }
 }
 
-impl scene::Scene<app::MainScene> for ListScene {
+impl scene::Scene<ui::MainScene> for ListScene {
   fn on_key_down( &mut self, key: KeyEvent ) -> bool {
     match key.code {
       dir @ ( KeyCode::Up | KeyCode::Down ) => {
@@ -63,7 +63,7 @@ impl scene::Scene<app::MainScene> for ListScene {
     false
   }
 
-  fn on_update( &mut self, ctx: &mut scene::UpdateContext<app::MainScene> ) {
+  fn on_update( &mut self, ctx: &mut scene::UpdateContext<ui::MainScene> ) {
     let devices = self.devices.read();
 
     // Refresh our local sorted device cache if the remote device map has changed
@@ -78,7 +78,7 @@ impl scene::Scene<app::MainScene> for ListScene {
     }
 
     if let Some( device_id ) = self.selected.take() {
-      ctx.invoke( app::Action::SelectDevice( device_id ) );
+      ctx.invoke( ui::Action::SelectDevice( device_id ) );
     }
   }
 

@@ -21,11 +21,11 @@ pub enum Action {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
 
-pub struct App {
+pub struct UI {
   scenes: scene::Controller<MainScene>
 }
 
-impl App {
+impl UI {
   pub fn new(
     action_tx: tokio::sync::mpsc::Sender<Action>,
     device_id: Arc<Mutex<Option<usize>>>,
