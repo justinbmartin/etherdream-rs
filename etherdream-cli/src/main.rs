@@ -1,5 +1,5 @@
 //! CLI tool to discover, connect and test Etherdream DAC's.
-use tokio::runtime;
+use tokio::{ runtime, task };
 use tokio_util::sync::CancellationToken;
 
 mod ui;
@@ -8,12 +8,11 @@ mod executors;
 mod scene;
 mod scenes;
 
-fn main() -> Result<(),String> {
+fn main() -> std::io::Result<()> {
   let rt = runtime::Builder::new_multi_thread()
-    .thread_name( "async" )
+    .thread_name( "scene driver" )
     .enable_all()
-    .build()
-    .unwrap();
+    .build()?;
 
   let cancellation_token = CancellationToken::new();
   let device_id = std::sync::Arc::new( std::sync::Mutex::new( None::<usize> ) );
@@ -23,15 +22,14 @@ fn main() -> Result<(),String> {
   let ( event_tx, event_rx ) = tokio::sync::mpsc::channel( 1024 );
   let main_scene = ui::MainScene::new(device_id.clone(), device_map.clone() );
 
-  let device_map2 = device_map.clone();
-
   let rt_thread = std::thread::spawn({
     let cancellation_token = cancellation_token.child_token();
+    let device_map = device_map.clone();
 
     move ||{
       let _ = rt.block_on( async move {
+        let mut tasks = task::JoinSet::<()>::new();
 
-        // Start the Etherdream device discovery service
         let discovery = match etherdream::discover( discovery_tx ).await {
           Ok( server ) => server,
           Err( err ) => {
@@ -39,7 +37,7 @@ fn main() -> Result<(),String> {
           }
         };
 
-        let h = tokio::spawn({
+        tasks.spawn({
           let cancellation_token = cancellation_token.child_token();
 
           async move {
@@ -49,22 +47,21 @@ fn main() -> Result<(),String> {
           }
         });
 
-        let i = tokio::spawn({
+        tasks.spawn({
           let cancellation_token = cancellation_token.child_token();
 
           async move {
             cancellation_token.run_until_cancelled( async move {
               // Persist any discovered devices from the Etherdream discovery service
               while let Some( device_info ) = discovery_rx.recv().await {
-                device_map2.lock().await.insert( *device_info.info() );
+                device_map.lock().await.insert( *device_info.info() );
               }
             }).await;
           }
         });
 
         // Shutdown the discovery service and terminate
-        let _ = h.await;
-        let _ = i.await;
+        let _ = tasks.join_all().await;
         discovery.shutdown().await;
 
         Ok( () )

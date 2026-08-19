@@ -56,25 +56,22 @@ impl UI {
   pub fn run( mut self, mut terminal: DefaultTerminal, mut event_rx: Receiver<scene::Event> ) {
     let mut is_running = true;
 
-    while is_running {
-
-      if let Some( event ) = event_rx.blocking_recv() {
-        match event {
-          scene::Event::Key( key ) => {
-            if ! self.scenes.key_down( key ) {
-              match key.code {
-                KeyCode::Char( 'q' ) | KeyCode::Esc => { is_running = false; },
-                _ => { }
-              }
+    while let Some( event ) = event_rx.blocking_recv() {
+      match event {
+        scene::Event::Key( key ) => {
+          if ! self.scenes.key_down( key ) {
+            match key.code {
+              KeyCode::Char( 'q' ) | KeyCode::Esc => { return; },
+              _ => { }
             }
-          },
-          scene::Event::Tick( _time ) => {
-            let _ = self.scenes.update();
-            let _ = terminal.draw(| frame |{ self.render( frame ) });
           }
-          scene::Event::Scene( event ) => {
-            self.scenes.on_event( event )
-          }
+        },
+        scene::Event::Tick( _time ) => {
+          let _ = self.scenes.update();
+          let _ = terminal.draw(| frame |{ self.render( frame ) });
+        }
+        scene::Event::Scene( event ) => {
+          self.scenes.on_event( event )
         }
       }
     }
