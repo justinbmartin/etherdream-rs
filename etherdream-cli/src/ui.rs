@@ -54,8 +54,6 @@ impl UI {
   }
 
   pub fn run( mut self, mut terminal: DefaultTerminal, mut event_rx: Receiver<scene::Event> ) {
-    let mut is_running = true;
-
     while let Some( event ) = event_rx.blocking_recv() {
       match event {
         scene::Event::Key( key ) => {

@@ -5,7 +5,6 @@ use std::net::{ IpAddr, Ipv4Addr, SocketAddr };
 
 use futures::stream::StreamExt;
 use tokio::net::UdpSocket;
-use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
 use tokio_util::bytes::BytesMut;
 use tokio_util::codec::Decoder;
@@ -52,17 +51,24 @@ pub struct Server {
 impl Server {
   /// Starts the discovery server and listens for Etherdream broadcasts on
   /// `0.0.0.0:7654`.
-  pub async fn serve( device_tx: Sender<DiscoveredDeviceInfo> ) -> Result<Self,io::Error> {
+  pub async fn serve<F,Fut>( callback: F ) -> Result<Self,io::Error>
+  where
+    F: FnMut( DiscoveredDeviceInfo ) -> Fut + Send + 'static,
+    Fut: Future<Output=()> + Send + 'static
+  {
     Self::serve_with_address(
       SocketAddr::new( IpAddr::V4( Ipv4Addr::UNSPECIFIED ), protocol::BROADCAST_PORT ),
-      device_tx
+      callback
     ).await
   }
 
   /// Starts the discovery server and listens for Etherdream broadcasts on a
   /// user-provided socket address.
-  pub async fn serve_with_address( address: SocketAddr, device_tx: Sender<DiscoveredDeviceInfo> )
+  pub async fn serve_with_address<F,Fut>( address: SocketAddr, callback: F )
     -> Result<Self,io::Error>
+  where
+    F: FnMut( DiscoveredDeviceInfo ) -> Fut + Send + 'static,
+    Fut: Future<Output=()> + Send + 'static
   {
     let shutdown_token = CancellationToken::new();
 
@@ -75,7 +81,7 @@ impl Server {
       async move {
         tokio::select!{
           _ = shutdown_token.cancelled() => { Ok(()) },
-          result = do_listen( socket, device_tx ) => result
+          result = do_listen( socket, callback ) => result
         }
       }
     });
@@ -99,8 +105,11 @@ impl Server {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Listen Handler
 
-async fn do_listen( socket: UdpSocket, tx: Sender<DiscoveredDeviceInfo> )
+async fn do_listen<F,Fut>( socket: UdpSocket, mut callback: F )
   -> Result<(),io::Error>
+where
+  F: FnMut( DiscoveredDeviceInfo ) -> Fut + Send + 'static,
+  Fut: Future<Output=()> + Send + 'static
 {
   let mut framed = UdpFramed::new( socket, BroadcastDecoder{} );
   let mut registry = DeviceMap::new();
@@ -121,7 +130,7 @@ async fn do_listen( socket: UdpSocket, tx: Sender<DiscoveredDeviceInfo> )
 
           // Insert the device into the registry and broadcast it to `tx`
           registry.insert( address, discovered_device.clone() );
-          let _ = tx.send( discovered_device ).await;
+          callback( discovered_device.clone() ).await;
         }
         Err( e ) => {
           eprintln!( "Error receiving discovery broadcast: {}", e );
