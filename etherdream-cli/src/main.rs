@@ -18,7 +18,6 @@ fn main() -> std::io::Result<()> {
   let device_id = std::sync::Arc::new( std::sync::Mutex::new( None::<usize> ) );
   let device_map = std::sync::Arc::new( tokio::sync::Mutex::new( device::DeviceMap::default() ) );
   let ( action_tx, action_rx ) = mpsc::channel( 16 );
-  //let ( discovery_tx, mut discovery_rx ) = mpsc::channel( 16 );
   let ( event_tx, event_rx ) = mpsc::channel( 1024 );
   let main_scene = ui::MainScene::new(device_id.clone(), device_map.clone() );
 
@@ -27,20 +26,20 @@ fn main() -> std::io::Result<()> {
     let device_map = device_map.clone();
 
     move ||{
-      let _ = rt.block_on( async move {
+      let _: Result<(),std::io::Error> = rt.block_on( async move {
         let mut tasks = task::JoinSet::<()>::new();
 
-        let discovery = match etherdream::discover( move | device_info: etherdream::DiscoveredDeviceInfo |{
+        tasks.spawn({
           let device_map = device_map.clone();
 
           async move {
-          device_map.lock().await.insert( *device_info.info() );
-        }}).await {
-          Ok( server ) => server,
-          Err( err ) => {
-            return Err( format!( "Failed to start Etherdream device discovery service: {:?}", err ) );
+            let mut device_rx = etherdream::discover().await.unwrap();
+
+            while let Some( device_info ) = device_rx.recv().await {
+              device_map.lock().await.insert( *device_info.info() );
+            }
           }
-        };
+        });
 
         tasks.spawn({
           let cancellation_token = cancellation_token.child_token();
@@ -54,7 +53,6 @@ fn main() -> std::io::Result<()> {
 
         // Shutdown the discovery service and terminate
         let _ = tasks.join_all().await;
-        discovery.shutdown().await;
 
         Ok( () )
       });

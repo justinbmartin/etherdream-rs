@@ -9,6 +9,7 @@ pub mod discovery;
 pub mod generator;
 
 use std::io;
+use tokio::sync::mpsc;
 
 // Convenience exports
 pub use client::{ Client, State };
@@ -21,13 +22,8 @@ pub use generator::Generator;
 ///
 /// Each unique device will be published to the user-provided `tx` a single
 /// time.
-pub async fn discover<F,Fut>( callback: F )
-  -> Result<discovery::Server,io::Error>
-where
-  F: FnMut( DiscoveredDeviceInfo ) -> Fut + Send + 'static,
-  Fut: Future<Output=()> + Send + 'static
-{
-  discovery::Server::serve( callback ).await
+pub async fn discover() -> Result<mpsc::Receiver<DiscoveredDeviceInfo>,io::Error> {
+  discovery::Server::serve().await
 }
 
 /// Connects to an Etherdream network device using the provided `DeviceInfo`,

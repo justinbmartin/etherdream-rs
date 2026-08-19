@@ -5,6 +5,7 @@ use std::net::{ IpAddr, Ipv4Addr, SocketAddr };
 
 use futures::stream::StreamExt;
 use tokio::net::UdpSocket;
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_util::bytes::BytesMut;
 use tokio_util::codec::Decoder;
@@ -51,46 +52,36 @@ pub struct Server {
 impl Server {
   /// Starts the discovery server and listens for Etherdream broadcasts on
   /// `0.0.0.0:7654`.
-  pub async fn serve<F,Fut>( callback: F ) -> Result<Self,io::Error>
-  where
-    F: FnMut( DiscoveredDeviceInfo ) -> Fut + Send + 'static,
-    Fut: Future<Output=()> + Send + 'static
+  pub async fn serve() -> Result<mpsc::Receiver<DiscoveredDeviceInfo>,io::Error>
   {
     Self::serve_with_address(
       SocketAddr::new( IpAddr::V4( Ipv4Addr::UNSPECIFIED ), protocol::BROADCAST_PORT ),
-      callback
     ).await
   }
 
   /// Starts the discovery server and listens for Etherdream broadcasts on a
   /// user-provided socket address.
-  pub async fn serve_with_address<F,Fut>( address: SocketAddr, callback: F )
-    -> Result<Self,io::Error>
-  where
-    F: FnMut( DiscoveredDeviceInfo ) -> Fut + Send + 'static,
-    Fut: Future<Output=()> + Send + 'static
+  pub async fn serve_with_address( address: SocketAddr )
+    -> Result<mpsc::Receiver<DiscoveredDeviceInfo>,io::Error>
   {
+    let ( device_tx, device_rx ) = mpsc::channel( 16 );
     let shutdown_token = CancellationToken::new();
 
     let socket = UdpSocket::bind( address ).await?;
     let local_address = socket.local_addr()?;
 
-    let handle = tokio::spawn({
+    tokio::spawn({
       let shutdown_token = shutdown_token.child_token();
 
       async move {
         tokio::select!{
           _ = shutdown_token.cancelled() => { Ok(()) },
-          result = do_listen( socket, callback ) => result
+          result = do_listen( socket, device_tx ) => result
         }
       }
     });
 
-    Ok( Self{
-      address: local_address,
-      handle,
-      shutdown_token
-    })
+    Ok( device_rx )
   }
 
   /// Returns the local socket address that the discovery server is bound to.
@@ -105,11 +96,8 @@ impl Server {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Listen Handler
 
-async fn do_listen<F,Fut>( socket: UdpSocket, mut callback: F )
+async fn do_listen( socket: UdpSocket, device_tx: mpsc::Sender<DiscoveredDeviceInfo> )
   -> Result<(),io::Error>
-where
-  F: FnMut( DiscoveredDeviceInfo ) -> Fut + Send + 'static,
-  Fut: Future<Output=()> + Send + 'static
 {
   let mut framed = UdpFramed::new( socket, BroadcastDecoder{} );
   let mut registry = DeviceMap::new();
@@ -130,7 +118,7 @@ where
 
           // Insert the device into the registry and broadcast it to `tx`
           registry.insert( address, discovered_device.clone() );
-          callback( discovered_device.clone() ).await;
+          let _ = device_tx.send( discovered_device ).await;
         }
         Err( e ) => {
           eprintln!( "Error receiving discovery broadcast: {}", e );
