@@ -170,11 +170,13 @@ pub struct EventController;
 impl EventController {
   pub async fn run<T: Actionable + Send + 'static>(
     event_tx: mpsc::Sender<Event>,
-    cancellation_token: CancellationToken,
     mut action_rx: mpsc::Receiver<T::Action>,
     mut actionable: T
   ) {
     let mut tasks = JoinSet::new();
+
+    // TODO
+    let cancellation_token = CancellationToken::new();
 
     tasks.spawn({
       let cancellation_token = cancellation_token.child_token();
