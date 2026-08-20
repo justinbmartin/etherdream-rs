@@ -33,10 +33,10 @@ fn main() -> std::io::Result<()> {
           let device_map = device_map.clone();
 
           async move {
-            let mut device_rx = etherdream::discover().await.unwrap();
-
-            while let Some( device_info ) = device_rx.recv().await {
-              device_map.lock().await.insert( *device_info.info() );
+            if let Ok( mut device_rx ) = etherdream::discover().await {
+              while let Some( device_info ) = device_rx.recv().await {
+                device_map.lock().await.insert( *device_info.info() );
+              }
             }
           }
         });
@@ -53,7 +53,6 @@ fn main() -> std::io::Result<()> {
 
         // Shutdown the discovery service and terminate
         let _ = tasks.join_all().await;
-
         Ok( () )
       });
     }
