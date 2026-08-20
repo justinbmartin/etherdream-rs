@@ -30,14 +30,17 @@ fn main() -> std::io::Result<()> {
         let mut tasks = task::JoinSet::<()>::new();
 
         tasks.spawn({
+          let cancellation_token = cancellation_token.child_token();
           let device_map = device_map.clone();
 
           async move {
-            if let Ok( mut device_rx ) = etherdream::discover().await {
-              while let Some( device_info ) = device_rx.recv().await {
-                device_map.lock().await.insert( *device_info.info() );
+            cancellation_token.run_until_cancelled( async move {
+              if let Ok( mut device_rx ) = etherdream::discover().await {
+                while let Some( device_info ) = device_rx.recv().await {
+                  device_map.lock().await.insert( *device_info.info() );
+                }
               }
-            }
+            }).await;
           }
         });
 
@@ -46,7 +49,7 @@ fn main() -> std::io::Result<()> {
 
           async move {
             cancellation_token.run_until_cancelled( async move {
-              scene::EventController::run( event_tx, action_rx, main_scene ).await
+              scene::EventController::new( event_tx, action_rx, main_scene ).run().await
             }).await;
           }
         });

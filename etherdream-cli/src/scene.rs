@@ -36,7 +36,7 @@ pub trait Actionable {
 pub trait Scene<T: Actionable> {
   fn on_enter( &mut self ) { }
   fn on_exit( &mut self ) { }
-  fn on_key_down( &mut self, _key: KeyEvent ) -> bool { false }
+  fn on_key_down( &mut self, _key: KeyEvent, _ctx: &mut UpdateContext<T> ) -> bool { false }
   fn on_update( &mut self, _ctx: &mut UpdateContext<T> ) { }
   fn on_draw( &mut self, area: Rect, buf: &mut Buffer );
 }
@@ -105,7 +105,8 @@ impl<T: Actionable> Controller<T> {
   /// ...
   pub fn key_down( &mut self, key: KeyEvent ) -> bool {
     if let Some( scene ) = self.scenes.get_mut( *self.stack.last().unwrap() ) {
-      scene.on_key_down( key )
+      let mut update_ctx = UpdateContext{ action_tx: self.action_tx.clone() };
+      scene.on_key_down( key, &mut update_ctx )
     } else {
       false
     }
@@ -165,14 +166,18 @@ pub enum Event {
   Tick( f64 )
 }
 
-pub struct EventController;
+pub struct EventController<T: Actionable + Send + 'static> {
+  action_rx: mpsc::Receiver<T::Action>,
+  actionable: T,
+  event_tx: mpsc::Sender<Event>
+}
 
-impl EventController {
-  pub async fn run<T: Actionable + Send + 'static>(
-    event_tx: mpsc::Sender<Event>,
-    mut action_rx: mpsc::Receiver<T::Action>,
-    mut actionable: T
-  ) {
+impl<T: Actionable + Send + 'static> EventController<T> {
+  pub fn new( event_tx: mpsc::Sender<Event>, action_rx: mpsc::Receiver<T::Action>, actionable: T ) -> Self {
+    Self{ action_rx, actionable, event_tx }
+  }
+
+  pub async fn run( mut self ) {
     let mut tasks = JoinSet::new();
 
     // TODO
@@ -180,7 +185,7 @@ impl EventController {
 
     tasks.spawn({
       let cancellation_token = cancellation_token.child_token();
-      let event_tx = event_tx.clone();
+      let event_tx = self.event_tx.clone();
 
       // Start interval tick for FPS
       async move {
@@ -202,15 +207,15 @@ impl EventController {
 
     tasks.spawn({
       let cancellation_token = cancellation_token.child_token();
-      let event_tx = event_tx.clone();
+      let event_tx = self.event_tx.clone();
 
       // Start interval tick for FPS
       async move {
         tokio::select!{
           _ = cancellation_token.cancelled() => { println!( "cancellation token exit..." ) }
           _ = async move {
-            while let Some( action ) = action_rx.recv().await {
-              let event = actionable.invoke( action ).await;
+            while let Some( action ) = self.action_rx.recv().await {
+              let event = self.actionable.invoke( action ).await;
               let _ = event_tx.send( Event::Scene( event ) ).await;
             }
           } => { }
@@ -221,7 +226,7 @@ impl EventController {
     // Start task to capture key events
     tasks.spawn({
       let cancellation_token = cancellation_token.child_token();
-      let event_tx = event_tx.clone();
+      let event_tx = self.event_tx.clone();
 
       async move {
         tokio::select!{

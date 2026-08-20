@@ -15,8 +15,7 @@ const INPUT_PORT: usize = 0;
 
 // Scene that renders a form to connect to an Etherdream device.
 pub struct ConnectScene<'a> {
-  connect: bool,
-  device: device::ScopedDevice,
+  _device: device::ScopedDevice,
   input_selected: usize,
   port_input: TextArea<'a>
 }
@@ -28,8 +27,7 @@ impl<'a> ConnectScene<'a> {
     port_input.set_placeholder_text( etherdream::protocol::CLIENT_PORT.to_string() );
 
     Self{
-      connect: false,
-      device,
+      _device: device,
       input_selected: INPUT_CONNECT_BUTTON,
       port_input,
     }
@@ -41,7 +39,7 @@ impl<'a> scene::Scene<ui::MainScene> for ConnectScene<'a> {
     self.input_selected = INPUT_CONNECT_BUTTON;
   }
 
-  fn on_key_down( &mut self, key: KeyEvent ) -> bool {
+  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::UpdateContext<ui::MainScene> ) -> bool {
     match key.code {
       KeyCode::Up => {
         self.input_selected = INPUT_PORT;
@@ -53,7 +51,7 @@ impl<'a> scene::Scene<ui::MainScene> for ConnectScene<'a> {
       },
       KeyCode::Enter => {
         if self.input_selected == INPUT_CONNECT_BUTTON  {
-          self.connect = true;
+          ctx.invoke( ui::Action::Connect( self.port_input.lines()[0].parse::<u16>().unwrap() ) );
           true
         } else {
           false
@@ -73,14 +71,7 @@ impl<'a> scene::Scene<ui::MainScene> for ConnectScene<'a> {
     false
   }
 
-  fn on_update( &mut self, ctx: &mut scene::UpdateContext<ui::MainScene> ) {
-    if self.connect {
-      self.connect = false;
-      ctx.invoke( ui::Action::Connect( self.port_input.lines()[0].parse::<u16>().unwrap() ) );
-    }
-  }
-
-  fn on_draw( &mut self, area: Rect, buf: &mut Buffer ) {
+  fn on_draw( &mut self, _area: Rect, _buf: &mut Buffer ) {
 
   }
 }

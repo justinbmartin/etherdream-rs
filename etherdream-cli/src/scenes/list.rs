@@ -38,7 +38,7 @@ impl ListScene {
 }
 
 impl scene::Scene<ui::MainScene> for ListScene {
-  fn on_key_down( &mut self, key: KeyEvent ) -> bool {
+  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::UpdateContext<ui::MainScene> ) -> bool {
     match key.code {
       dir @ ( KeyCode::Up | KeyCode::Down ) => {
         let devices_count = self.devices.read().len();
@@ -52,8 +52,9 @@ impl scene::Scene<ui::MainScene> for ListScene {
         return true;
       }
       KeyCode::Enter => {
-        if let Some( id ) = self.state.selected().and_then(| i |{ self.sorted_device_keys.get( i ) }) {
-          self.selected = Some( *id );
+        if let Some( device_id ) = self.state.selected().and_then(| i |{ self.sorted_device_keys.get( i ) }) {
+          ctx.invoke( ui::Action::SelectDevice( *device_id ) );
+          self.selected = Some( *device_id );
           return true;
         }
       }
@@ -75,10 +76,6 @@ impl scene::Scene<ui::MainScene> for ListScene {
 
       self.sorted_device_keys.sort();
       self.device_map_version = devices.version();
-    }
-
-    if let Some( device_id ) = self.selected.take() {
-      ctx.invoke( ui::Action::SelectDevice( device_id ) );
     }
   }
 
