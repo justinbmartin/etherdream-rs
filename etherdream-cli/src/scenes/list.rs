@@ -37,8 +37,8 @@ impl ListScene {
   }
 }
 
-impl scene::Scene<ui::MainScene> for ListScene {
-  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::UpdateContext<ui::MainScene> ) -> bool {
+impl scene::Scene<ui::ActionHandler> for ListScene {
+  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::UpdateContext<ui::ActionHandler> ) -> bool {
     match key.code {
       dir @ ( KeyCode::Up | KeyCode::Down ) => {
         let devices_count = self.devices.read().len();
@@ -64,7 +64,7 @@ impl scene::Scene<ui::MainScene> for ListScene {
     false
   }
 
-  fn on_update( &mut self, ctx: &mut scene::UpdateContext<ui::MainScene> ) {
+  fn on_update( &mut self, ctx: &mut scene::UpdateContext<ui::ActionHandler> ) {
     let devices = self.devices.read();
 
     // Refresh our local sorted device cache if the remote device map has changed

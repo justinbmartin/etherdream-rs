@@ -7,7 +7,6 @@ use ratatui::widgets::{ Block, /* Cell, */ Padding, Paragraph, Row, Widget, Tabl
 use ratatui_textarea::TextArea;
 
 use crate::ui;
-use crate::ui::MainScene;
 use crate::device;
 use crate::scene;
 use crate::scene::UpdateContext;
@@ -27,8 +26,8 @@ impl DeviceScene {
   }
 }
 
-impl scene::Scene<ui::MainScene> for DeviceScene {
-  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut UpdateContext<MainScene> ) -> bool {
+impl scene::Scene<ui::ActionHandler> for DeviceScene {
+  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut UpdateContext<ui::ActionHandler> ) -> bool {
     match key.code {
       KeyCode::Char( 'q' ) => {
         ctx.invoke( ui::Action::DeselectDevice );

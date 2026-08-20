@@ -10,6 +10,8 @@ use crate::device;
 use crate::scene;
 use crate::scenes;
 
+pub type Scene = dyn scene::Scene<ActionHandler>;
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Action
 
 #[derive( Debug )]
@@ -22,7 +24,7 @@ pub enum Action {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
 
 pub struct UI {
-  scenes: scene::Controller<MainScene>
+  scenes: scene::Controller<ActionHandler>
 }
 
 impl UI {
@@ -91,18 +93,18 @@ impl UI {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
-pub struct MainScene {
+pub struct ActionHandler {
   device_id: Arc<Mutex<Option<usize>>>,
   device_map: Arc<tokio::sync::Mutex<device::DeviceMap>>
 }
 
-impl MainScene {
+impl ActionHandler {
   pub fn new( device_id: Arc<Mutex<Option<usize>>>, device_map: Arc<tokio::sync::Mutex<device::DeviceMap>> ) -> Self {
     Self{ device_id, device_map }
   }
 }
 
-impl scene::Actionable for MainScene {
+impl scene::Actionable for ActionHandler {
   type Action = Action;
 
   async fn invoke( &mut self, action: Action ) -> scene::SceneEvent {

@@ -19,7 +19,7 @@ fn main() -> std::io::Result<()> {
   let device_map = std::sync::Arc::new( tokio::sync::Mutex::new( device::DeviceMap::default() ) );
   let ( action_tx, action_rx ) = mpsc::channel( 16 );
   let ( event_tx, event_rx ) = mpsc::channel( 1024 );
-  let main_scene = ui::MainScene::new(device_id.clone(), device_map.clone() );
+  let action_handler = ui::ActionHandler::new( device_id.clone(), device_map.clone() );
 
   let rt_thread = std::thread::spawn({
     let cancellation_token = cancellation_token.child_token();
@@ -49,7 +49,7 @@ fn main() -> std::io::Result<()> {
 
           async move {
             cancellation_token.run_until_cancelled( async move {
-              scene::EventController::new( event_tx, action_rx, main_scene ).run().await
+              scene::EventController::new( event_tx, action_rx, action_handler ).run().await
             }).await;
           }
         });
