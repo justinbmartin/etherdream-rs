@@ -83,7 +83,11 @@ impl<T> ReadOnly<T> {
   }
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scoped Device
+impl<T> Clone for ReadOnly<T> {
+  fn clone( &self ) -> Self {
+    Self{ inner: self.inner.clone() }
+  }
+}
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Device Guard
 
@@ -110,8 +114,8 @@ pub struct ScopedDevice {
 }
 
 impl ScopedDevice {
-  pub fn new( device_id: ReadOnly<Option<usize>>, device_map: ReadOnly<DeviceMap> ) -> Self {
-    Self{ device_id, device_map }
+  pub fn new( state: &State ) -> Self {
+    Self{ device_id: state.device_id(), device_map: state.device_map() }
   }
 
   pub fn get( &'_ self ) -> Option<DeviceGuard<'_>> {
@@ -121,6 +125,15 @@ impl ScopedDevice {
         Some( DeviceGuard{ guard, device_id })
       }
       None => None
+    }
+  }
+}
+
+impl Clone for ScopedDevice {
+  fn clone( &self ) -> Self {
+    Self{
+      device_id: self.device_id.clone(),
+      device_map: self.device_map.clone()
     }
   }
 }
