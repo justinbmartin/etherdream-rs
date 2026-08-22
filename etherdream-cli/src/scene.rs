@@ -113,8 +113,6 @@ impl<T: Actionable> Controller<T> {
   /// ...
   pub fn update( &mut self ) {
     if let Some( scene ) = self.scenes.get_mut( *self.stack.last().unwrap() ) {
-
-      // NEXT: I need to capture the requested event here...
       let mut update_ctx = UpdateContext{ action_tx: self.action_tx.clone() };
       scene.on_update( &mut update_ctx );
     }

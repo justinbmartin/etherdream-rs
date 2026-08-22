@@ -4,9 +4,8 @@ use ratatui::layout::Rect;
 use ratatui::style::{ Color, Style };
 use ratatui_textarea::TextArea;
 
-use crate::ui;
-use crate::device;
 use crate::scene;
+use crate::state::{ self, Action, State };
 
 pub const ID: &str = "connect";
 
@@ -15,13 +14,13 @@ const INPUT_PORT: usize = 0;
 
 // Scene that renders a form to connect to an Etherdream device.
 pub struct ConnectScene<'a> {
-  _device: device::ScopedDevice,
+  _device: state::ScopedDevice,
   input_selected: usize,
   port_input: TextArea<'a>
 }
 
 impl<'a> ConnectScene<'a> {
-  pub fn new( device: device::ScopedDevice ) -> Self {
+  pub fn new(device: state::ScopedDevice ) -> Self {
     let mut port_input = TextArea::default();
     port_input.set_cursor_line_style( Style::default() );
     port_input.set_placeholder_text( etherdream::protocol::CLIENT_PORT.to_string() );
@@ -34,12 +33,12 @@ impl<'a> ConnectScene<'a> {
   }
 }
 
-impl<'a> scene::Scene<ui::State> for ConnectScene<'a> {
+impl<'a> scene::Scene<State> for ConnectScene<'a> {
   fn on_enter( &mut self ) {
     self.input_selected = INPUT_CONNECT_BUTTON;
   }
 
-  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::UpdateContext<ui::State> ) -> bool {
+  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::UpdateContext<State> ) -> bool {
     match key.code {
       KeyCode::Up => {
         self.input_selected = INPUT_PORT;
@@ -51,7 +50,7 @@ impl<'a> scene::Scene<ui::State> for ConnectScene<'a> {
       },
       KeyCode::Enter => {
         if self.input_selected == INPUT_CONNECT_BUTTON  {
-          ctx.invoke( ui::Action::Connect( self.port_input.lines()[0].parse::<u16>().unwrap() ) );
+          ctx.invoke( Action::Connect( self.port_input.lines()[0].parse::<u16>().unwrap() ) );
           true
         } else {
           false

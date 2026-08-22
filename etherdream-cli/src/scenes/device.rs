@@ -6,8 +6,7 @@ use ratatui::style::{ Color, palette::tailwind::SLATE, Style };
 use ratatui::widgets::{ Block, /* Cell, */ Padding, Paragraph, Row, Widget, Table, /* TableState */ };
 use ratatui_textarea::TextArea;
 
-use crate::ui;
-use crate::device;
+use crate::state::{ self, Action, State };
 use crate::scene;
 use crate::scene::UpdateContext;
 
@@ -17,24 +16,24 @@ const HIGHLIGHT_STYLE: Style = Style::new().bg( SLATE.c800 );
 const TABLE_KEY_WIDTH: u16 = 25;
 
 pub struct DeviceScene {
-  device: device::ScopedDevice
+  device: state::ScopedDevice
 }
 
 impl DeviceScene {
-  pub fn new( device: device::ScopedDevice ) -> Self {
+  pub fn new(device: state::ScopedDevice ) -> Self {
     Self{ device }
   }
 }
 
-impl scene::Scene<ui::State> for DeviceScene {
-  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut UpdateContext<ui::State> ) -> bool {
+impl scene::Scene<State> for DeviceScene {
+  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut UpdateContext<State> ) -> bool {
     match key.code {
       KeyCode::Char( 'q' ) => {
-        ctx.invoke( ui::Action::DeselectDevice );
+        ctx.invoke( Action::DeselectDevice );
         true
       }
       KeyCode::Char( 'c' ) => {
-        ctx.invoke( ui::Action::Connect( 7765 ) );
+        ctx.invoke( Action::Connect( 7765 ) );
         true
       }
       _ => {
@@ -75,7 +74,7 @@ impl scene::Scene<ui::State> for DeviceScene {
 }
 
 // UI to render the Etherdream device intrinsic and run-time properties
-fn render_info( device: &device::DeviceGuard, area: Rect, buf: &mut Buffer ) {
+fn render_info(device: &state::DeviceGuard, area: Rect, buf: &mut Buffer ) {
   let [ intrinsics_area, state_area ] = area.layout( &Layout::vertical([
     Constraint::Length( 10 ), Constraint::Fill( 1 ),
   ]) );

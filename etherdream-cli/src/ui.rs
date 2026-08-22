@@ -1,70 +1,44 @@
-use std::sync::Arc;
-
 use crossterm::event::KeyCode;
-use ratatui::{ DefaultTerminal, Frame };
+use ratatui::DefaultTerminal;
 use ratatui::layout::{ Constraint, Layout };
 use ratatui::widgets::{ Paragraph, Widget };
-use tokio::sync::{ mpsc::Receiver, Mutex };
+use tokio::sync::mpsc::Receiver;
 
-use crate::device;
 use crate::scene;
 use crate::scenes;
+use crate::state;
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Action
-
-#[derive( Debug )]
-pub enum Action {
-  Connect( u16 ),
-  SelectDevice( usize ),
-  DeselectDevice
-}
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
-
-#[derive( Default )]
-pub struct State {
-  pub device_id: Arc<Mutex<Option<usize>>>,
-  pub device_map: Arc<Mutex<device::DeviceMap>>
-}
-
-impl Clone for State {
-  fn clone( &self ) -> Self {
-    Self{
-      device_id: self.device_id.clone(),
-      device_map: self.device_map.clone()
-    }
-  }
-}
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - UI
 
 pub struct UI {
-  builder: scene::Builder<State>
+  builder: scene::Builder<state::State>
 }
 
 impl UI {
-  pub fn new( state: State ) -> Self {
+  pub fn new( state: state::State ) -> Self {
     
     // Scenes
     let mut builder = scene::Builder::new();
 
     {
-      let device_map = device::ReadOnlyDeviceMap::new( state.device_map.clone() );
+      let device_map = state::ReadOnlyDeviceMap::new( state.device_map.clone() );
       builder.add_scene( scenes::list::ID, Box::new( scenes::list::ListScene::new( device_map ) ) );
     }
 
     {
-      let scoped_device = device::ScopedDevice::new( state.device_id.clone(), state.device_map.clone() );
+      let scoped_device = state::ScopedDevice::new(state.device_id.clone(), state.device_map.clone() );
       builder.add_scene( scenes::device::ID, Box::new( scenes::device::DeviceScene::new( scoped_device ) ) );
     }
 
     {
-      let scoped_device = device::ScopedDevice::new( state.device_id.clone(), state.device_map.clone() );
+      let scoped_device = state::ScopedDevice::new(state.device_id.clone(), state.device_map.clone() );
       builder.add_scene( scenes::connect::ID, Box::new( scenes::connect::ConnectScene::new( scoped_device ) ) );
     }
 
     Self{ builder }
   }
 
-  pub fn run( mut self, action_tx: tokio::sync::mpsc::Sender<Action>, mut terminal: DefaultTerminal, mut event_rx: Receiver<scene::Event> ) {
+  pub fn run( self, action_tx: tokio::sync::mpsc::Sender<state::Action>, mut terminal: DefaultTerminal, mut event_rx: Receiver<scene::Event> ) {
     let mut scenes = self.builder.build( action_tx );
 
     while let Some( event ) = event_rx.blocking_recv() {
@@ -96,35 +70,6 @@ impl UI {
         scene::Event::Scene( event ) => {
           scenes.on_event( event )
         }
-      }
-    }
-  }
-}
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
-
-impl scene::Actionable for State {
-  type Action = Action;
-
-  async fn invoke( &mut self, action: Action ) -> scene::SceneEvent {
-    match action {
-      Action::Connect( _port ) => {
-        let device_id = self.device_id.lock().await.unwrap();
-
-        if let Some( device ) = self.device_map.lock().await.get_mut( device_id ) {
-          let _ = device.connect().await;
-          return scene::SceneEvent::None;
-        }
-
-        scene::SceneEvent::Pop
-      },
-      Action::SelectDevice( id ) => {
-        *self.device_id.lock().await = Some( id );
-        scene::SceneEvent::Switch( scenes::device::ID )
-      },
-      Action::DeselectDevice => {
-        *self.device_id.lock().await = None;
-        scene::SceneEvent::Switch( scenes::list::ID )
       }
     }
   }

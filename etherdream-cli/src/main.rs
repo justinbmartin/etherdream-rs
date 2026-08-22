@@ -3,16 +3,16 @@ use tokio::{ runtime, task };
 use tokio_util::sync::CancellationToken;
 
 mod ui;
-mod device;
 mod executors;
 mod scene;
 mod scenes;
+mod state;
 
 fn main() -> std::io::Result<()> {
   let cancellation_token = CancellationToken::new();
 
   //
-  let state = ui::State::default();
+  let state = state::State::default();
   let ui = ui::UI::new( state.clone() );
 
   //
