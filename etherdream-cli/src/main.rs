@@ -15,12 +15,12 @@ fn main() -> io::Result<()> {
     .thread_name( "scene-event-server" )
     .enable_all()
     .build()?;
-  
+
   let cancellation_token = CancellationToken::new();
   let state = state::State::default();
 
   // Create the event server
-  let ( event_client, event_server ) = scene::make_event_server( state.clone() );
+  let ( event_client, event_server ) = scene::make_events_server( state.clone() );
 
   let rt_thread =
     std::thread::spawn({

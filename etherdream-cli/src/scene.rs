@@ -6,7 +6,7 @@ use crossterm::event::{ self, EventStream, KeyEvent, KeyEventKind };
 use futures::{ FutureExt, StreamExt };
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use tokio::sync::mpsc::{ self, error::TrySendError };
+use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tokio::time;
 use tokio_util::sync::CancellationToken;
@@ -54,7 +54,7 @@ impl<T> UpdateContext<T> {
   }
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene Builder
 
 pub struct Builder<T> {
   current: Option<&'static str>,
@@ -76,15 +76,15 @@ impl<T> Builder<T> {
     true
   }
 
-  pub fn build( self, events_client: &EventClient<T> ) -> Controller<T>
+  pub fn build( self, events_client: &EventsClient<T> ) -> Controller<T>
   {
     let mut stack = Vec::new();
     stack.push( self.current.unwrap() );
 
     Controller::<T>{
-      action_tx: events_client.action_tx.clone(),
       scenes: self.scenes,
-      stack
+      stack,
+      update_ctx: UpdateContext{ action_tx: events_client.action_tx.clone() }
     }
   }
 }
@@ -92,17 +92,16 @@ impl<T> Builder<T> {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
 pub struct Controller<T> {
-  action_tx: mpsc::Sender<T>,
   scenes: HashMap<&'static str, Box<dyn Scene<T>>>,
-  stack: Vec<&'static str>
+  stack: Vec<&'static str>,
+  update_ctx: UpdateContext<T>
 }
 
 impl<T> Controller<T> {
   /// ...
   pub fn key_down( &mut self, key: KeyEvent ) -> bool {
     if let Some( scene ) = self.scenes.get_mut( *self.stack.last().unwrap() ) {
-      let mut update_ctx = UpdateContext{ action_tx: self.action_tx.clone() };
-      scene.on_key_down( key, &mut update_ctx )
+      scene.on_key_down( key, &mut self.update_ctx )
     } else {
       false
     }
@@ -111,8 +110,8 @@ impl<T> Controller<T> {
   /// ...
   pub fn update( &mut self ) {
     if let Some( scene ) = self.scenes.get_mut( *self.stack.last().unwrap() ) {
-      let mut update_ctx = UpdateContext{ action_tx: self.action_tx.clone() };
-      scene.on_update( &mut update_ctx );
+
+      scene.on_update( &mut self.update_ctx );
     }
   }
 
@@ -160,43 +159,43 @@ pub enum Event {
   Tick( f64 )
 }
 
-pub fn make_event_server<T: Actionable + Send + 'static>( handler: T ) -> ( EventClient<T::Action>, EventServer<T> ) {
+pub fn make_events_server<T: Actionable + Send + 'static>( handler: T ) -> ( EventsClient<T::Action>, EventsServer<T> ) {
   let ( action_tx, action_rx ) = mpsc::channel::<T::Action>( 16 );
   let ( event_tx, event_rx ) = mpsc::channel::<Event>( 1024 );
 
   (
-    EventClient{ action_tx, event_rx },
-    EventServer{ action_rx, event_tx, handler }
+    EventsClient{ action_tx, event_rx },
+    EventsServer{ action_rx, event_tx, handler }
   )
 }
 
-pub struct EventClient<T>{
+pub struct EventsClient<T>{
   action_tx: mpsc::Sender<T>,
   pub event_rx: mpsc::Receiver<Event>
 }
 
-impl<T> EventClient<T> {
-  
+impl<T> EventsClient<T> {
+
 }
 
-pub struct EventServer<T: Actionable + Send + 'static> {
+pub struct EventsServer<T: Actionable + Send + 'static> {
   handler: T,
   action_rx: mpsc::Receiver<T::Action>,
   event_tx: mpsc::Sender<Event>
 }
 
-impl<T: Actionable + Send + 'static> EventServer<T> {
+impl<T: Actionable + Send + 'static> EventsServer<T> {
   pub async fn run( mut self ) {
     let mut tasks = JoinSet::new();
 
     // TODO
     let cancellation_token = CancellationToken::new();
 
+    // Start task for tick on FPS
     tasks.spawn({
       let cancellation_token = cancellation_token.child_token();
       let event_tx = self.event_tx.clone();
 
-      // Start interval tick for FPS
       async move {
         tokio::select!{
           _ = cancellation_token.cancelled() => { println!( "cancellation token exit..." ) }
@@ -214,11 +213,11 @@ impl<T: Actionable + Send + 'static> EventServer<T> {
       }
     });
 
+    // Start task to receive and execute any UI actions
     tasks.spawn({
       let cancellation_token = cancellation_token.child_token();
       let event_tx = self.event_tx.clone();
 
-      // Start interval tick for FPS
       async move {
         tokio::select!{
           _ = cancellation_token.cancelled() => { println!( "cancellation token exit..." ) }
