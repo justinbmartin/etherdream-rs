@@ -162,23 +162,23 @@ pub enum Event {
   Tick( f64 )
 }
 
-pub fn make_event_server<T: Actionable + Send + 'static>( actionable: T ) -> ( EventClient<T>, EventServer<T> ) {
-  let ( action_tx, action_rx ) = mpsc::channel( 16 );
+pub fn make_event_server<T: Actionable + Send + 'static>( handler: T ) -> ( EventClient<T::Action>, EventServer<T> ) {
+  let ( action_tx, action_rx ) = mpsc::channel::<T::Action>( 16 );
   let ( event_tx, event_rx ) = mpsc::channel( 1024 );
 
   (
     EventClient{ action_tx, event_rx },
-    EventServer{ actionable, action_rx, event_tx }
+    EventServer{ action_rx, event_tx, handler }
   )
 }
 
-pub struct EventClient<T: Actionable + Send + 'static>{
-  pub action_tx: mpsc::Sender<T::Action>,
+pub struct EventClient<T>{
+  pub action_tx: mpsc::Sender<T>,
   pub event_rx: mpsc::Receiver<Event>
 }
 
 pub struct EventServer<T: Actionable + Send + 'static> {
-  actionable: T,
+  handler: T,
   action_rx: mpsc::Receiver<T::Action>,
   event_tx: mpsc::Sender<Event>
 }
@@ -222,7 +222,7 @@ impl<T: Actionable + Send + 'static> EventServer<T> {
           _ = cancellation_token.cancelled() => { println!( "cancellation token exit..." ) }
           _ = async move {
             while let Some( action ) = self.action_rx.recv().await {
-              let event = self.actionable.invoke( action ).await;
+              let event = self.handler.invoke( action ).await;
               let _ = event_tx.send( Event::Scene( event ) ).await;
             }
           } => { }

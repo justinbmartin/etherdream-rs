@@ -7,7 +7,7 @@ use crate::scene;
 use crate::scenes;
 use crate::state::{ self, Action, State };
 
-pub fn run<T: scene::Actionable<Action=Action> + Send + 'static>( mut event_client: scene::EventClient<T>, state: State ) {
+pub fn run( mut event_client: scene::EventClient<Action>, state: State ) {
   let mut scenes = make_scenes( state.clone(), event_client.action_tx );
 
   //
