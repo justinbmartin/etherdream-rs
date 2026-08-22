@@ -26,8 +26,8 @@ impl DeviceScene {
   }
 }
 
-impl scene::Scene<ui::ActionHandler> for DeviceScene {
-  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut UpdateContext<ui::ActionHandler> ) -> bool {
+impl scene::Scene<ui::State> for DeviceScene {
+  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut UpdateContext<ui::State> ) -> bool {
     match key.code {
       KeyCode::Char( 'q' ) => {
         ctx.invoke( ui::Action::DeselectDevice );

@@ -57,7 +57,6 @@ impl<T: Actionable> UpdateContext<T> {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
 pub struct Builder<T: Actionable + 'static + Send> {
-  action_tx: mpsc::Sender<T::Action>,
   current: Option<&'static str>,
   scenes: HashMap<&'static str, Box<dyn Scene<T>>>
 }
@@ -65,9 +64,8 @@ pub struct Builder<T: Actionable + 'static + Send> {
 impl<T> Builder<T>
   where T: Actionable + Send + 'static
 {
-  pub fn new( action_tx: mpsc::Sender<T::Action> ) -> Self {
+  pub fn new() -> Self {
     Self{
-      action_tx,
       current: None,
       scenes: HashMap::new()
     }
@@ -80,13 +78,13 @@ impl<T> Builder<T>
     true
   }
 
-  pub fn build( self ) -> Controller<T>
+  pub fn build( self, action_tx: mpsc::Sender<T::Action> ) -> Controller<T>
   {
     let mut stack = Vec::new();
     stack.push( self.current.unwrap() );
 
     Controller::<T>{
-      action_tx: self.action_tx,
+      action_tx,
       scenes: self.scenes,
       stack
     }
@@ -166,17 +164,20 @@ pub enum Event {
   Tick( f64 )
 }
 
-pub struct EventController<T: Actionable + Send + 'static> {
-  action_rx: mpsc::Receiver<T::Action>,
+pub fn make_event_server<T: Actionable + Send + 'static>( actionable: T ) -> ( mpsc::Sender<T::Action>, mpsc::Receiver<Event>, EventServer<T> ) {
+  let ( action_tx, action_rx ) = mpsc::channel( 16 );
+  let ( event_tx, event_rx ) = mpsc::channel( 1024 );
+
+  ( action_tx, event_rx, EventServer{ actionable, action_rx, event_tx })
+}
+
+pub struct EventServer<T: Actionable + Send + 'static> {
   actionable: T,
+  action_rx: mpsc::Receiver<T::Action>,
   event_tx: mpsc::Sender<Event>
 }
 
-impl<T: Actionable + Send + 'static> EventController<T> {
-  pub fn new( event_tx: mpsc::Sender<Event>, action_rx: mpsc::Receiver<T::Action>, actionable: T ) -> Self {
-    Self{ action_rx, actionable, event_tx }
-  }
-
+impl<T: Actionable + Send + 'static> EventServer<T> {
   pub async fn run( mut self ) {
     let mut tasks = JoinSet::new();
 

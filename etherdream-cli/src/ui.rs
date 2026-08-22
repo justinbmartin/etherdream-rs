@@ -10,8 +10,6 @@ use crate::device;
 use crate::scene;
 use crate::scenes;
 
-pub type Scene = dyn scene::Scene<ActionHandler>;
-
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Action
 
 #[derive( Debug )]
@@ -23,43 +21,56 @@ pub enum Action {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  App
 
+#[derive( Default )]
+pub struct State {
+  pub device_id: Arc<Mutex<Option<usize>>>,
+  pub device_map: Arc<tokio::sync::Mutex<device::DeviceMap>>
+}
+
+impl Clone for State {
+  fn clone( &self ) -> Self {
+    Self{
+      device_id: self.device_id.clone(),
+      device_map: self.device_map.clone()
+    }
+  }
+}
+
 pub struct UI {
-  scenes: scene::Controller<ActionHandler>
+  builder: scene::Builder<State>
 }
 
 impl UI {
-  pub fn new(
-    action_tx: tokio::sync::mpsc::Sender<Action>,
-    device_id: Arc<Mutex<Option<usize>>>,
-    device_map: Arc<tokio::sync::Mutex<device::DeviceMap>>
-  ) -> Self {
+  pub fn new( state: State ) -> Self {
     
     // Scenes
-    let mut builder = scene::Builder::new( action_tx );
+    let mut builder = scene::Builder::new();
 
     {
-      let device_map = device::ReadOnlyDeviceMap::new( device_map.clone() );
+      let device_map = device::ReadOnlyDeviceMap::new( state.device_map.clone() );
       builder.add_scene( scenes::list::ID, Box::new( scenes::list::ListScene::new( device_map ) ) );
     }
 
     {
-      let scoped_device = device::ScopedDevice::new( device_id.clone(), device_map.clone() );
+      let scoped_device = device::ScopedDevice::new( state.device_id.clone(), state.device_map.clone() );
       builder.add_scene( scenes::device::ID, Box::new( scenes::device::DeviceScene::new( scoped_device ) ) );
     }
 
     {
-      let scoped_device = device::ScopedDevice::new( device_id.clone(), device_map.clone() );
+      let scoped_device = device::ScopedDevice::new( state.device_id.clone(), state.device_map.clone() );
       builder.add_scene( scenes::connect::ID, Box::new( scenes::connect::ConnectScene::new( scoped_device ) ) );
     }
 
-    Self{ scenes: builder.build() }
+    Self{ builder }
   }
 
-  pub fn run( mut self, mut terminal: DefaultTerminal, mut event_rx: Receiver<scene::Event> ) {
+  pub fn run( mut self, action_tx: tokio::sync::mpsc::Sender<Action>, mut terminal: DefaultTerminal, mut event_rx: Receiver<scene::Event> ) {
+    let mut scenes = self.builder.build( action_tx );
+
     while let Some( event ) = event_rx.blocking_recv() {
       match event {
         scene::Event::Key( key ) => {
-          if ! self.scenes.key_down( key ) {
+          if ! scenes.key_down( key ) {
             match key.code {
               KeyCode::Char( 'q' ) | KeyCode::Esc => { return; },
               _ => { }
@@ -67,44 +78,32 @@ impl UI {
           }
         },
         scene::Event::Tick( _time ) => {
-          let _ = self.scenes.update();
-          let _ = terminal.draw(| frame |{ self.render( frame ) });
+          let _ = scenes.update();
+
+          let _ = terminal.draw(| frame |{
+            let main_layout = Layout::vertical([ Constraint::Fill( 1 ), Constraint::Length( 1 ) ]);
+            let [ body_area, footer_area ] = frame.area().layout( &main_layout );
+
+            // Main > Body
+            scenes.draw( body_area, frame.buffer_mut() );
+
+            // Main > Footer
+            Paragraph::new( "Use ↓↑ to move, <Enter> to select a device, 'q' to quit." )
+              .centered()
+              .render( footer_area, frame.buffer_mut() );
+          });
         }
         scene::Event::Scene( event ) => {
-          self.scenes.on_event( event )
+          scenes.on_event( event )
         }
       }
     }
-  }
-
-  fn render( &mut self, frame: &mut Frame ) {
-    let main_layout = Layout::vertical([ Constraint::Fill( 1 ), Constraint::Length( 1 ) ]);
-    let [ body_area, footer_area ] = frame.area().layout( &main_layout );
-
-    // Main > Body
-    self.scenes.draw( body_area, frame.buffer_mut() );
-
-    // Main > Footer
-    Paragraph::new( "Use ↓↑ to move, <Enter> to select a device, 'q' to quit." )
-      .centered()
-      .render( footer_area, frame.buffer_mut() );
   }
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
-pub struct ActionHandler {
-  device_id: Arc<Mutex<Option<usize>>>,
-  device_map: Arc<tokio::sync::Mutex<device::DeviceMap>>
-}
-
-impl ActionHandler {
-  pub fn new( device_id: Arc<Mutex<Option<usize>>>, device_map: Arc<tokio::sync::Mutex<device::DeviceMap>> ) -> Self {
-    Self{ device_id, device_map }
-  }
-}
-
-impl scene::Actionable for ActionHandler {
+impl scene::Actionable for State {
   type Action = Action;
 
   async fn invoke( &mut self, action: Action ) -> scene::SceneEvent {
