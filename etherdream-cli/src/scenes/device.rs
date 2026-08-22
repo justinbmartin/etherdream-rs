@@ -10,8 +10,6 @@ use crate::state::{ self, Action, State };
 use crate::scene;
 use crate::scene::UpdateContext;
 
-pub const ID: &str = "device";
-
 const HIGHLIGHT_STYLE: Style = Style::new().bg( SLATE.c800 );
 const TABLE_KEY_WIDTH: u16 = 25;
 

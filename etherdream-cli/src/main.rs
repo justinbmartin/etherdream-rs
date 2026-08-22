@@ -4,7 +4,6 @@ use std::io;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
-mod ui;
 mod executors;
 mod scene;
 mod scenes;
@@ -18,9 +17,7 @@ fn main() -> io::Result<()> {
 
   let cancellation_token = CancellationToken::new();
   let state = state::State::default();
-
-  // Create the event server
-  let ( mut ui, events_server ) = scene::make_scene_controller( state.clone(), ui::scene_info );
+  let ( mut ui, server ) = scene::init( scenes::build, state.clone() );
 
   let rt_thread =
     std::thread::spawn({
@@ -49,7 +46,7 @@ fn main() -> io::Result<()> {
             let cancellation_token = cancellation_token.child_token();
 
             async move {
-              cancellation_token.run_until_cancelled( events_server.run() ).await;
+              cancellation_token.run_until_cancelled( server.run() ).await;
             }
           });
 

@@ -8,8 +8,6 @@ use ratatui::widgets::{ Block, Cell, Paragraph, Row, StatefulWidget, Table, Tabl
 use crate::scene;
 use crate::state::{ self, Action, State };
 
-pub const ID: &str = "list";
-
 const CONNECTED: &str = " Connected ";
 const DISCONNECTED: &str = "Disconnected";
 const PLAYING: &str = " Playing ";

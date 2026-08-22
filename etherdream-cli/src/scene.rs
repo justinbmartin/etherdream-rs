@@ -38,6 +38,38 @@ pub trait Scene<T> {
   fn on_draw( &mut self, area: Rect, buf: &mut Buffer );
 }
 
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Init
+
+pub fn init<T,U>( build_scene_fn: T, mut state: U ) -> ( UI<U>, Server<U> )
+where T: Fn( &mut Builder<U> ),
+      U: Actionable + Send + 'static
+{
+  let ( action_tx, action_rx ) = mpsc::channel::<U::Action>( 16 );
+  let ( events_tx, events_rx ) = mpsc::channel::<Event>( 1024 );
+
+  // Call user-provided scene description builder
+  let mut builder = Builder::new( &mut state );
+  ( build_scene_fn )( &mut builder );
+
+  //
+  let mut stack = Vec::new();
+  stack.push( builder.current.unwrap() );
+
+  (
+    UI::<U>{
+      events_rx,
+      scenes: builder.scenes,
+      stack,
+      update_ctx: UpdateContext{ action_tx }
+    },
+    Server{
+      action_rx,
+      actionable: state,
+      events_tx
+    }
+  )
+}
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Update Context
 
 pub struct UpdateContext<T> {
@@ -79,14 +111,14 @@ impl<'a,T: Actionable + Send + 'static> Builder<'a,T> {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
-pub struct Controller<T: Actionable + Send + 'static> {
+pub struct UI<T: Actionable + Send + 'static> {
   events_rx: mpsc::Receiver<Event>,
   scenes: HashMap<&'static str, Box<dyn Scene<T::Action>>>,
   stack: Vec<&'static str>,
   update_ctx: UpdateContext<T::Action>
 }
 
-impl<T: Actionable + Send + 'static> Controller<T> {
+impl<T: Actionable + Send + 'static> UI<T> {
   pub fn run( &mut self ) {
     let mut terminal = ratatui::init();
 
@@ -186,55 +218,13 @@ pub enum Event {
   Tick( f64 )
 }
 
-pub fn make_scene_controller<T,U>( mut handler: T, scene_info: U ) -> ( Controller<T>, EventsServer<T> )
-  where T: Actionable + Send + 'static,
-        U: Fn( &mut Builder<T> )
-{
-  let ( action_tx, action_rx ) = mpsc::channel::<T::Action>( 16 );
-  let ( events_tx, events_rx ) = mpsc::channel::<Event>( 1024 );
-
-  let builder = {
-    let mut builder = Builder::new( &mut handler );
-    ( scene_info )( &mut builder );
-    builder
-  };
-
-  //
-  let mut stack = Vec::new();
-  stack.push( builder.current.unwrap() );
-
-  //
-  let controller = Controller::<T>{
-    events_rx,
-    scenes: builder.scenes,
-    stack,
-    update_ctx: UpdateContext{ action_tx }
-  };
-
-  (
-    controller,
-    EventsServer{ action_rx, event_tx: events_tx, handler }
-  )
-}
-
-pub struct EventsClient<T>{
-  action_tx: mpsc::Sender<T>,
-  event_rx: mpsc::Receiver<Event>
-}
-
-impl<T> EventsClient<T> {
-  pub fn blocking_recv( &mut self ) -> Option<Event> {
-    self.event_rx.blocking_recv()
-  }
-}
-
-pub struct EventsServer<T: Actionable + Send + 'static> {
-  handler: T,
+pub struct Server<T: Actionable + Send + 'static> {
+  actionable: T,
   action_rx: mpsc::Receiver<T::Action>,
-  event_tx: mpsc::Sender<Event>
+  events_tx: mpsc::Sender<Event>
 }
 
-impl<T: Actionable + Send + 'static> EventsServer<T> {
+impl<T: Actionable + Send + 'static> Server<T> {
   pub async fn run( mut self ) {
     let mut tasks = JoinSet::new();
 
@@ -244,7 +234,7 @@ impl<T: Actionable + Send + 'static> EventsServer<T> {
     // Start task for tick on FPS
     tasks.spawn({
       let cancellation_token = cancellation_token.child_token();
-      let event_tx = self.event_tx.clone();
+      let event_tx = self.events_tx.clone();
 
       async move {
         tokio::select!{
@@ -266,14 +256,14 @@ impl<T: Actionable + Send + 'static> EventsServer<T> {
     // Start task to receive and execute any UI actions
     tasks.spawn({
       let cancellation_token = cancellation_token.child_token();
-      let event_tx = self.event_tx.clone();
+      let event_tx = self.events_tx.clone();
 
       async move {
         tokio::select!{
           _ = cancellation_token.cancelled() => { println!( "cancellation token exit..." ) }
           _ = async move {
             while let Some( action ) = self.action_rx.recv().await {
-              let event = self.handler.invoke( action ).await;
+              let event = self.actionable.invoke( action ).await;
               let _ = event_tx.send( Event::Scene( event ) ).await;
             }
           } => { }
@@ -284,7 +274,7 @@ impl<T: Actionable + Send + 'static> EventsServer<T> {
     // Start task to capture key events
     tasks.spawn({
       let cancellation_token = cancellation_token.child_token();
-      let event_tx = self.event_tx.clone();
+      let event_tx = self.events_tx.clone();
 
       async move {
         tokio::select!{

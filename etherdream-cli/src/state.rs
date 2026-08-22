@@ -49,11 +49,11 @@ impl scene::Actionable for State {
       },
       Action::SelectDevice( id ) => {
         *self.device_id.lock().await = Some( id );
-        scene::SceneEvent::Switch( scenes::device::ID )
+        scene::SceneEvent::Switch( scenes::DEVICE_ID )
       },
       Action::DeselectDevice => {
         *self.device_id.lock().await = None;
-        scene::SceneEvent::Switch( scenes::list::ID )
+        scene::SceneEvent::Switch( scenes::LIST_ID )
       }
     }
   }
