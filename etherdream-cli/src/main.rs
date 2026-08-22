@@ -10,13 +10,10 @@ mod state;
 
 fn main() -> std::io::Result<()> {
   let cancellation_token = CancellationToken::new();
-
-  //
   let state = state::State::default();
-  let ui = ui::UI::new( state.clone() );
 
-  //
-  let ( action_tx, event_rx, event_server ) = scene::make_event_server( state.clone() );
+  // Create the event server
+  let ( event_client, event_server ) = scene::make_event_server( state.clone() );
 
   let rt_thread =
     std::thread::spawn({
@@ -64,9 +61,8 @@ fn main() -> std::io::Result<()> {
     });
 
   // [Blocks] Create and run the app
-  let terminal = ratatui::init();
-  ui.run( action_tx, terminal, event_rx );
-  ratatui::restore();
+  ui::run( event_client, state );
+
 
   cancellation_token.cancel();
   let _ = rt_thread.join();

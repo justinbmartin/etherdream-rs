@@ -162,11 +162,19 @@ pub enum Event {
   Tick( f64 )
 }
 
-pub fn make_event_server<T: Actionable + Send + 'static>( actionable: T ) -> ( mpsc::Sender<T::Action>, mpsc::Receiver<Event>, EventServer<T> ) {
+pub fn make_event_server<T: Actionable + Send + 'static>( actionable: T ) -> ( EventClient<T>, EventServer<T> ) {
   let ( action_tx, action_rx ) = mpsc::channel( 16 );
   let ( event_tx, event_rx ) = mpsc::channel( 1024 );
 
-  ( action_tx, event_rx, EventServer{ actionable, action_rx, event_tx })
+  (
+    EventClient{ action_tx, event_rx },
+    EventServer{ actionable, action_rx, event_tx }
+  )
+}
+
+pub struct EventClient<T: Actionable + Send + 'static>{
+  pub action_tx: mpsc::Sender<T::Action>,
+  pub event_rx: mpsc::Receiver<Event>
 }
 
 pub struct EventServer<T: Actionable + Send + 'static> {
