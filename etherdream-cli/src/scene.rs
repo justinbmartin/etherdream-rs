@@ -40,7 +40,7 @@ pub trait Scene<T> {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Init
 
-pub fn init<T,U>( build_scene_fn: T, mut state: U ) -> ( UI<U>, Server<U> )
+pub fn init<T,U>( build_scene_fn: T, mut state: U ) -> ( UI<U::Action>, Server<U> )
 where T: Fn( &mut Builder<U> ),
       U: Actionable + Send + 'static
 {
@@ -56,7 +56,7 @@ where T: Fn( &mut Builder<U> ),
   stack.push( builder.current.unwrap() );
 
   (
-    UI::<U>{
+    UI{
       events_rx,
       scenes: builder.scenes,
       stack,
@@ -68,18 +68,6 @@ where T: Fn( &mut Builder<U> ),
       events_tx
     }
   )
-}
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Update Context
-
-pub struct UpdateContext<T> {
-  action_tx: mpsc::Sender<T>
-}
-
-impl<T> UpdateContext<T> {
-  pub fn invoke( &mut self, action: T ) -> bool {
-    self.action_tx.try_send( action ).is_ok()
-  }
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene Builder
@@ -106,19 +94,19 @@ impl<'a,T: Actionable + Send + 'static> Builder<'a,T> {
     true
   }
 
-  pub fn state( &mut self ) -> &mut T { self.state }
+  pub fn state( &self ) -> &T { self.state }
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
-pub struct UI<T: Actionable + Send + 'static> {
+pub struct UI<T> {
   events_rx: mpsc::Receiver<Event>,
-  scenes: HashMap<&'static str, Box<dyn Scene<T::Action>>>,
+  scenes: HashMap<&'static str, Box<dyn Scene<T>>>,
   stack: Vec<&'static str>,
-  update_ctx: UpdateContext<T::Action>
+  update_ctx: UpdateContext<T>
 }
 
-impl<T: Actionable + Send + 'static> UI<T> {
+impl<T> UI<T> {
   pub fn run( &mut self ) {
     let mut terminal = ratatui::init();
 
@@ -169,7 +157,6 @@ impl<T: Actionable + Send + 'static> UI<T> {
   /// ...
   fn update( &mut self ) {
     if let Some( scene ) = self.scenes.get_mut( *self.stack.last().unwrap() ) {
-
       scene.on_update( &mut self.update_ctx );
     }
   }
@@ -207,6 +194,18 @@ impl<T: Actionable + Send + 'static> UI<T> {
       }
       SceneEvent::None => {}
     }
+  }
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Update Context
+
+pub struct UpdateContext<T> {
+  action_tx: mpsc::Sender<T>
+}
+
+impl<T> UpdateContext<T> {
+  pub fn invoke( &mut self, action: T ) -> bool {
+    self.action_tx.try_send( action ).is_ok()
   }
 }
 

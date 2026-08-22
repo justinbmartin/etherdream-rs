@@ -1,7 +1,7 @@
 use std::collections::{ HashMap, hash_map::Iter };
 use std::sync::Arc;
 
-use tokio::sync::{ Mutex, MutexGuard };
+use tokio::sync::RwLock;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Device
 
@@ -75,8 +75,8 @@ pub struct DeviceMap {
 }
 
 impl DeviceMap{
-  pub fn new() -> Arc<Mutex<Self>> {
-    Arc::new( Mutex::new( Self{ inner: HashMap::new(), version: 0 } ) )
+  pub fn new() -> Arc<RwLock<Self>> {
+    Arc::new( RwLock::new( Self{ inner: HashMap::new(), version: 0 } ) )
   }
 
   /// Returns an immutable reference to a device.
@@ -103,68 +103,5 @@ impl DeviceMap{
   /// Returns the current version of the map.
   pub fn version( &self ) -> usize {
     self.version
-  }
-}
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - Read-only Device Map
-
-pub struct ReadOnlyDeviceMap {
-  inner: Arc<Mutex<DeviceMap>>
-}
-
-impl ReadOnlyDeviceMap {
-  pub fn new( device_map: Arc<Mutex<DeviceMap>> ) -> Self {
-    Self{ inner: device_map }
-  }
-
-  pub fn read( &'_ self ) -> MutexGuard<'_, DeviceMap> {
-    self.inner.blocking_lock()
-  }
-}
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Device Guard
-
-pub struct DeviceGuard<'a> {
-  guard: MutexGuard<'a, DeviceMap>,
-  device_id: usize
-}
-
-impl<'a> DeviceGuard<'a> {
-  pub fn info( &self ) -> &etherdream::DeviceInfo {
-    self.guard.get( self.device_id ).unwrap().info()
-  }
-
-  pub fn is_connected( &self ) -> bool {
-    self.guard.get( self.device_id ).unwrap().is_connected()
-  }
-}
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scoped Device
-
-#[derive( Clone )]
-pub struct ScopedDevice {
-  device_map: Arc<Mutex<DeviceMap>>,
-  device_id: Arc<Mutex<Option<usize>>>
-}
-
-impl ScopedDevice {
-  pub fn new( device_id: Arc<Mutex<Option<usize>>>, device_map: Arc<Mutex<DeviceMap>> ) -> Self {
-    Self{ device_id, device_map }
-  }
-
-  pub fn get( &'_ self ) -> Option<DeviceGuard<'_>> {
-    let device_id =
-      match self.device_id.try_lock() {
-        Ok( guard ) => *guard,
-        Err( _ ) => None
-      };
-
-    match device_id {
-      Some( device_id ) => {
-        let device_map = self.device_map.blocking_lock();
-        Some( DeviceGuard{ guard: device_map, device_id })
-      }
-      None => None
-    }
   }
 }

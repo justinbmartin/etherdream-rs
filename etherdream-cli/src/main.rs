@@ -18,13 +18,13 @@ fn main() -> io::Result<()> {
 
   let cancellation_token = CancellationToken::new();
   let device_map = device::DeviceMap::new();
-  let state = state::State::new( device_map );
+  let state = state::State::new( device_map.clone() );
+
   let ( mut ui, server ) = scene::init( scenes::build, state.clone() );
 
   let rt_thread =
     std::thread::spawn({
       let cancellation_token = cancellation_token.child_token();
-      let device_map = state.device_map.clone();
 
       move ||{
         let _: io::Result<()> = rt.block_on( async move {
@@ -37,7 +37,7 @@ fn main() -> io::Result<()> {
               cancellation_token.run_until_cancelled( async move {
                 if let Ok( mut device_rx ) = etherdream::discover().await {
                   while let Some( device_info ) = device_rx.recv().await {
-                    device_map.lock().await.insert( *device_info.info() );
+                    device_map.write().await.insert( *device_info.info() );
                   }
                 }
               }).await;
