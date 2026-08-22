@@ -44,12 +44,12 @@ pub trait Scene<T: Actionable> {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Update Context
 
 pub struct UpdateContext<T: Actionable> {
-  action_tx: mpsc::Sender<T::Action>
+  action_tx: ActionTx<T::Action>
 }
 
 impl<T: Actionable> UpdateContext<T> {
   pub fn invoke( &mut self, action: T::Action ) -> bool {
-    let _ = self.action_tx.try_send( action );
+    let _ = self.action_tx.send( action );
     true
   }
 }
@@ -78,7 +78,7 @@ impl<T> Builder<T>
     true
   }
 
-  pub fn build( self, action_tx: mpsc::Sender<T::Action> ) -> Controller<T>
+  pub fn build( self, action_tx: ActionTx<T::Action> ) -> Controller<T>
   {
     let mut stack = Vec::new();
     stack.push( self.current.unwrap() );
@@ -94,7 +94,7 @@ impl<T> Builder<T>
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
 pub struct Controller<T: Actionable> {
-  action_tx: mpsc::Sender<T::Action>,
+  action_tx: ActionTx<T::Action>,
   scenes: HashMap<&'static str, Box<dyn Scene<T>>>,
   stack: Vec<&'static str>
 }
@@ -164,7 +164,7 @@ pub enum Event {
 
 pub fn make_event_server<T: Actionable + Send + 'static>( handler: T ) -> ( EventClient<T::Action>, EventServer<T> ) {
   let ( action_tx, action_rx ) = mpsc::channel::<T::Action>( 16 );
-  let ( event_tx, event_rx ) = mpsc::channel( 1024 );
+  let ( event_tx, event_rx ) = mpsc::channel::<Event>( 1024 );
 
   (
     EventClient{ action_tx, event_rx },
@@ -173,8 +173,29 @@ pub fn make_event_server<T: Actionable + Send + 'static>( handler: T ) -> ( Even
 }
 
 pub struct EventClient<T>{
-  pub action_tx: mpsc::Sender<T>,
+  action_tx: mpsc::Sender<T>,
   pub event_rx: mpsc::Receiver<Event>
+}
+
+
+pub struct ActionTx<T> {
+  action_tx: mpsc::Sender<T>,
+}
+
+impl<T> ActionTx<T> {
+  pub fn send( &self, action: T ) -> Result<(),tokio::sync::mpsc::error::TrySendError<T>> {
+    self.action_tx.try_send( action )
+  }
+}
+
+impl<T> Clone for ActionTx<T> {
+  fn clone( &self ) -> Self {
+    ActionTx{ action_tx: self.action_tx.clone() }
+  }
+}
+
+impl<T> EventClient<T> {
+  pub fn get_action_tx( &self ) -> ActionTx<T> { ActionTx{ action_tx: self.action_tx.clone() } }
 }
 
 pub struct EventServer<T: Actionable + Send + 'static> {

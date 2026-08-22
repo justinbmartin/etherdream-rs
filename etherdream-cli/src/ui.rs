@@ -8,16 +8,16 @@ use crate::scenes;
 use crate::state::{ self, Action, State };
 
 pub fn run( mut event_client: scene::EventClient<Action>, state: State ) {
-  let mut scenes = make_scenes( state.clone(), event_client.action_tx );
+  let mut controller = make_scenes( state.clone(), event_client.get_action_tx() );
 
-  //
+  // Initialize the ratatui context
   let mut terminal = ratatui::init();
 
-  //
+  // [Blocks] Wait for events from the `EventServer` and process as required
   while let Some( event ) = event_client.event_rx.blocking_recv() {
     match event {
       scene::Event::Key( key ) => {
-        if ! scenes.key_down( key ) {
+        if ! controller.key_down( key ) {
           match key.code {
             KeyCode::Char( 'q' ) | KeyCode::Esc => { break; },
             _ => { }
@@ -25,14 +25,14 @@ pub fn run( mut event_client: scene::EventClient<Action>, state: State ) {
         }
       },
       scene::Event::Tick( _time ) => {
-        let _ = scenes.update();
+        let _ = controller.update();
 
         let _ = terminal.draw(| frame |{
           let main_layout = Layout::vertical([ Constraint::Fill( 1 ), Constraint::Length( 1 ) ]);
           let [ body_area, footer_area ] = frame.area().layout( &main_layout );
 
           // Main > Body
-          scenes.draw( body_area, frame.buffer_mut() );
+          controller.draw( body_area, frame.buffer_mut() );
 
           // Main > Footer
           Paragraph::new( "Use ↓↑ to move, <Enter> to select a device, 'q' to quit." )
@@ -41,16 +41,16 @@ pub fn run( mut event_client: scene::EventClient<Action>, state: State ) {
         });
       }
       scene::Event::Scene( event ) => {
-        scenes.on_event( event )
+        controller.on_event( event )
       }
     }
   }
 
-  // Restore the terminal interface
+  // Restore the terminal to its pre-existing state
   ratatui::restore();
 }
 
-fn make_scenes( state: State, action_tx: Sender<Action> ) -> scene::Controller<State> {
+fn make_scenes( state: State, action_tx: scene::ActionTx<Action> ) -> scene::Controller<State> {
   let mut builder = scene::Builder::new();
 
   {
