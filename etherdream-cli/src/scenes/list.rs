@@ -5,6 +5,7 @@ use ratatui::style::{ Color, palette::tailwind::SLATE, Style };
 use ratatui::text::Line;
 use ratatui::widgets::{ Block, Cell, Paragraph, Row, StatefulWidget, Table, TableState, Widget };
 
+use crate::device;
 use crate::scene;
 use crate::state::{ self, Action, State };
 
@@ -15,7 +16,7 @@ const PLAYING: &str = " Playing ";
 const HIGHLIGHT_STYLE: Style = Style::new().bg( SLATE.c800 );
 
 pub struct ListScene {
-  devices: state::ReadOnlyDeviceMap,
+  devices: device::ReadOnlyDeviceMap,
   device_map_version: usize,
   selected: Option<usize>,
   sorted_device_keys: Vec<usize>, // Scene cache of sorted device id's
@@ -23,7 +24,7 @@ pub struct ListScene {
 }
 
 impl ListScene {
-  pub fn new(devices: state::ReadOnlyDeviceMap ) -> Self {
+  pub fn new(devices: device::ReadOnlyDeviceMap ) -> Self {
     Self{
       device_map_version: 0,
       devices,
@@ -126,7 +127,7 @@ impl scene::Scene<Action> for ListScene {
   }
 }
 
-fn render_device_status_cell<'a>(device: &state::Device, selected: bool ) -> Cell<'a> {
+fn render_device_status_cell<'a>(device: &device::Device, selected: bool ) -> Cell<'a> {
   if device.is_connected() {
     if let Some( generator ) = device.generator() && generator.is_running() {
       Cell::new( PLAYING ).style( Style::new().bg( Color::Green ) )

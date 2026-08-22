@@ -4,6 +4,7 @@ use std::io;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
+mod device;
 mod executors;
 mod scene;
 mod scenes;
@@ -16,7 +17,8 @@ fn main() -> io::Result<()> {
     .build()?;
 
   let cancellation_token = CancellationToken::new();
-  let state = state::State::default();
+  let device_map = device::DeviceMap::new();
+  let state = state::State::new( device_map );
   let ( mut ui, server ) = scene::init( scenes::build, state.clone() );
 
   let rt_thread =
@@ -57,8 +59,7 @@ fn main() -> io::Result<()> {
       }
     });
 
-  // [Blocks] Run the ui. Blocks until run is exited by user.
-  //ui::run( events_client, state );
+  // [Blocks] Run the ui. Blocks until exited by user.
   ui.run();
 
   // Send cancellation to thread and await shut down
