@@ -2,13 +2,10 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::time::Duration;
 
-use crossterm::event::{ self, EventStream, KeyEvent, KeyEventKind };
+use crossterm::event::{ self, EventStream, KeyCode, KeyEvent, KeyEventKind };
 use futures::{ FutureExt, StreamExt };
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect;
-use tokio::sync::mpsc;
-use tokio::task::JoinSet;
-use tokio::time;
+use ratatui::{ buffer::Buffer, layout::{ Constraint, Layout, Rect }, widgets::{ Paragraph, Widget } };
+use tokio::{ sync::mpsc, task::JoinSet, time };
 use tokio_util::sync::CancellationToken;
 
 const DEFAULT_FPS: f32 = 30.0;
@@ -49,57 +46,87 @@ pub struct UpdateContext<T> {
 
 impl<T> UpdateContext<T> {
   pub fn invoke( &mut self, action: T ) -> bool {
-    let _ = self.action_tx.try_send( action );
-    true
+    self.action_tx.try_send( action ).is_ok()
   }
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene Builder
 
-pub struct Builder<T> {
+pub struct Builder<'a, T: Actionable + Send + 'a> {
   current: Option<&'static str>,
-  scenes: HashMap<&'static str, Box<dyn Scene<T>>>
+  scenes: HashMap<&'static str, Box<dyn Scene<T::Action>>>,
+  state: &'a mut T
 }
 
-impl<T> Builder<T> {
-  pub fn new() -> Self {
+impl<'a,T: Actionable + Send + 'static> Builder<'a,T> {
+  pub fn new( state: &'a mut T ) -> Self {
     Self{
       current: None,
-      scenes: HashMap::new()
+      scenes: HashMap::new(),
+      state
     }
   }
 
   /// Adds a scene to the builder.
-  pub fn add_scene( &mut self, id: &'static str, scene: Box<dyn Scene<T>> ) -> bool {
+  pub fn add_scene( &mut self, id: &'static str, scene: Box<dyn Scene<T::Action>> ) -> bool {
     self.scenes.insert( id, scene );
     if self.current.is_none() { self.current = Some( id ) }
     true
   }
 
-  pub fn build( self, events_client: &EventsClient<T> ) -> Controller<T>
-  {
-    let mut stack = Vec::new();
-    stack.push( self.current.unwrap() );
-
-    Controller::<T>{
-      scenes: self.scenes,
-      stack,
-      update_ctx: UpdateContext{ action_tx: events_client.action_tx.clone() }
-    }
-  }
+  pub fn state( &mut self ) -> &mut T { self.state }
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
-pub struct Controller<T> {
-  scenes: HashMap<&'static str, Box<dyn Scene<T>>>,
+pub struct Controller<T: Actionable + Send + 'static> {
+  events_rx: mpsc::Receiver<Event>,
+  scenes: HashMap<&'static str, Box<dyn Scene<T::Action>>>,
   stack: Vec<&'static str>,
-  update_ctx: UpdateContext<T>
+  update_ctx: UpdateContext<T::Action>
 }
 
-impl<T> Controller<T> {
+impl<T: Actionable + Send + 'static> Controller<T> {
+  pub fn run( &mut self ) {
+    let mut terminal = ratatui::init();
+
+    while let Some( event ) = self.events_rx.blocking_recv() {
+      match event {
+        Event::Key( key ) => {
+          if ! self.key_down( key ) {
+            match key.code {
+              KeyCode::Char( 'q' ) | KeyCode::Esc => { break; },
+              _ => { }
+            }
+          }
+        },
+        Event::Tick( _time ) => {
+          let _ = self.update();
+
+          let _ = terminal.draw(| frame |{
+            let main_layout = Layout::vertical([ Constraint::Fill( 1 ), Constraint::Length( 1 ) ]);
+            let [ body_area, footer_area ] = frame.area().layout( &main_layout );
+
+            // Main > Body
+            self.draw( body_area, frame.buffer_mut() );
+
+            // Main > Footer
+            Paragraph::new( "Use ↓↑ to move, <Enter> to select a device, 'q' to quit." )
+              .centered()
+              .render( footer_area, frame.buffer_mut() );
+          });
+        }
+        Event::Scene( event ) => {
+          self.on_event( event )
+        }
+      }
+    }
+
+    ratatui::restore();
+  }
+
   /// ...
-  pub fn key_down( &mut self, key: KeyEvent ) -> bool {
+  fn key_down( &mut self, key: KeyEvent ) -> bool {
     if let Some( scene ) = self.scenes.get_mut( *self.stack.last().unwrap() ) {
       scene.on_key_down( key, &mut self.update_ctx )
     } else {
@@ -108,7 +135,7 @@ impl<T> Controller<T> {
   }
 
   /// ...
-  pub fn update( &mut self ) {
+  fn update( &mut self ) {
     if let Some( scene ) = self.scenes.get_mut( *self.stack.last().unwrap() ) {
 
       scene.on_update( &mut self.update_ctx );
@@ -116,13 +143,13 @@ impl<T> Controller<T> {
   }
 
   /// ...
-  pub fn draw( &mut self, area: Rect, buf: &mut Buffer ) {
+  fn draw( &mut self, area: Rect, buf: &mut Buffer ) {
     if let Some( scene ) = self.scenes.get_mut( *self.stack.last().unwrap() ) {
       scene.on_draw( area, buf );
     }
   }
 
-  pub fn on_event( &mut self, event: SceneEvent ) {
+  fn on_event( &mut self, event: SceneEvent ) {
     match event {
       SceneEvent::Push( next_scene ) => {
         if let Some( scene_id ) = self.stack.last() && let Some( scene ) = self.scenes.get_mut( scene_id ) {
@@ -159,23 +186,46 @@ pub enum Event {
   Tick( f64 )
 }
 
-pub fn make_events_server<T: Actionable + Send + 'static>( handler: T ) -> ( EventsClient<T::Action>, EventsServer<T> ) {
+pub fn make_scene_controller<T,U>( mut handler: T, scene_info: U ) -> ( Controller<T>, EventsServer<T> )
+  where T: Actionable + Send + 'static,
+        U: Fn( &mut Builder<T> )
+{
   let ( action_tx, action_rx ) = mpsc::channel::<T::Action>( 16 );
-  let ( event_tx, event_rx ) = mpsc::channel::<Event>( 1024 );
+  let ( events_tx, events_rx ) = mpsc::channel::<Event>( 1024 );
+
+  let builder = {
+    let mut builder = Builder::new( &mut handler );
+    ( scene_info )( &mut builder );
+    builder
+  };
+
+  //
+  let mut stack = Vec::new();
+  stack.push( builder.current.unwrap() );
+
+  //
+  let controller = Controller::<T>{
+    events_rx,
+    scenes: builder.scenes,
+    stack,
+    update_ctx: UpdateContext{ action_tx }
+  };
 
   (
-    EventsClient{ action_tx, event_rx },
-    EventsServer{ action_rx, event_tx, handler }
+    controller,
+    EventsServer{ action_rx, event_tx: events_tx, handler }
   )
 }
 
 pub struct EventsClient<T>{
   action_tx: mpsc::Sender<T>,
-  pub event_rx: mpsc::Receiver<Event>
+  event_rx: mpsc::Receiver<Event>
 }
 
 impl<T> EventsClient<T> {
-
+  pub fn blocking_recv( &mut self ) -> Option<Event> {
+    self.event_rx.blocking_recv()
+  }
 }
 
 pub struct EventsServer<T: Actionable + Send + 'static> {

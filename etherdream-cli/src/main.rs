@@ -20,7 +20,7 @@ fn main() -> io::Result<()> {
   let state = state::State::default();
 
   // Create the event server
-  let ( event_client, event_server ) = scene::make_events_server( state.clone() );
+  let ( mut ui, events_server ) = scene::make_scene_controller( state.clone(), ui::scene_info );
 
   let rt_thread =
     std::thread::spawn({
@@ -33,7 +33,6 @@ fn main() -> io::Result<()> {
 
           tasks.spawn({
             let cancellation_token = cancellation_token.child_token();
-            let device_map = device_map.clone();
 
             async move {
               cancellation_token.run_until_cancelled( async move {
@@ -50,7 +49,7 @@ fn main() -> io::Result<()> {
             let cancellation_token = cancellation_token.child_token();
 
             async move {
-              cancellation_token.run_until_cancelled( event_server.run() ).await;
+              cancellation_token.run_until_cancelled( events_server.run() ).await;
             }
           });
 
@@ -62,7 +61,8 @@ fn main() -> io::Result<()> {
     });
 
   // [Blocks] Run the ui. Blocks until run is exited by user.
-  ui::run( event_client, state );
+  //ui::run( events_client, state );
+  ui.run();
 
   // Send cancellation to thread and await shut down
   cancellation_token.cancel();
