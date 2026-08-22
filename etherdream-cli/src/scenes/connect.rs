@@ -33,12 +33,12 @@ impl<'a> ConnectScene<'a> {
   }
 }
 
-impl<'a> scene::Scene<State> for ConnectScene<'a> {
+impl<'a> scene::Scene<Action> for ConnectScene<'a> {
   fn on_enter( &mut self ) {
     self.input_selected = INPUT_CONNECT_BUTTON;
   }
 
-  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::UpdateContext<State> ) -> bool {
+  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::UpdateContext<Action> ) -> bool {
     match key.code {
       KeyCode::Up => {
         self.input_selected = INPUT_PORT;

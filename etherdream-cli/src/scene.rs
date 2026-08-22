@@ -33,7 +33,7 @@ pub trait Actionable {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene
 
-pub trait Scene<T: Actionable> {
+pub trait Scene<T> {
   fn on_enter( &mut self ) { }
   fn on_exit( &mut self ) { }
   fn on_key_down( &mut self, _key: KeyEvent, _ctx: &mut UpdateContext<T> ) -> bool { false }
@@ -43,12 +43,12 @@ pub trait Scene<T: Actionable> {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Update Context
 
-pub struct UpdateContext<T: Actionable> {
-  action_tx: ActionTx<T::Action>
+pub struct UpdateContext<T> {
+  action_tx: ActionTx<T>
 }
 
-impl<T: Actionable> UpdateContext<T> {
-  pub fn invoke( &mut self, action: T::Action ) -> bool {
+impl<T> UpdateContext<T> {
+  pub fn invoke( &mut self, action: T ) -> bool {
     let _ = self.action_tx.send( action );
     true
   }
@@ -56,14 +56,12 @@ impl<T: Actionable> UpdateContext<T> {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
-pub struct Builder<T: Actionable + 'static + Send> {
+pub struct Builder<T> {
   current: Option<&'static str>,
   scenes: HashMap<&'static str, Box<dyn Scene<T>>>
 }
 
-impl<T> Builder<T>
-  where T: Actionable + Send + 'static
-{
+impl<T> Builder<T> {
   pub fn new() -> Self {
     Self{
       current: None,
@@ -78,7 +76,7 @@ impl<T> Builder<T>
     true
   }
 
-  pub fn build( self, action_tx: ActionTx<T::Action> ) -> Controller<T>
+  pub fn build( self, action_tx: ActionTx<T> ) -> Controller<T>
   {
     let mut stack = Vec::new();
     stack.push( self.current.unwrap() );
@@ -93,13 +91,13 @@ impl<T> Builder<T>
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
-pub struct Controller<T: Actionable> {
-  action_tx: ActionTx<T::Action>,
+pub struct Controller<T> {
+  action_tx: ActionTx<T>,
   scenes: HashMap<&'static str, Box<dyn Scene<T>>>,
   stack: Vec<&'static str>
 }
 
-impl<T: Actionable> Controller<T> {
+impl<T> Controller<T> {
   /// ...
   pub fn key_down( &mut self, key: KeyEvent ) -> bool {
     if let Some( scene ) = self.scenes.get_mut( *self.stack.last().unwrap() ) {

@@ -50,7 +50,7 @@ pub fn run( mut event_client: scene::EventClient<Action>, state: State ) {
   ratatui::restore();
 }
 
-fn make_scenes( state: State, action_tx: scene::ActionTx<Action> ) -> scene::Controller<State> {
+fn make_scenes( state: State, action_tx: scene::ActionTx<Action> ) -> scene::Controller<Action> {
   let mut builder = scene::Builder::new();
 
   {
