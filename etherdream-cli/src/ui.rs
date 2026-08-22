@@ -1,10 +1,10 @@
-use std::sync::{ Arc, Mutex };
+use std::sync::Arc;
 
 use crossterm::event::KeyCode;
 use ratatui::{ DefaultTerminal, Frame };
 use ratatui::layout::{ Constraint, Layout };
 use ratatui::widgets::{ Paragraph, Widget };
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::{ mpsc::Receiver, Mutex };
 
 use crate::device;
 use crate::scene;
@@ -24,7 +24,7 @@ pub enum Action {
 #[derive( Default )]
 pub struct State {
   pub device_id: Arc<Mutex<Option<usize>>>,
-  pub device_map: Arc<tokio::sync::Mutex<device::DeviceMap>>
+  pub device_map: Arc<Mutex<device::DeviceMap>>
 }
 
 impl Clone for State {
@@ -109,29 +109,23 @@ impl scene::Actionable for State {
   async fn invoke( &mut self, action: Action ) -> scene::SceneEvent {
     match action {
       Action::Connect( _port ) => {
-        let device_id = self.device_id.lock().unwrap().unwrap();
+        let device_id = self.device_id.lock().await.unwrap();
 
         if let Some( device ) = self.device_map.lock().await.get_mut( device_id ) {
           let _ = device.connect().await;
           return scene::SceneEvent::None;
         }
 
-        return scene::SceneEvent::Pop;
+        scene::SceneEvent::Pop
       },
       Action::SelectDevice( id ) => {
-        if let Ok( mut guard ) = self.device_id.lock() {
-          *guard = Some( id );
-          return scene::SceneEvent::Switch( scenes::device::ID )
-        }
+        *self.device_id.lock().await = Some( id );
+        scene::SceneEvent::Switch( scenes::device::ID )
       },
       Action::DeselectDevice => {
-        if let Ok( mut guard ) = self.device_id.lock() {
-          *guard = None;
-          return scene::SceneEvent::Switch( scenes::list::ID );
-        }
-      },
+        *self.device_id.lock().await = None;
+        scene::SceneEvent::Switch( scenes::list::ID )
+      }
     }
-
-    scene::SceneEvent::None
   }
 }

@@ -1,5 +1,7 @@
 use std::collections::{ HashMap, hash_map::Iter };
-use std::sync::{ Arc, Mutex, MutexGuard };
+use std::sync::Arc;
+
+use tokio::sync::{ Mutex, MutexGuard };
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Device
 
@@ -112,15 +114,15 @@ impl DeviceMap{
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - Read-only Device Map
 
 pub struct ReadOnlyDeviceMap {
-  inner: Arc<tokio::sync::Mutex<DeviceMap>>
+  inner: Arc<Mutex<DeviceMap>>
 }
 
 impl ReadOnlyDeviceMap {
-  pub fn new( device_map: Arc<tokio::sync::Mutex<DeviceMap>> ) -> Self {
+  pub fn new( device_map: Arc<Mutex<DeviceMap>> ) -> Self {
     Self{ inner: device_map }
   }
 
-  pub fn read( &'_ self ) -> tokio::sync::MutexGuard<'_, DeviceMap> {
+  pub fn read( &'_ self ) -> MutexGuard<'_, DeviceMap> {
     self.inner.blocking_lock()
   }
 }
@@ -128,7 +130,7 @@ impl ReadOnlyDeviceMap {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Device Guard
 
 pub struct DeviceGuard<'a> {
-  guard: tokio::sync::MutexGuard<'a, DeviceMap>,
+  guard: MutexGuard<'a, DeviceMap>,
   device_id: usize
 }
 
@@ -146,18 +148,18 @@ impl<'a> DeviceGuard<'a> {
 
 #[derive( Clone )]
 pub struct ScopedDevice {
-  device_map: Arc<tokio::sync::Mutex<DeviceMap>>,
+  device_map: Arc<Mutex<DeviceMap>>,
   device_id: Arc<Mutex<Option<usize>>>
 }
 
 impl ScopedDevice {
-  pub fn new( device_id: Arc<Mutex<Option<usize>>>, device_map: Arc<tokio::sync::Mutex<DeviceMap>> ) -> Self {
+  pub fn new( device_id: Arc<Mutex<Option<usize>>>, device_map: Arc<Mutex<DeviceMap>> ) -> Self {
     Self{ device_id, device_map }
   }
 
   pub fn get( &'_ self ) -> Option<DeviceGuard<'_>> {
     let device_id =
-      match self.device_id.lock() {
+      match self.device_id.try_lock() {
         Ok( guard ) => *guard,
         Err( _ ) => None
       };
