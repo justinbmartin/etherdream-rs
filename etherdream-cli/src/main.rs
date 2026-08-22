@@ -1,5 +1,7 @@
 //! CLI tool to discover, connect and test Etherdream DAC's.
-use tokio::{ runtime, task };
+use std::io;
+
+use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 mod ui;
@@ -8,7 +10,12 @@ mod scene;
 mod scenes;
 mod state;
 
-fn main() -> std::io::Result<()> {
+fn main() -> io::Result<()> {
+  let rt = tokio::runtime::Builder::new_multi_thread()
+    .thread_name( "scene-event-server" )
+    .enable_all()
+    .build()?;
+  
   let cancellation_token = CancellationToken::new();
   let state = state::State::default();
 
@@ -21,14 +28,8 @@ fn main() -> std::io::Result<()> {
       let device_map = state.device_map.clone();
 
       move ||{
-        let rt = runtime::Builder::new_multi_thread()
-          .thread_name( "scene driver" )
-          .enable_all()
-          .build()
-          .unwrap();
-
-        let _: Result<(),std::io::Error> = rt.block_on( async move {
-          let mut tasks = task::JoinSet::<()>::new();
+        let _: io::Result<()> = rt.block_on( async move {
+          let mut tasks = JoinSet::<()>::new();
 
           tasks.spawn({
             let cancellation_token = cancellation_token.child_token();
@@ -60,7 +61,7 @@ fn main() -> std::io::Result<()> {
       }
     });
 
-  // [Blocks] Run the ui
+  // [Blocks] Run the ui. Blocks until run is exited by user.
   ui::run( event_client, state );
 
   // Send cancellation to thread and await shut down

@@ -6,7 +6,7 @@ use crossterm::event::{ self, EventStream, KeyEvent, KeyEventKind };
 use futures::{ FutureExt, StreamExt };
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{ self, error::TrySendError };
 use tokio::task::JoinSet;
 use tokio::time;
 use tokio_util::sync::CancellationToken;
@@ -44,12 +44,12 @@ pub trait Scene<T> {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Update Context
 
 pub struct UpdateContext<T> {
-  action_tx: ActionTx<T>
+  action_tx: mpsc::Sender<T>
 }
 
 impl<T> UpdateContext<T> {
   pub fn invoke( &mut self, action: T ) -> bool {
-    let _ = self.action_tx.send( action );
+    let _ = self.action_tx.try_send( action );
     true
   }
 }
@@ -76,13 +76,13 @@ impl<T> Builder<T> {
     true
   }
 
-  pub fn build( self, action_tx: ActionTx<T> ) -> Controller<T>
+  pub fn build( self, events_client: &EventClient<T> ) -> Controller<T>
   {
     let mut stack = Vec::new();
     stack.push( self.current.unwrap() );
 
     Controller::<T>{
-      action_tx,
+      action_tx: events_client.action_tx.clone(),
       scenes: self.scenes,
       stack
     }
@@ -92,7 +92,7 @@ impl<T> Builder<T> {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
 pub struct Controller<T> {
-  action_tx: ActionTx<T>,
+  action_tx: mpsc::Sender<T>,
   scenes: HashMap<&'static str, Box<dyn Scene<T>>>,
   stack: Vec<&'static str>
 }
@@ -175,25 +175,8 @@ pub struct EventClient<T>{
   pub event_rx: mpsc::Receiver<Event>
 }
 
-
-pub struct ActionTx<T> {
-  action_tx: mpsc::Sender<T>,
-}
-
-impl<T> ActionTx<T> {
-  pub fn send( &self, action: T ) -> Result<(),tokio::sync::mpsc::error::TrySendError<T>> {
-    self.action_tx.try_send( action )
-  }
-}
-
-impl<T> Clone for ActionTx<T> {
-  fn clone( &self ) -> Self {
-    ActionTx{ action_tx: self.action_tx.clone() }
-  }
-}
-
 impl<T> EventClient<T> {
-  pub fn get_action_tx( &self ) -> ActionTx<T> { ActionTx{ action_tx: self.action_tx.clone() } }
+  
 }
 
 pub struct EventServer<T: Actionable + Send + 'static> {

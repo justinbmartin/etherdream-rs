@@ -1,14 +1,13 @@
 use crossterm::event::KeyCode;
 use ratatui::layout::{ Constraint, Layout };
 use ratatui::widgets::{ Paragraph, Widget };
-use tokio::sync::mpsc::Sender;
 
 use crate::scene;
 use crate::scenes;
 use crate::state::{ self, Action, State };
 
 pub fn run( mut event_client: scene::EventClient<Action>, state: State ) {
-  let mut controller = make_scenes( state.clone(), event_client.get_action_tx() );
+  let mut controller = make_scenes( state.clone(), &event_client );
 
   // Initialize the ratatui context
   let mut terminal = ratatui::init();
@@ -50,7 +49,7 @@ pub fn run( mut event_client: scene::EventClient<Action>, state: State ) {
   ratatui::restore();
 }
 
-fn make_scenes( state: State, action_tx: scene::ActionTx<Action> ) -> scene::Controller<Action> {
+fn make_scenes( state: State, events_client: &scene::EventClient<Action> ) -> scene::Controller<Action> {
   let mut builder = scene::Builder::new();
 
   {
@@ -68,5 +67,5 @@ fn make_scenes( state: State, action_tx: scene::ActionTx<Action> ) -> scene::Con
     builder.add_scene( scenes::connect::ID, Box::new( scenes::connect::ConnectScene::new( scoped_device ) ) );
   }
 
-  builder.build( action_tx )
+  builder.build( events_client )
 }
