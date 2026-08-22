@@ -7,8 +7,8 @@ use crate::scene;
 use crate::scenes;
 use crate::state::{ self, Action, State };
 
-pub fn run<T: scene::Actionable<Action = Action> + Send + 'static>( mut event_client: scene::EventClient<T>, state: State ) {
-  let mut scenes = make_scenes::<T>( state.clone(), event_client.action_tx );
+pub fn run<T: scene::Actionable<Action=Action> + Send + 'static>( mut event_client: scene::EventClient<T>, state: State ) {
+  let mut scenes = make_scenes( state.clone(), event_client.action_tx );
 
   //
   let mut terminal = ratatui::init();
@@ -19,7 +19,7 @@ pub fn run<T: scene::Actionable<Action = Action> + Send + 'static>( mut event_cl
       scene::Event::Key( key ) => {
         if ! scenes.key_down( key ) {
           match key.code {
-            KeyCode::Char( 'q' ) | KeyCode::Esc => { return; },
+            KeyCode::Char( 'q' ) | KeyCode::Esc => { break; },
             _ => { }
           }
         }
@@ -46,11 +46,11 @@ pub fn run<T: scene::Actionable<Action = Action> + Send + 'static>( mut event_cl
     }
   }
 
-  //
+  // Restore the terminal interface
   ratatui::restore();
 }
 
-fn make_scenes<T: scene::Actionable<Action = Action> + Send + 'static>( state: State, action_tx: Sender<T::Action> ) -> scene::Controller<State> {
+fn make_scenes( state: State, action_tx: Sender<Action> ) -> scene::Controller<State> {
   let mut builder = scene::Builder::new();
 
   {

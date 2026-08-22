@@ -53,17 +53,17 @@ fn main() -> std::io::Result<()> {
             }
           });
 
-          // Shutdown the discovery service and terminate
+          // Await the tasks to complete
           let _ = tasks.join_all().await;
           Ok( () )
         });
       }
     });
 
-  // [Blocks] Create and run the app
+  // [Blocks] Run the ui
   ui::run( event_client, state );
 
-
+  // Send cancellation to thread and await shut down
   cancellation_token.cancel();
   let _ = rt_thread.join();
 
