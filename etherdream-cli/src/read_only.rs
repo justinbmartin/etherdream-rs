@@ -3,11 +3,11 @@ use std::sync::Arc;
 use tokio::sync::{ RwLock, RwLockReadGuard };
 
 /// A read-only ARC wrapper for T's
-pub struct ReadOnly<T> {
+pub struct ReadOnlyArc<T> {
   inner: Arc<RwLock<T>>
 }
 
-impl<T> ReadOnly<T> {
+impl<T> ReadOnlyArc<T> {
   pub fn new( item: Arc<RwLock<T>> ) -> Self {
     Self{ inner: item }
   }
@@ -18,7 +18,7 @@ impl<T> ReadOnly<T> {
   }
 }
 
-impl<T> Clone for ReadOnly<T> {
+impl<T> Clone for ReadOnlyArc<T> {
   /// Creates a new ReadOnly<T> that clones the inner item.
   fn clone( &self ) -> Self {
     Self{ inner: self.inner.clone() }

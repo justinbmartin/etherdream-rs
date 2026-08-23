@@ -4,8 +4,9 @@ use ratatui::layout::Rect;
 use ratatui::style::{ Color, Style };
 use ratatui_textarea::TextArea;
 
+use crate::action::Action;
 use crate::scene;
-use crate::ui::{Action, ReadOnlyDevice };
+use crate::state::ReadOnlyDevice;
 
 const INPUT_CONNECT_BUTTON: usize = 1;
 const INPUT_PORT: usize = 0;
@@ -18,7 +19,7 @@ pub struct ConnectScene<'a> {
 }
 
 impl<'a> ConnectScene<'a> {
-  pub fn new(device: ReadOnlyDevice ) -> Self {
+  pub fn new( device: ReadOnlyDevice ) -> Self {
     let mut port_input = TextArea::default();
     port_input.set_cursor_line_style( Style::default() );
     port_input.set_placeholder_text( etherdream::protocol::CLIENT_PORT.to_string() );

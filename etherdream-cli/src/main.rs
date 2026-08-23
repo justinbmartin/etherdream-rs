@@ -1,13 +1,17 @@
 //! CLI tool to discover, connect and test Etherdream DAC's.
 use std::io;
+use std::sync::Arc;
 
+use tokio::sync::RwLock;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
+mod action;
 mod device;
 mod executors;
 mod read_only;
 mod scene;
+mod state;
 mod ui;
 
 fn main() -> io::Result<()> {
@@ -17,8 +21,8 @@ fn main() -> io::Result<()> {
     .build()?;
 
   let cancellation_token = CancellationToken::new();
-  let device_map = device::DeviceMap::new();
-  let state = ui::State::new( device_map.clone() );
+  let device_map = Arc::new( RwLock::new( device::DeviceMap::new() ) );
+  let state = state::State::new( device_map.clone() );
 
   let ( mut ui, server ) = scene::init( ui::build_scenes, state.clone() );
 

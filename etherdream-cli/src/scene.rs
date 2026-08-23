@@ -78,7 +78,7 @@ pub struct SceneDefinitionContext<'a, T: Actionable + Send + 'a> {
   state: &'a mut T
 }
 
-impl<'a,T: Actionable + Send + 'static> SceneDefinitionContext<'a,T> {
+impl<'a,T: Actionable + Send + 'a> SceneDefinitionContext<'a,T> {
   pub fn new( state: &'a mut T ) -> Self {
     Self{
       current: None,

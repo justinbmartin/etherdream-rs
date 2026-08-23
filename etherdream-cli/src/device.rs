@@ -1,7 +1,4 @@
 use std::collections::{ HashMap, hash_map::Iter };
-use std::sync::Arc;
-
-use tokio::sync::RwLock;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Device
 
@@ -75,8 +72,8 @@ pub struct DeviceMap {
 }
 
 impl DeviceMap{
-  pub fn new() -> Arc<RwLock<Self>> {
-    Arc::new( RwLock::new( Self{ inner: HashMap::new(), version: 0 } ) )
+  pub fn new() -> Self {
+    Self{ inner: HashMap::new(), version: 0 }
   }
 
   /// Returns an immutable reference to a device.
