@@ -6,9 +6,10 @@ use ratatui::style::{ Color, palette::tailwind::SLATE, Style };
 use ratatui::widgets::{ Block, /* Cell, */ Padding, Paragraph, Row, Widget, Table, /* TableState */ };
 use ratatui_textarea::TextArea;
 
-use crate::state::{ self, Action };
+use crate::state;
 use crate::scene;
 use crate::scene::UpdateContext;
+use super::Action;
 
 const HIGHLIGHT_STYLE: Style = Style::new().bg( SLATE.c800 );
 const TABLE_KEY_WIDTH: u16 = 25;
@@ -72,7 +73,7 @@ impl scene::Scene<Action> for DeviceScene {
 }
 
 // UI to render the Etherdream device intrinsic and run-time properties
-fn render_info(device: &state::DeviceGuard, area: Rect, buf: &mut Buffer ) {
+fn render_info(device: &state::ScopedDeviceGuard, area: Rect, buf: &mut Buffer ) {
   let [ intrinsics_area, state_area ] = area.layout( &Layout::vertical([
     Constraint::Length( 10 ), Constraint::Fill( 1 ),
   ]) );

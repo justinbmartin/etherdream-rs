@@ -41,24 +41,24 @@ pub trait Scene<T> {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Init
 
 pub fn init<T,U>( build_scene_fn: T, mut state: U ) -> ( UI<U::Action>, Server<U> )
-where T: Fn( &mut Builder<U> ),
+where T: Fn( &mut SceneDefinitionContext<U> ),
       U: Actionable + Send + 'static
 {
   let ( action_tx, action_rx ) = mpsc::channel::<U::Action>( 16 );
   let ( events_tx, events_rx ) = mpsc::channel::<Event>( 1024 );
 
   // Call user-provided scene description builder
-  let mut builder = Builder::new( &mut state );
-  ( build_scene_fn )( &mut builder );
+  let mut ctx = SceneDefinitionContext::new( &mut state );
+  build_scene_fn( &mut ctx );
 
   //
   let mut stack = Vec::new();
-  stack.push( builder.current.unwrap() );
+  stack.push( ctx.current.unwrap() );
 
   (
     UI{
       events_rx,
-      scenes: builder.scenes,
+      scenes: ctx.scenes,
       stack,
       update_ctx: UpdateContext{ action_tx }
     },
@@ -72,13 +72,13 @@ where T: Fn( &mut Builder<U> ),
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene Builder
 
-pub struct Builder<'a, T: Actionable + Send + 'a> {
+pub struct SceneDefinitionContext<'a, T: Actionable + Send + 'a> {
   current: Option<&'static str>,
   scenes: HashMap<&'static str, Box<dyn Scene<T::Action>>>,
   state: &'a mut T
 }
 
-impl<'a,T: Actionable + Send + 'static> Builder<'a,T> {
+impl<'a,T: Actionable + Send + 'static> SceneDefinitionContext<'a,T> {
   pub fn new( state: &'a mut T ) -> Self {
     Self{
       current: None,
@@ -94,6 +94,7 @@ impl<'a,T: Actionable + Send + 'static> Builder<'a,T> {
     true
   }
 
+  /// Returns an immutable reference to the root state.
   pub fn state( &self ) -> &T { self.state }
 }
 

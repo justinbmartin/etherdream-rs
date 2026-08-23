@@ -4,16 +4,7 @@ use tokio::sync::{ RwLock, RwLockReadGuard };
 
 use crate::device::DeviceMap;
 use crate::scene;
-use crate::scenes;
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  State
-
-#[derive( Debug )]
-pub enum Action {
-  Connect( u16 ),
-  SelectDevice( usize ),
-  DeselectDevice
-}
+use crate::scenes::{ self, Action };
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  State
 
@@ -69,6 +60,7 @@ impl scene::Actionable for State {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Read-only Wrapper
 
+/// A read-only ARC wrapper for T's
 pub struct ReadOnly<T> {
   inner: Arc<RwLock<T>>
 }
@@ -78,31 +70,16 @@ impl<T> ReadOnly<T> {
     Self{ inner: item }
   }
 
+  // Will panic if called in an async context.
   pub fn read( &'_ self ) -> RwLockReadGuard<'_, T> {
     self.inner.blocking_read()
   }
 }
 
 impl<T> Clone for ReadOnly<T> {
+  /// Creates a new ReadOnly<T> that clones the inner item.
   fn clone( &self ) -> Self {
     Self{ inner: self.inner.clone() }
-  }
-}
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Device Guard
-
-pub struct DeviceGuard<'a> {
-  guard: RwLockReadGuard<'a, DeviceMap>,
-  device_id: usize
-}
-
-impl<'a> DeviceGuard<'a> {
-  pub fn info( &self ) -> &etherdream::DeviceInfo {
-    self.guard.get( self.device_id ).unwrap().info()
-  }
-
-  pub fn is_connected( &self ) -> bool {
-    self.guard.get( self.device_id ).unwrap().is_connected()
   }
 }
 
@@ -118,14 +95,11 @@ impl ScopedDevice {
     Self{ device_id: state.device_id(), device_map: state.device_map() }
   }
 
-  pub fn get( &'_ self ) -> Option<DeviceGuard<'_>> {
-    match *self.device_id.read() {
-      Some( device_id ) => {
-        let guard = self.device_map.read();
-        Some( DeviceGuard{ guard, device_id })
-      }
-      None => None
-    }
+  /// Returns a scoped guard to the currently selected device.
+  pub fn get( &'_ self ) -> Option<ScopedDeviceGuard<'_>> {
+    self.device_id.read().map(|device_id|{
+      ScopedDeviceGuard{ guard: self.device_map.read(), device_id }
+    })
   }
 }
 
@@ -135,5 +109,20 @@ impl Clone for ScopedDevice {
       device_id: self.device_id.clone(),
       device_map: self.device_map.clone()
     }
+  }
+}
+
+pub struct ScopedDeviceGuard<'a> {
+  guard: RwLockReadGuard<'a, DeviceMap>,
+  device_id: usize
+}
+
+impl<'a> ScopedDeviceGuard<'a> {
+  pub fn info( &self ) -> &etherdream::DeviceInfo {
+    self.guard.get( self.device_id ).unwrap().info()
+  }
+
+  pub fn is_connected( &self ) -> bool {
+    self.guard.get( self.device_id ).unwrap().is_connected()
   }
 }

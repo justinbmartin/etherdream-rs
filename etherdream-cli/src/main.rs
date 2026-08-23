@@ -30,6 +30,7 @@ fn main() -> io::Result<()> {
         let _: io::Result<()> = rt.block_on( async move {
           let mut tasks = JoinSet::<()>::new();
 
+          // Start an Etherdream discovery server
           tasks.spawn({
             let cancellation_token = cancellation_token.child_token();
 
@@ -44,6 +45,7 @@ fn main() -> io::Result<()> {
             }
           });
 
+          // Start the scene server
           tasks.spawn({
             let cancellation_token = cancellation_token.child_token();
 
@@ -52,7 +54,6 @@ fn main() -> io::Result<()> {
             }
           });
 
-          // Await the tasks to complete
           let _ = tasks.join_all().await;
           Ok( () )
         });
@@ -62,9 +63,9 @@ fn main() -> io::Result<()> {
   // [Blocks] Run the ui. Blocks until exited by user.
   ui.run();
 
-  // Send cancellation to thread and await shut down
+  // Shutdown the background processes
   cancellation_token.cancel();
   let _ = rt_thread.join();
-
+  
   Ok( () )
 }

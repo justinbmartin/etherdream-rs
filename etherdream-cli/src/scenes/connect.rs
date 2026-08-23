@@ -6,7 +6,8 @@ use ratatui_textarea::TextArea;
 
 use crate::device;
 use crate::scene;
-use crate::state::{ self, Action };
+use crate::state;
+use super::Action;
 
 const INPUT_CONNECT_BUTTON: usize = 1;
 const INPUT_PORT: usize = 0;
