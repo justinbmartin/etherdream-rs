@@ -19,7 +19,7 @@ pub enum Action {
 pub fn build( ctx: &mut SceneDefinitionContext<State> ) {
   let scoped_device = ScopedDevice::new( ctx.state() );
 
-  ctx.add_scene( LIST_ID, Box::new( list::ListScene::new( ctx.state().device_map() ) ) );
+  ctx.add_scene( LIST_ID, Box::new( list::ListScene::new( ctx.state().clone_read_only_device_map() ) ) );
   ctx.add_scene( DEVICE_ID, Box::new( device::DeviceScene::new( scoped_device.clone() ) ) );
   ctx.add_scene( CONNECT_ID, Box::new( connect::ConnectScene::new( scoped_device.clone() ) ) );
 }

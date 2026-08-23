@@ -18,8 +18,8 @@ impl State {
     Self{ device_id: Arc::new( RwLock::new( None::<usize> ) ), device_map }
   }
 
-  pub fn device_id( &self ) -> ReadOnly<Option<usize>> { ReadOnly::new( self.device_id.clone() ) }
-  pub fn device_map( &self ) -> ReadOnly<DeviceMap> { ReadOnly::new( self.device_map.clone() ) }
+  pub fn clone_read_only_device_id( &self ) -> ReadOnly<Option<usize>> { ReadOnly::new( self.device_id.clone() ) }
+  pub fn clone_read_only_device_map( &self ) -> ReadOnly<DeviceMap> { ReadOnly::new( self.device_map.clone() ) }
 }
 
 impl Clone for State {
@@ -92,7 +92,7 @@ pub struct ScopedDevice {
 
 impl ScopedDevice {
   pub fn new( state: &State ) -> Self {
-    Self{ device_id: state.device_id(), device_map: state.device_map() }
+    Self{ device_id: state.clone_read_only_device_id(), device_map: state.clone_read_only_device_map() }
   }
 
   /// Returns a scoped guard to the currently selected device.
