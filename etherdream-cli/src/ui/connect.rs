@@ -4,9 +4,9 @@ use ratatui::layout::Rect;
 use ratatui::style::{ Color, Style };
 use ratatui_textarea::TextArea;
 
-use crate::action::Action;
 use crate::scene;
 use crate::state::ReadOnlyDevice;
+use crate::ui::Action;
 
 const INPUT_CONNECT_BUTTON: usize = 1;
 const INPUT_PORT: usize = 0;

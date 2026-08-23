@@ -6,9 +6,9 @@ use ratatui::style::{ Color, palette::tailwind::SLATE, Style };
 use ratatui::widgets::{ Block, /* Cell, */ Padding, Paragraph, Row, Widget, Table, /* TableState */ };
 use ratatui_textarea::TextArea;
 
-use crate::action::Action;
 use crate::scene::{ self, UpdateContext };
 use crate::state::{ ReadOnlyDevice, ReadOnlyDeviceGuard };
+use crate::ui::Action;
 
 const HIGHLIGHT_STYLE: Style = Style::new().bg( SLATE.c800 );
 const TABLE_KEY_WIDTH: u16 = 25;

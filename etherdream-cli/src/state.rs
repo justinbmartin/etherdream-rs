@@ -2,11 +2,7 @@ use std::sync::Arc;
 
 use tokio::sync::{ RwLock, RwLockReadGuard };
 
-use crate::action::Action;
 use crate::device::DeviceMap;
-use crate::read_only::ReadOnlyArc;
-use crate::scene::{ Actionable, SceneEvent };
-use crate::ui;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  State
 
@@ -20,7 +16,8 @@ impl State {
     Self{ device_id: Arc::new( RwLock::new( None::<usize> ) ), device_map }
   }
 
-  pub fn read_only_device_map( &self ) -> ReadOnlyArc<DeviceMap> { ReadOnlyArc::new( self.device_map.clone() ) }
+  pub fn device_id( &self ) -> &Arc<RwLock<Option<usize>>> { &self.device_id }
+  pub fn device_map( &self ) -> &Arc<RwLock<DeviceMap>> { &self.device_map }
 }
 
 impl Clone for State {
@@ -28,33 +25,6 @@ impl Clone for State {
     Self{
       device_id: self.device_id.clone(),
       device_map: self.device_map.clone()
-    }
-  }
-}
-
-impl Actionable for State {
-  type Action = Action;
-
-  async fn invoke( &mut self, action: Action ) -> SceneEvent {
-    match action {
-      Action::Connect( _port ) => {
-        let device_id = self.device_id.read().await.unwrap();
-
-        if let Some( device ) = self.device_map.write().await.get_mut( device_id ) {
-          let _ = device.connect().await;
-          return SceneEvent::None;
-        }
-
-        SceneEvent::Pop
-      },
-      Action::SelectDevice( id ) => {
-        *self.device_id.write().await = Some( id );
-        SceneEvent::Switch( ui::DEVICE_ID )
-      },
-      Action::DeselectDevice => {
-        *self.device_id.write().await = None;
-        SceneEvent::Switch( ui::LIST_ID )
-      }
     }
   }
 }

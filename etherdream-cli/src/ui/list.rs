@@ -5,10 +5,10 @@ use ratatui::style::{ Color, palette::tailwind::SLATE, Style };
 use ratatui::text::Line;
 use ratatui::widgets::{ Block, Cell, Paragraph, Row, StatefulWidget, Table, TableState, Widget };
 
-use crate::action::Action;
 use crate::device;
+use crate::read_only::ReadOnlyArc;
 use crate::scene;
-use crate::ui;
+use crate::ui::Action;
 
 const CONNECTED: &str = " Connected ";
 const DISCONNECTED: &str = "Disconnected";
@@ -17,7 +17,7 @@ const PLAYING: &str = " Playing ";
 const HIGHLIGHT_STYLE: Style = Style::new().bg( SLATE.c800 );
 
 pub struct ListScene {
-  devices: ui::ReadOnlyArc<device::DeviceMap>,
+  devices: ReadOnlyArc<device::DeviceMap>,
   device_map_version: usize,
   selected: Option<usize>,
   sorted_device_keys: Vec<usize>, // Scene cache of sorted device id's
@@ -25,7 +25,7 @@ pub struct ListScene {
 }
 
 impl ListScene {
-  pub fn new(devices: ui::ReadOnlyArc<device::DeviceMap> ) -> Self {
+  pub fn new(devices: ReadOnlyArc<device::DeviceMap> ) -> Self {
     Self{
       device_map_version: 0,
       devices,

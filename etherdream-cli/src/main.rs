@@ -6,7 +6,6 @@ use tokio::sync::RwLock;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
-mod action;
 mod device;
 mod executors;
 mod read_only;
