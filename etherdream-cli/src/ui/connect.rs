@@ -4,23 +4,21 @@ use ratatui::layout::Rect;
 use ratatui::style::{ Color, Style };
 use ratatui_textarea::TextArea;
 
-use crate::device;
 use crate::scene;
-use crate::state;
-use super::Action;
+use crate::ui::{Action, ReadOnlyDevice };
 
 const INPUT_CONNECT_BUTTON: usize = 1;
 const INPUT_PORT: usize = 0;
 
 // Scene that renders a form to connect to an Etherdream device.
 pub struct ConnectScene<'a> {
-  _device: state::ScopedDevice,
+  _device: ReadOnlyDevice,
   input_selected: usize,
   port_input: TextArea<'a>
 }
 
 impl<'a> ConnectScene<'a> {
-  pub fn new(device: state::ScopedDevice ) -> Self {
+  pub fn new(device: ReadOnlyDevice ) -> Self {
     let mut port_input = TextArea::default();
     port_input.set_cursor_line_style( Style::default() );
     port_input.set_placeholder_text( etherdream::protocol::CLIENT_PORT.to_string() );

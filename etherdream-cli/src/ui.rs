@@ -3,8 +3,23 @@ use std::sync::Arc;
 use tokio::sync::{ RwLock, RwLockReadGuard };
 
 use crate::device::DeviceMap;
-use crate::scene;
-use crate::scenes::{ self, Action };
+use crate::read_only::ReadOnly;
+use crate::scene::{ Actionable, SceneDefinitionContext, SceneEvent };
+
+mod connect;
+mod list;
+mod device;
+
+pub const CONNECT_ID: &str  = "connect";
+pub const DEVICE_ID: &str   = "device";
+pub const LIST_ID: &str     = "list";
+
+#[derive( Debug )]
+pub enum Action {
+  Connect( u16 ),
+  SelectDevice( usize ),
+  DeselectDevice
+}
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  State
 
@@ -31,79 +46,54 @@ impl Clone for State {
   }
 }
 
-impl scene::Actionable for State {
+impl Actionable for State {
   type Action = Action;
 
-  async fn invoke( &mut self, action: Action ) -> scene::SceneEvent {
+  async fn invoke( &mut self, action: Action ) -> SceneEvent {
     match action {
       Action::Connect( _port ) => {
         let device_id = self.device_id.read().await.unwrap();
 
         if let Some( device ) = self.device_map.write().await.get_mut( device_id ) {
           let _ = device.connect().await;
-          return scene::SceneEvent::None;
+          return SceneEvent::None;
         }
 
-        scene::SceneEvent::Pop
+        SceneEvent::Pop
       },
       Action::SelectDevice( id ) => {
         *self.device_id.write().await = Some( id );
-        scene::SceneEvent::Switch( scenes::DEVICE_ID )
+        SceneEvent::Switch( DEVICE_ID )
       },
       Action::DeselectDevice => {
         *self.device_id.write().await = None;
-        scene::SceneEvent::Switch( scenes::LIST_ID )
+        SceneEvent::Switch( LIST_ID )
       }
     }
   }
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Read-only Wrapper
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Read-only Device
 
-/// A read-only ARC wrapper for T's
-pub struct ReadOnly<T> {
-  inner: Arc<RwLock<T>>
-}
-
-impl<T> ReadOnly<T> {
-  pub fn new( item: Arc<RwLock<T>> ) -> Self {
-    Self{ inner: item }
-  }
-
-  // Will panic if called in an async context.
-  pub fn read( &'_ self ) -> RwLockReadGuard<'_, T> {
-    self.inner.blocking_read()
-  }
-}
-
-impl<T> Clone for ReadOnly<T> {
-  /// Creates a new ReadOnly<T> that clones the inner item.
-  fn clone( &self ) -> Self {
-    Self{ inner: self.inner.clone() }
-  }
-}
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scoped Device
-
-pub struct ScopedDevice {
+pub struct ReadOnlyDevice {
   device_map: ReadOnly<DeviceMap>,
   device_id: ReadOnly<Option<usize>>
 }
 
-impl ScopedDevice {
+impl ReadOnlyDevice {
   pub fn new( state: &State ) -> Self {
     Self{ device_id: state.clone_read_only_device_id(), device_map: state.clone_read_only_device_map() }
   }
 
-  /// Returns a scoped guard to the currently selected device.
-  pub fn get( &'_ self ) -> Option<ScopedDeviceGuard<'_>> {
-    self.device_id.read().map(|device_id|{
-      ScopedDeviceGuard{ guard: self.device_map.read(), device_id }
+  /// Returns a guard to the currently selected device.
+  pub fn get( &'_ self ) -> Option<ReadOnlyDeviceGuard<'_>> {
+    self.device_id.blocking_read().map(|device_id|{
+      ReadOnlyDeviceGuard{ guard: self.device_map.blocking_read(), device_id }
     })
   }
 }
 
-impl Clone for ScopedDevice {
+impl Clone for ReadOnlyDevice {
   fn clone( &self ) -> Self {
     Self{
       device_id: self.device_id.clone(),
@@ -112,12 +102,12 @@ impl Clone for ScopedDevice {
   }
 }
 
-pub struct ScopedDeviceGuard<'a> {
+pub struct ReadOnlyDeviceGuard<'a> {
   guard: RwLockReadGuard<'a, DeviceMap>,
   device_id: usize
 }
 
-impl<'a> ScopedDeviceGuard<'a> {
+impl<'a> ReadOnlyDeviceGuard<'a> {
   pub fn info( &self ) -> &etherdream::DeviceInfo {
     self.guard.get( self.device_id ).unwrap().info()
   }
@@ -125,4 +115,14 @@ impl<'a> ScopedDeviceGuard<'a> {
   pub fn is_connected( &self ) -> bool {
     self.guard.get( self.device_id ).unwrap().is_connected()
   }
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+pub fn build_scenes( ctx: &mut SceneDefinitionContext<State> ) {
+  let device = ReadOnlyDevice::new( ctx.state() );
+
+  ctx.add_scene( LIST_ID, Box::new( list::ListScene::new( ctx.state().clone_read_only_device_map() ) ) );
+  ctx.add_scene( DEVICE_ID, Box::new( device::DeviceScene::new( device.clone() ) ) );
+  ctx.add_scene( CONNECT_ID, Box::new( connect::ConnectScene::new( device.clone() ) ) );
 }

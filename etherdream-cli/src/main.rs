@@ -6,9 +6,9 @@ use tokio_util::sync::CancellationToken;
 
 mod device;
 mod executors;
+mod read_only;
 mod scene;
-mod scenes;
-mod state;
+mod ui;
 
 fn main() -> io::Result<()> {
   let rt = tokio::runtime::Builder::new_multi_thread()
@@ -18,9 +18,9 @@ fn main() -> io::Result<()> {
 
   let cancellation_token = CancellationToken::new();
   let device_map = device::DeviceMap::new();
-  let state = state::State::new( device_map.clone() );
+  let state = ui::State::new( device_map.clone() );
 
-  let ( mut ui, server ) = scene::init( scenes::build, state.clone() );
+  let ( mut ui, server ) = scene::init( ui::build_scenes, state.clone() );
 
   let rt_thread =
     std::thread::spawn({
@@ -66,6 +66,6 @@ fn main() -> io::Result<()> {
   // Shutdown the background processes
   cancellation_token.cancel();
   let _ = rt_thread.join();
-  
+
   Ok( () )
 }

@@ -7,8 +7,7 @@ use ratatui::widgets::{ Block, Cell, Paragraph, Row, StatefulWidget, Table, Tabl
 
 use crate::device;
 use crate::scene;
-use crate::state;
-use super::Action;
+use crate::ui::{self, Action };
 
 const CONNECTED: &str = " Connected ";
 const DISCONNECTED: &str = "Disconnected";
@@ -17,7 +16,7 @@ const PLAYING: &str = " Playing ";
 const HIGHLIGHT_STYLE: Style = Style::new().bg( SLATE.c800 );
 
 pub struct ListScene {
-  devices: state::ReadOnly<device::DeviceMap>,
+  devices: ui::ReadOnly<device::DeviceMap>,
   device_map_version: usize,
   selected: Option<usize>,
   sorted_device_keys: Vec<usize>, // Scene cache of sorted device id's
@@ -25,7 +24,7 @@ pub struct ListScene {
 }
 
 impl ListScene {
-  pub fn new(devices: state::ReadOnly<device::DeviceMap> ) -> Self {
+  pub fn new(devices: ui::ReadOnly<device::DeviceMap> ) -> Self {
     Self{
       device_map_version: 0,
       devices,
@@ -40,7 +39,7 @@ impl scene::Scene<Action> for ListScene {
   fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::UpdateContext<Action> ) -> bool {
     match key.code {
       dir @ ( KeyCode::Up | KeyCode::Down ) => {
-        let devices_count = self.devices.read().len();
+        let devices_count = self.devices.blocking_read().len();
 
         if devices_count > 0 {
           let selected = self.selected.unwrap_or( 0 );
@@ -64,7 +63,7 @@ impl scene::Scene<Action> for ListScene {
   }
 
   fn on_update( &mut self, _ctx: &mut scene::UpdateContext<Action> ) {
-    let devices = self.devices.read();
+    let devices = self.devices.blocking_read();
 
     // Refresh our local sorted device cache if the remote device map has changed
     if devices.version() != self.device_map_version {
@@ -95,7 +94,7 @@ impl scene::Scene<Action> for ListScene {
       Constraint::Fill( 1 ) ];
 
     let rows: Vec<Row> = {
-      let devices = self.devices.read();
+      let devices = self.devices.blocking_read();
 
       self.sorted_device_keys
         .iter()
