@@ -39,9 +39,9 @@ fn main() -> io::Result<()> {
 
             async move {
               cancellation_token.run_until_cancelled( async move {
-                if let Ok( mut device_rx ) = etherdream::discover().await {
-                  while let Some( device_info ) = device_rx.recv().await {
-                    device_map.write().await.insert( *device_info.info() );
+                if let Ok( mut discovery ) = etherdream::discover().await {
+                  while let Some( ( device_info, _ ) ) = discovery.recv().await {
+                    device_map.write().await.insert( device_info );
                   }
                 }
               }).await;

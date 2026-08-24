@@ -6,7 +6,6 @@ use std::net::{ IpAddr, Ipv4Addr, SocketAddr };
 use futures::stream::StreamExt;
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
 use tokio_util::bytes::BytesMut;
 use tokio_util::codec::Decoder;
 use tokio_util::sync::CancellationToken;
@@ -14,8 +13,6 @@ use tokio_util::udp::UdpFramed;
 
 use crate::device_info::DeviceInfo;
 use crate::protocol;
-
-type DeviceMap = HashMap<SocketAddr,DiscoveredDeviceInfo>;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - Discovered Device Info
 
@@ -40,31 +37,30 @@ impl From<DiscoveredDeviceInfo> for DeviceInfo {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Discovery Server
 
-pub struct Server {
+pub struct Discovery {
   // The local socket address that the discovery server is listening on.
   address: SocketAddr,
-  // The tokio join handle that owns the asynchronous listening task.
-  handle: JoinHandle<Result<(),io::Error>>,
+  // Receiver for discovered devices.
+  device_rx: mpsc::Receiver<( DeviceInfo, protocol::State )>,
   // The cancellation token used to shut down the discovery server.
   shutdown_token: CancellationToken
 }
 
-impl Server {
+impl Discovery {
   /// Starts the discovery server and listens for Etherdream broadcasts on
   /// `0.0.0.0:7654`.
-  pub async fn serve() -> Result<mpsc::Receiver<DiscoveredDeviceInfo>,io::Error>
+  pub async fn listen() -> Result<Self,io::Error>
   {
-    Self::serve_with_address(
+    Self::listen_with_address(
       SocketAddr::new( IpAddr::V4( Ipv4Addr::UNSPECIFIED ), protocol::BROADCAST_PORT ),
     ).await
   }
 
   /// Starts the discovery server and listens for Etherdream broadcasts on a
   /// user-provided socket address.
-  pub async fn serve_with_address( address: SocketAddr )
-    -> Result<mpsc::Receiver<DiscoveredDeviceInfo>,io::Error>
+  pub async fn listen_with_address( address: SocketAddr ) -> Result<Self,io::Error>
   {
-    let ( device_tx, device_rx ) = mpsc::channel( 16 );
+    let ( device_tx, device_rx ) = mpsc::channel::<( DeviceInfo, protocol::State )>( 16 );
     let shutdown_token = CancellationToken::new();
 
     let socket = UdpSocket::bind( address ).await?;
@@ -72,35 +68,37 @@ impl Server {
 
     tokio::spawn({
       let shutdown_token = shutdown_token.child_token();
-
-      async move {
-        tokio::select!{
-          _ = shutdown_token.cancelled() => { Ok(()) },
-          result = do_listen( socket, device_tx ) => result
-        }
-      }
+      async move { shutdown_token.run_until_cancelled( do_listen( socket, device_tx ) ).await; }
     });
 
-    Ok( device_rx )
+    Ok( Self{
+      address: local_address,
+      device_rx,
+      shutdown_token
+    } )
   }
 
   /// Returns the local socket address that the discovery server is bound to.
   pub fn address( &self ) -> &SocketAddr { &self.address }
 
+  /// Receives devices as they are discovered.
+  pub async fn recv( &mut self ) -> Option<( DeviceInfo, protocol::State )> { self.device_rx.recv().await }
+
   /// Shuts down the discovery server and consumes `self`.
-  pub async fn shutdown( self ) {
-    self.shutdown_token.cancel();
-    let _ = self.handle.await;
-  }
+  pub fn shutdown( self ) { self.shutdown_token.cancel(); }
+}
+
+impl Drop for Discovery {
+  fn drop( &mut self ) { self.shutdown_token.cancel(); }
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Listen Handler
 
-async fn do_listen( socket: UdpSocket, device_tx: mpsc::Sender<DiscoveredDeviceInfo> )
+async fn do_listen( socket: UdpSocket, device_tx: mpsc::Sender<( DeviceInfo, protocol::State )> )
   -> Result<(),io::Error>
 {
   let mut framed = UdpFramed::new( socket, BroadcastDecoder{} );
-  let mut registry = DeviceMap::new();
+  let mut registry = HashMap::<SocketAddr,DeviceInfo>::new();
 
   loop {
     if let Some( frame ) = framed.next().await {
@@ -114,11 +112,10 @@ async fn do_listen( socket: UdpSocket, device_tx: mpsc::Sender<DiscoveredDeviceI
           let client_addr = SocketAddr::new( address.ip(), protocol::CLIENT_PORT );
 
           let device_info = DeviceInfo::new( client_addr, intrinsics );
-          let discovered_device = DiscoveredDeviceInfo{ device_info, state };
 
           // Insert the device into the registry and broadcast it to `tx`
-          registry.insert( address, discovered_device.clone() );
-          let _ = device_tx.send( discovered_device ).await;
+          registry.insert( address, device_info.clone() );
+          let _ = device_tx.send( ( device_info, state ) ).await;
         }
         Err( e ) => {
           eprintln!( "Error receiving discovery broadcast: {}", e );
