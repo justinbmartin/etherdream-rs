@@ -1,10 +1,9 @@
+
 use std::sync::Arc;
 
-use tokio::sync::{ RwLock, RwLockReadGuard };
+use tokio::sync::RwLock;
 
 use crate::device::DeviceMap;
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  State
 
 pub struct State {
   device_id: Arc<RwLock<Option<usize>>>,
@@ -26,45 +25,5 @@ impl Clone for State {
       device_id: self.device_id.clone(),
       device_map: self.device_map.clone()
     }
-  }
-}
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Read-only Device
-
-pub struct ReadOnlyDevice {
-  state: State
-}
-
-impl ReadOnlyDevice {
-  pub fn new( state: State ) -> Self {
-    Self{ state }
-  }
-
-  /// Returns a guard to the currently selected device.
-  pub fn get( &'_ self ) -> Option<ReadOnlyDeviceGuard<'_>> {
-    self.state.device_id.blocking_read().map(|device_id|{
-      ReadOnlyDeviceGuard{ guard: self.state.device_map.blocking_read(), device_id }
-    })
-  }
-}
-
-impl Clone for ReadOnlyDevice {
-  fn clone( &self ) -> Self {
-    Self{ state: self.state.clone() }
-  }
-}
-
-pub struct ReadOnlyDeviceGuard<'a> {
-  guard: RwLockReadGuard<'a, DeviceMap>,
-  device_id: usize
-}
-
-impl<'a> ReadOnlyDeviceGuard<'a> {
-  pub fn info( &self ) -> &etherdream::DeviceInfo {
-    self.guard.get( self.device_id ).unwrap().info()
-  }
-
-  pub fn is_connected( &self ) -> bool {
-    self.guard.get( self.device_id ).unwrap().is_connected()
   }
 }

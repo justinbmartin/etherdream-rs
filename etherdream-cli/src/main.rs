@@ -15,8 +15,8 @@ mod ui;
 
 fn main() -> io::Result<()> {
   let rt = tokio::runtime::Builder::new_multi_thread()
-    .thread_name( "scene-event-server" )
     .enable_all()
+    .thread_name( "background" )
     .build()?;
 
   let cancellation_token = CancellationToken::new();
@@ -63,7 +63,7 @@ fn main() -> io::Result<()> {
       }
     });
 
-  // [Blocks] Run the ui. Blocks until exited by user.
+  // [Blocks] Run the ui. Blocks this thread until exited by user.
   ui.run();
 
   // Shutdown the background processes

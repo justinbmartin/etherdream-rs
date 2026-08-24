@@ -7,8 +7,7 @@ use ratatui::widgets::{ Block, /* Cell, */ Padding, Paragraph, Row, Widget, Tabl
 use ratatui_textarea::TextArea;
 
 use crate::scene::{ self, UpdateContext };
-use crate::state::{ ReadOnlyDevice, ReadOnlyDeviceGuard };
-use crate::ui::Action;
+use crate::ui::{ Action, ReadOnlyDevice, ReadOnlyDeviceGuard };
 
 const HIGHLIGHT_STYLE: Style = Style::new().bg( SLATE.c800 );
 const TABLE_KEY_WIDTH: u16 = 25;

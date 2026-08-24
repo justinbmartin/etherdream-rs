@@ -72,13 +72,13 @@ where T: Fn( &mut SceneDefinitionContext<U> ),
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene Builder
 
-pub struct SceneDefinitionContext<'a, T: Actionable + Send + 'a> {
+pub struct SceneDefinitionContext<'a, T: Actionable> {
   current: Option<&'static str>,
   scenes: HashMap<&'static str, Box<dyn Scene<T::Action>>>,
   state: &'a mut T
 }
 
-impl<'a,T: Actionable + Send + 'a> SceneDefinitionContext<'a,T> {
+impl<'a,T: Actionable> SceneDefinitionContext<'a,T> {
   pub fn new( state: &'a mut T ) -> Self {
     Self{
       current: None,
@@ -218,7 +218,7 @@ pub enum Event {
   Tick( f64 )
 }
 
-pub struct Server<T: Actionable + Send + 'static> {
+pub struct Server<T: Actionable> {
   actionable: T,
   action_rx: mpsc::Receiver<T::Action>,
   events_tx: mpsc::Sender<Event>

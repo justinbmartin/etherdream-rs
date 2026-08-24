@@ -1,6 +1,9 @@
+use crate::device::DeviceMap;
 use crate::read_only::ReadOnlyArc;
 use crate::scene::{ Actionable, SceneDefinitionContext, SceneEvent };
-use crate::state::{ ReadOnlyDevice, State };
+use crate::state::State;
+
+use tokio::sync::RwLockReadGuard;
 
 mod connect;
 mod list;
@@ -55,4 +58,44 @@ pub fn build_scenes( ctx: &mut SceneDefinitionContext<State> ) {
   ctx.add_scene( LIST_ID, Box::new( list::ListScene::new( device_map ) ) );
   ctx.add_scene( DEVICE_ID, Box::new( device::DeviceScene::new( device.clone() ) ) );
   ctx.add_scene( CONNECT_ID, Box::new( connect::ConnectScene::new( device.clone() ) ) );
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Read-only Device
+
+pub struct ReadOnlyDevice {
+  state: State
+}
+
+impl ReadOnlyDevice {
+  pub fn new( state: State ) -> Self {
+    Self{ state }
+  }
+
+  /// Returns a guard to the currently selected device.
+  pub fn get( &'_ self ) -> Option<ReadOnlyDeviceGuard<'_>> {
+    self.state.device_id().blocking_read().map(|device_id|{
+      ReadOnlyDeviceGuard{ guard: self.state.device_map().blocking_read(), device_id }
+    })
+  }
+}
+
+impl Clone for ReadOnlyDevice {
+  fn clone( &self ) -> Self {
+    Self{ state: self.state.clone() }
+  }
+}
+
+pub struct ReadOnlyDeviceGuard<'a> {
+  guard: RwLockReadGuard<'a, DeviceMap>,
+  device_id: usize
+}
+
+impl<'a> ReadOnlyDeviceGuard<'a> {
+  pub fn info( &self ) -> &etherdream::DeviceInfo {
+    self.guard.get( self.device_id ).unwrap().info()
+  }
+
+  pub fn is_connected( &self ) -> bool {
+    self.guard.get( self.device_id ).unwrap().is_connected()
+  }
 }

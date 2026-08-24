@@ -14,27 +14,6 @@ use tokio_util::udp::UdpFramed;
 use crate::device_info::DeviceInfo;
 use crate::protocol;
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - Discovered Device Info
-
-/// Models a broadcast message from an Etherdream device as its `DeviceInfo`
-/// and `protocol::State` (as received on first broadcast).
-#[derive( Clone, Debug )]
-pub struct DiscoveredDeviceInfo {
-  device_info: DeviceInfo,
-  state: protocol::State
-}
-
-impl DiscoveredDeviceInfo {
-  pub fn info( &self ) -> &DeviceInfo { &self.device_info }
-  pub fn state( &self ) -> &protocol::State { &self.state }
-}
-
-impl From<DiscoveredDeviceInfo> for DeviceInfo {
-  fn from( discovered_device_info: DiscoveredDeviceInfo ) -> Self {
-    discovered_device_info.device_info
-  }
-}
-
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Discovery Server
 
 pub struct Discovery {
