@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::sync::Arc;
 use std::time::Duration;
 
 use crossterm::event::{ self, EventStream, KeyCode, KeyEvent, KeyEventKind };
 use futures::{ FutureExt, StreamExt };
 use ratatui::{ buffer::Buffer, layout::{ Constraint, Layout, Rect }, widgets::{ Paragraph, Widget } };
-use tokio::{ sync::mpsc, task::JoinSet, time };
+use tokio::{ sync::{ mpsc, RwLock, RwLockReadGuard }, task::JoinSet, time };
 use tokio_util::sync::CancellationToken;
 
 const DEFAULT_FPS: f32 = 30.0;
@@ -21,7 +22,7 @@ pub enum SceneEvent {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Actionable
 
 pub trait Actionable {
-  /// ...
+  /// TODO: An enum defining actions between the frontend and backend.
   type Action: 'static + Send + Debug;
 
   /// ...
@@ -40,7 +41,7 @@ pub trait Scene<T> {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Init
 
-pub fn init<T,U>( build_scene_fn: T, mut state: U ) -> ( UI<U::Action>, Server<U> )
+pub fn init<T,U>( build_scene_fn: T, state: Arc<RwLock<U>> ) -> ( UI<U::Action>, Server<U> )
 where T: Fn( &mut SceneDefinitionContext<U> ),
       U: Actionable + Send + 'static
 {
@@ -48,18 +49,14 @@ where T: Fn( &mut SceneDefinitionContext<U> ),
   let ( events_tx, events_rx ) = mpsc::channel::<Event>( 1024 );
 
   // Call user-provided scene description builder
-  let mut ctx = SceneDefinitionContext::new( &mut state );
+  let mut ctx = SceneDefinitionContext::new( state.clone() );
   build_scene_fn( &mut ctx );
-
-  //
-  let mut stack = Vec::new();
-  stack.push( ctx.current.unwrap() );
 
   (
     UI{
       events_rx,
       scenes: ctx.scenes,
-      stack,
+      stack: vec![ ctx.current.unwrap() ],
       update_ctx: UpdateContext{ action_tx }
     },
     Server{
@@ -72,18 +69,18 @@ where T: Fn( &mut SceneDefinitionContext<U> ),
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene Builder
 
-pub struct SceneDefinitionContext<'a, T: Actionable> {
+pub struct SceneDefinitionContext<T: Actionable> {
   current: Option<&'static str>,
   scenes: HashMap<&'static str, Box<dyn Scene<T::Action>>>,
-  state: &'a mut T
+  state: ReadOnlyArc<T>
 }
 
-impl<'a,T: Actionable> SceneDefinitionContext<'a,T> {
-  pub fn new( state: &'a mut T ) -> Self {
+impl<'a,T: Actionable> SceneDefinitionContext<T> {
+  pub fn new( state: Arc<RwLock<T>> ) -> Self {
     Self{
       current: None,
       scenes: HashMap::new(),
-      state
+      state: ReadOnlyArc::new( state )
     }
   }
 
@@ -95,7 +92,7 @@ impl<'a,T: Actionable> SceneDefinitionContext<'a,T> {
   }
 
   /// Returns an immutable reference to the root state.
-  pub fn state( &self ) -> &T { self.state }
+  pub fn state( &self ) -> &ReadOnlyArc<T> { &self.state }
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
@@ -219,12 +216,12 @@ pub enum Event {
 }
 
 pub struct Server<T: Actionable> {
-  actionable: T,
+  actionable: Arc<RwLock<T>>,
   action_rx: mpsc::Receiver<T::Action>,
   events_tx: mpsc::Sender<Event>
 }
 
-impl<T: Actionable + Send + 'static> Server<T> {
+impl<T: Actionable + Send + Sync + 'static> Server<T> {
   pub async fn run( mut self ) {
     let mut tasks = JoinSet::new();
 
@@ -255,6 +252,7 @@ impl<T: Actionable + Send + 'static> Server<T> {
 
     // Start task to receive and execute any UI actions
     tasks.spawn({
+      let actionable = self.actionable.clone();
       let cancellation_token = cancellation_token.child_token();
       let event_tx = self.events_tx.clone();
 
@@ -263,7 +261,7 @@ impl<T: Actionable + Send + 'static> Server<T> {
           _ = cancellation_token.cancelled() => { println!( "cancellation token exit..." ) }
           _ = async move {
             while let Some( action ) = self.action_rx.recv().await {
-              let event = self.actionable.invoke( action ).await;
+              let event = actionable.write().await.invoke( action ).await;
               let _ = event_tx.send( Event::Scene( event ) ).await;
             }
           } => { }
@@ -300,5 +298,30 @@ impl<T: Actionable + Send + 'static> Server<T> {
     });
     
     tasks.join_all().await;
+  }
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Read-only State
+
+/// A read-only ARC wrapper for T's
+pub struct ReadOnlyArc<T> {
+  inner: Arc<RwLock<T>>
+}
+
+impl<T> ReadOnlyArc<T> {
+  pub fn new( item: Arc<RwLock<T>> ) -> Self {
+    Self{ inner: item }
+  }
+
+  // Will panic if called in an async context.
+  pub fn blocking_read( &'_ self ) -> RwLockReadGuard<'_, T> {
+    self.inner.blocking_read()
+  }
+}
+
+impl<T> Clone for ReadOnlyArc<T> {
+  /// Creates a new ReadOnly<T> that clones the inner item.
+  fn clone( &self ) -> Self {
+    Self{ inner: self.inner.clone() }
   }
 }

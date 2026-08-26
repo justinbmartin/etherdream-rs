@@ -43,10 +43,10 @@ impl scene::Scene<Action> for DeviceScene {
     let layout = Layout::vertical([ Constraint::Length( 3 ), Constraint::Fill( 1 ) ]);
     let [ header, body ] = area.layout( &layout );
     
-    if let Some( device ) = self.device.get() {
+    if let Some( info ) = self.device.info() {
 
       // Render the header
-      Paragraph::new( format!( " Device: {} ", device.info().ip() ) ).render( header, buf );
+      Paragraph::new( format!( " Device: {} ", info.ip() ) ).render( header, buf );
 
       //
       let [ test_area, info_area ] = body.layout( &Layout::horizontal([
@@ -63,7 +63,7 @@ impl scene::Scene<Action> for DeviceScene {
       //self.scenes.render( test_inner_area, buf );
 
       // Render the info pane
-      render_info( &device, info_area, buf );
+      //render_info( &device, info_area, buf );
     } else {
       Paragraph::new( " No Device " ).render( header, buf );
     }

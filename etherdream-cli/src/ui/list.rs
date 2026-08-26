@@ -6,8 +6,8 @@ use ratatui::text::Line;
 use ratatui::widgets::{ Block, Cell, Paragraph, Row, StatefulWidget, Table, TableState, Widget };
 
 use crate::device;
-use crate::read_only::ReadOnlyArc;
-use crate::scene;
+use crate::scene::{ self, ReadOnlyArc };
+use crate::state::State;
 use crate::ui::Action;
 
 const CONNECTED: &str = " Connected ";
@@ -17,21 +17,21 @@ const PLAYING: &str = " Playing ";
 const HIGHLIGHT_STYLE: Style = Style::new().bg( SLATE.c800 );
 
 pub struct ListScene {
-  devices: ReadOnlyArc<device::DeviceMap>,
   device_map_version: usize,
   selected: Option<usize>,
   sorted_device_keys: Vec<usize>, // Scene cache of sorted device id's
-  state: TableState
+  state: ReadOnlyArc<State>,
+  table: TableState
 }
 
 impl ListScene {
-  pub fn new(devices: ReadOnlyArc<device::DeviceMap> ) -> Self {
+  pub fn new( state: ReadOnlyArc<State> ) -> Self {
     Self{
       device_map_version: 0,
-      devices,
       selected: None,
       sorted_device_keys: Vec::new(),
-      state: TableState::new().with_selected( Some( 0 ) )
+      state,
+      table: TableState::new().with_selected( Some( 0 ) )
     }
   }
 }
@@ -40,18 +40,18 @@ impl scene::Scene<Action> for ListScene {
   fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::UpdateContext<Action> ) -> bool {
     match key.code {
       dir @ ( KeyCode::Up | KeyCode::Down ) => {
-        let devices_count = self.devices.blocking_read().len();
+        let devices_count = self.state.blocking_read().device_map().blocking_read().len();
 
         if devices_count > 0 {
           let selected = self.selected.unwrap_or( 0 );
           let i = if dir == KeyCode::Up { selected.saturating_sub( 1 ) } else { selected.saturating_add( 1 ) };
-          self.state.select( Some( i % devices_count ) );
+          self.table.select( Some( i % devices_count ) );
         }
 
         return true;
       }
       KeyCode::Enter => {
-        if let Some( device_id ) = self.state.selected().and_then(| i |{ self.sorted_device_keys.get( i ) }) {
+        if let Some( device_id ) = self.table.selected().and_then(| i |{ self.sorted_device_keys.get( i ) }) {
           ctx.invoke( Action::SelectDevice( *device_id ) );
           self.selected = Some( *device_id );
           return true;
@@ -64,7 +64,7 @@ impl scene::Scene<Action> for ListScene {
   }
 
   fn on_update( &mut self, _ctx: &mut scene::UpdateContext<Action> ) {
-    let devices = self.devices.blocking_read();
+    let devices = self.state.blocking_read().device_map().blocking_read();
 
     // Refresh our local sorted device cache if the remote device map has changed
     if devices.version() != self.device_map_version {

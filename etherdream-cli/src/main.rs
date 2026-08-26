@@ -8,7 +8,6 @@ use tokio_util::sync::CancellationToken;
 
 mod device;
 mod executors;
-mod read_only;
 mod scene;
 mod state;
 mod ui;
@@ -21,7 +20,7 @@ fn main() -> io::Result<()> {
 
   let cancellation_token = CancellationToken::new();
   let device_map = Arc::new( RwLock::new( device::DeviceMap::new() ) );
-  let state = state::State::new( device_map.clone() );
+  let state = Arc::new( RwLock::new( state::State::new( device_map.clone() ) ) );
 
   let ( mut ui, server ) = scene::init( ui::build_scenes, state.clone() );
 
