@@ -31,17 +31,17 @@ pub trait Actionable {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene
 
-pub trait Scene<T> {
+pub trait Scene<T: Actionable + Send + 'static> {
   fn on_enter( &mut self ) { }
   fn on_exit( &mut self ) { }
   fn on_key_down( &mut self, _key: KeyEvent, _ctx: &mut UpdateContext<T> ) -> bool { false }
   fn on_update( &mut self, _ctx: &mut UpdateContext<T> ) { }
-  fn on_draw( &mut self, area: Rect, buf: &mut Buffer );
+  fn on_draw( &mut self, area: Rect, buf: &mut Buffer, state: &UpdateContext<T> );
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Init
 
-pub fn init<T,U>( build_scene_fn: T, state: Arc<RwLock<U>> ) -> ( UI<U::Action>, Server<U> )
+pub fn init<T,U>( build_scene_fn: T, state: Arc<RwLock<U>> ) -> ( UI<U>, Server<U> )
 where T: Fn( &mut SceneDefinitionContext<U> ),
       U: Actionable + Send + 'static
 {
@@ -49,7 +49,7 @@ where T: Fn( &mut SceneDefinitionContext<U> ),
   let ( events_tx, events_rx ) = mpsc::channel::<Event>( 1024 );
 
   // Call user-provided scene description builder
-  let mut ctx = SceneDefinitionContext::new( state.clone() );
+  let mut ctx = SceneDefinitionContext::new();
   build_scene_fn( &mut ctx );
 
   (
@@ -57,7 +57,7 @@ where T: Fn( &mut SceneDefinitionContext<U> ),
       events_rx,
       scenes: ctx.scenes,
       stack: vec![ ctx.current.unwrap() ],
-      update_ctx: UpdateContext{ action_tx }
+      update_ctx: UpdateContext{ action_tx, state: state.clone() }
     },
     Server{
       action_rx,
@@ -69,42 +69,37 @@ where T: Fn( &mut SceneDefinitionContext<U> ),
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene Builder
 
-pub struct SceneDefinitionContext<T: Actionable> {
+pub struct SceneDefinitionContext<T: Actionable + Send + 'static> {
   current: Option<&'static str>,
-  scenes: HashMap<&'static str, Box<dyn Scene<T::Action>>>,
-  state: ReadOnlyArc<T>
+  scenes: HashMap<&'static str, Box<dyn Scene<T>>>
 }
 
-impl<'a,T: Actionable> SceneDefinitionContext<T> {
-  pub fn new( state: Arc<RwLock<T>> ) -> Self {
+impl<'a,T: Actionable + Send + 'static> SceneDefinitionContext<T> {
+  pub fn new() -> Self {
     Self{
       current: None,
-      scenes: HashMap::new(),
-      state: ReadOnlyArc::new( state )
+      scenes: HashMap::new()
     }
   }
 
   /// Adds a scene to the builder.
-  pub fn add_scene( &mut self, id: &'static str, scene: Box<dyn Scene<T::Action>> ) -> bool {
+  pub fn add_scene( &mut self, id: &'static str, scene: Box<dyn Scene<T>> ) -> bool {
     self.scenes.insert( id, scene );
     if self.current.is_none() { self.current = Some( id ) }
     true
   }
-
-  /// Returns an immutable reference to the root state.
-  pub fn state( &self ) -> &ReadOnlyArc<T> { &self.state }
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
-pub struct UI<T> {
+pub struct UI<T: Actionable + Send + 'static> {
   events_rx: mpsc::Receiver<Event>,
   scenes: HashMap<&'static str, Box<dyn Scene<T>>>,
   stack: Vec<&'static str>,
   update_ctx: UpdateContext<T>
 }
 
-impl<T> UI<T> {
+impl<T: Actionable + Send + 'static> UI<T> {
   pub fn run( &mut self ) {
     let mut terminal = ratatui::init();
 
@@ -162,7 +157,7 @@ impl<T> UI<T> {
   /// ...
   fn draw( &mut self, area: Rect, buf: &mut Buffer ) {
     if let Some( scene ) = self.scenes.get_mut( *self.stack.last().unwrap() ) {
-      scene.on_draw( area, buf );
+      scene.on_draw( area, buf, &self.update_ctx );
     }
   }
 
@@ -197,12 +192,15 @@ impl<T> UI<T> {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Update Context
 
-pub struct UpdateContext<T> {
-  action_tx: mpsc::Sender<T>
+pub struct UpdateContext<T: Actionable + Send + 'static> {
+  action_tx: mpsc::Sender<T::Action>,
+  state: Arc<RwLock<T>>
 }
 
-impl<T> UpdateContext<T> {
-  pub fn invoke( &mut self, action: T ) -> bool {
+impl<T: Actionable + Send + 'static> UpdateContext<T> {
+  pub fn state( &self ) -> RwLockReadGuard<T> { self.state.blocking_read() }
+
+  pub fn invoke( &mut self, action: T::Action ) -> bool {
     self.action_tx.try_send( action ).is_ok()
   }
 }
@@ -298,30 +296,5 @@ impl<T: Actionable + Send + Sync + 'static> Server<T> {
     });
     
     tasks.join_all().await;
-  }
-}
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Read-only State
-
-/// A read-only ARC wrapper for T's
-pub struct ReadOnlyArc<T> {
-  inner: Arc<RwLock<T>>
-}
-
-impl<T> ReadOnlyArc<T> {
-  pub fn new( item: Arc<RwLock<T>> ) -> Self {
-    Self{ inner: item }
-  }
-
-  // Will panic if called in an async context.
-  pub fn blocking_read( &'_ self ) -> RwLockReadGuard<'_, T> {
-    self.inner.blocking_read()
-  }
-}
-
-impl<T> Clone for ReadOnlyArc<T> {
-  /// Creates a new ReadOnly<T> that clones the inner item.
-  fn clone( &self ) -> Self {
-    Self{ inner: self.inner.clone() }
   }
 }

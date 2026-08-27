@@ -5,38 +5,37 @@ use ratatui::style::{ Color, Style };
 use ratatui_textarea::TextArea;
 
 use crate::scene;
-use crate::ui::{ Action, ReadOnlyDevice, ReadOnlyDeviceGuard };
+use crate::state::State;
+use crate::ui::Action;
 
 const INPUT_CONNECT_BUTTON: usize = 1;
 const INPUT_PORT: usize = 0;
 
 // Scene that renders a form to connect to an Etherdream device.
 pub struct ConnectScene<'a> {
-  _device: ReadOnlyDevice,
   input_selected: usize,
   port_input: TextArea<'a>
 }
 
 impl<'a> ConnectScene<'a> {
-  pub fn new( device: ReadOnlyDevice ) -> Self {
+  pub fn new() -> Self {
     let mut port_input = TextArea::default();
     port_input.set_cursor_line_style( Style::default() );
     port_input.set_placeholder_text( etherdream::protocol::CLIENT_PORT.to_string() );
 
     Self{
-      _device: device,
       input_selected: INPUT_CONNECT_BUTTON,
       port_input,
     }
   }
 }
 
-impl<'a> scene::Scene<Action> for ConnectScene<'a> {
+impl<'a> scene::Scene<State> for ConnectScene<'a> {
   fn on_enter( &mut self ) {
     self.input_selected = INPUT_CONNECT_BUTTON;
   }
 
-  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::UpdateContext<Action> ) -> bool {
+  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::UpdateContext<State> ) -> bool {
     match key.code {
       KeyCode::Up => {
         self.input_selected = INPUT_PORT;
@@ -68,7 +67,7 @@ impl<'a> scene::Scene<Action> for ConnectScene<'a> {
     false
   }
 
-  fn on_draw( &mut self, _area: Rect, _buf: &mut Buffer ) {
+  fn on_draw( &mut self, _area: Rect, _buf: &mut Buffer, _ctx: &scene::UpdateContext<State> ) {
 
   }
 }

@@ -6,7 +6,7 @@ use ratatui::text::Line;
 use ratatui::widgets::{ Block, Cell, Paragraph, Row, StatefulWidget, Table, TableState, Widget };
 
 use crate::device;
-use crate::scene::{ self, ReadOnlyArc };
+use crate::scene;
 use crate::state::State;
 use crate::ui::Action;
 
@@ -20,27 +20,25 @@ pub struct ListScene {
   device_map_version: usize,
   selected: Option<usize>,
   sorted_device_keys: Vec<usize>, // Scene cache of sorted device id's
-  state: ReadOnlyArc<State>,
   table: TableState
 }
 
 impl ListScene {
-  pub fn new( state: ReadOnlyArc<State> ) -> Self {
+  pub fn new() -> Self {
     Self{
       device_map_version: 0,
       selected: None,
       sorted_device_keys: Vec::new(),
-      state,
       table: TableState::new().with_selected( Some( 0 ) )
     }
   }
 }
 
-impl scene::Scene<Action> for ListScene {
-  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::UpdateContext<Action> ) -> bool {
+impl scene::Scene<State> for ListScene {
+  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::UpdateContext<State> ) -> bool {
     match key.code {
       dir @ ( KeyCode::Up | KeyCode::Down ) => {
-        let devices_count = self.state.blocking_read().device_map().blocking_read().len();
+        let devices_count = ctx.state().device_map().len();
 
         if devices_count > 0 {
           let selected = self.selected.unwrap_or( 0 );
@@ -63,8 +61,9 @@ impl scene::Scene<Action> for ListScene {
     false
   }
 
-  fn on_update( &mut self, _ctx: &mut scene::UpdateContext<Action> ) {
-    let devices = self.state.blocking_read().device_map().blocking_read();
+  fn on_update( &mut self, ctx: &mut scene::UpdateContext<State> ) {
+    let state = ctx.state();
+    let devices = state.device_map();
 
     // Refresh our local sorted device cache if the remote device map has changed
     if devices.version() != self.device_map_version {
@@ -78,7 +77,7 @@ impl scene::Scene<Action> for ListScene {
     }
   }
 
-  fn on_draw( &mut self, area: Rect, buf: &mut Buffer ) {
+  fn on_draw( &mut self, area: Rect, buf: &mut Buffer, ctx: &scene::UpdateContext<State> ) {
     let block = Block::bordered().title( Line::raw( " Etherdream Devices " ).centered() );
 
     // If there are no devices, render a message saying as such
@@ -95,14 +94,14 @@ impl scene::Scene<Action> for ListScene {
       Constraint::Fill( 1 ) ];
 
     let rows: Vec<Row> = {
-      let devices = self.devices.blocking_read();
+      let state = ctx.state();
 
       self.sorted_device_keys
         .iter()
         .enumerate()
         .filter_map(|( i, id )|{
-          if let Some( device ) = devices.get( *id ) {
-            let selected = self.state.selected().filter(| si |{ *si == i }).is_some();
+          if let Some( device ) = state.device_map().get( *id ) {
+            let selected = self.table.selected().filter(| si |{ *si == i }).is_some();
             let theme = if selected { HIGHLIGHT_STYLE } else { Style::new() };
 
             Some( Row::new([
@@ -124,7 +123,7 @@ impl scene::Scene<Action> for ListScene {
       .highlight_spacing( ratatui::widgets::HighlightSpacing::Always )
       .highlight_symbol( "> " );
 
-    StatefulWidget::render( table, area, buf, &mut self.state );
+    StatefulWidget::render( table, area, buf, &mut self.table );
   }
 }
 

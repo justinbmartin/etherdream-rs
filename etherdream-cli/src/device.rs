@@ -66,16 +66,13 @@ impl Device {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Device Map
 
+#[derive( Default )]
 pub struct DeviceMap {
   inner: HashMap<usize,Device>,
   version: usize
 }
 
 impl DeviceMap{
-  pub fn new() -> Self {
-    Self{ inner: HashMap::new(), version: 0 }
-  }
-
   /// Returns an immutable reference to a device.
   pub fn get( &self, id: usize ) -> Option<&Device> { self.inner.get( &id ) }
   pub fn get_mut( &mut self, id: usize ) -> Option<&mut Device> { self.inner.get_mut( &id ) }

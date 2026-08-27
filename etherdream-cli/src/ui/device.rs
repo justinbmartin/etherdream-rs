@@ -6,24 +6,19 @@ use ratatui::style::{ Color, palette::tailwind::SLATE, Style };
 use ratatui::widgets::{ Block, /* Cell, */ Padding, Paragraph, Row, Widget, Table, /* TableState */ };
 use ratatui_textarea::TextArea;
 
+use crate::device::Device;
 use crate::scene::{ self, UpdateContext };
-use crate::ui::{ Action, ReadOnlyDevice, ReadOnlyDeviceGuard };
+use crate::state::State;
+use crate::ui::Action;
 
 const HIGHLIGHT_STYLE: Style = Style::new().bg( SLATE.c800 );
 const TABLE_KEY_WIDTH: u16 = 25;
 
-pub struct DeviceScene {
-  device: ReadOnlyDevice
-}
+#[derive( Default )]
+pub struct DeviceScene;
 
-impl DeviceScene {
-  pub fn new(device: ReadOnlyDevice ) -> Self {
-    Self{ device }
-  }
-}
-
-impl scene::Scene<Action> for DeviceScene {
-  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut UpdateContext<Action> ) -> bool {
+impl scene::Scene<State> for DeviceScene {
+  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut UpdateContext<State> ) -> bool {
     match key.code {
       KeyCode::Char( 'q' ) => {
         ctx.invoke( Action::DeselectDevice );
@@ -39,14 +34,14 @@ impl scene::Scene<Action> for DeviceScene {
     }
   }
 
-  fn on_draw( &mut self, area: Rect, buf: &mut Buffer ) {
+  fn on_draw( &mut self, area: Rect, buf: &mut Buffer, ctx: &UpdateContext<State> ) {
     let layout = Layout::vertical([ Constraint::Length( 3 ), Constraint::Fill( 1 ) ]);
     let [ header, body ] = area.layout( &layout );
     
-    if let Some( info ) = self.device.info() {
+    if let Some( device ) = ctx.state().current_device() {
 
       // Render the header
-      Paragraph::new( format!( " Device: {} ", info.ip() ) ).render( header, buf );
+      Paragraph::new( format!( " Device: {} ", device.info().ip() ) ).render( header, buf );
 
       //
       let [ test_area, info_area ] = body.layout( &Layout::horizontal([
@@ -63,7 +58,7 @@ impl scene::Scene<Action> for DeviceScene {
       //self.scenes.render( test_inner_area, buf );
 
       // Render the info pane
-      //render_info( &device, info_area, buf );
+      render_info( &device, info_area, buf );
     } else {
       Paragraph::new( " No Device " ).render( header, buf );
     }
@@ -71,7 +66,7 @@ impl scene::Scene<Action> for DeviceScene {
 }
 
 // UI to render the Etherdream device intrinsic and run-time properties
-fn render_info(device: &ReadOnlyDeviceGuard, area: Rect, buf: &mut Buffer ) {
+fn render_info( device: &Device, area: Rect, buf: &mut Buffer ) {
   let [ intrinsics_area, state_area ] = area.layout( &Layout::vertical([
     Constraint::Length( 10 ), Constraint::Fill( 1 ),
   ]) );

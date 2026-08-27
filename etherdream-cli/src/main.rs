@@ -19,8 +19,7 @@ fn main() -> io::Result<()> {
     .build()?;
 
   let cancellation_token = CancellationToken::new();
-  let device_map = Arc::new( RwLock::new( device::DeviceMap::new() ) );
-  let state = Arc::new( RwLock::new( state::State::new( device_map.clone() ) ) );
+  let state = Arc::new( RwLock::new( state::State::default() ) );
 
   let ( mut ui, server ) = scene::init( ui::build_scenes, state.clone() );
 
@@ -35,12 +34,13 @@ fn main() -> io::Result<()> {
           // Start an Etherdream discovery server
           tasks.spawn({
             let cancellation_token = cancellation_token.child_token();
+            let state = state.clone();
 
             async move {
               cancellation_token.run_until_cancelled( async move {
                 if let Ok( mut discovery ) = etherdream::discover().await {
                   while let Some( ( device_info, _ ) ) = discovery.recv().await {
-                    device_map.write().await.insert( device_info );
+                    state.write().await.add_device_to_map( device_info );
                   }
                 }
               }).await;
