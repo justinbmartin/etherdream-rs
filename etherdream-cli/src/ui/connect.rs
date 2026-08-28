@@ -35,7 +35,7 @@ impl<'a> scene::Scene<State> for ConnectScene<'a> {
     self.input_selected = INPUT_CONNECT_BUTTON;
   }
 
-  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::UpdateContext<State> ) -> bool {
+  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::SceneContext<State> ) -> bool {
     match key.code {
       KeyCode::Up => {
         self.input_selected = INPUT_PORT;
@@ -67,7 +67,7 @@ impl<'a> scene::Scene<State> for ConnectScene<'a> {
     false
   }
 
-  fn on_draw( &mut self, _area: Rect, _buf: &mut Buffer, _ctx: &scene::UpdateContext<State> ) {
+  fn on_draw( &mut self, _area: Rect, _buf: &mut Buffer, ctx: &scene::SceneContext<State> ) {
 
   }
 }

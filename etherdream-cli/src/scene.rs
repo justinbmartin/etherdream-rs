@@ -34,9 +34,9 @@ pub trait Actionable {
 pub trait Scene<T: Actionable + Send + 'static> {
   fn on_enter( &mut self ) { }
   fn on_exit( &mut self ) { }
-  fn on_key_down( &mut self, _key: KeyEvent, _ctx: &mut UpdateContext<T> ) -> bool { false }
-  fn on_update( &mut self, _ctx: &mut UpdateContext<T> ) { }
-  fn on_draw( &mut self, area: Rect, buf: &mut Buffer, state: &UpdateContext<T> );
+  fn on_key_down( &mut self, _key: KeyEvent, _ctx: &mut SceneContext<T> ) -> bool { false }
+  fn on_update( &mut self, _ctx: &mut SceneContext<T> ) { }
+  fn on_draw( &mut self, area: Rect, buf: &mut Buffer, state: &SceneContext<T> );
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Init
@@ -55,9 +55,9 @@ where T: Fn( &mut SceneDefinitionContext<U> ),
   (
     UI{
       events_rx,
+      scene_ctx: SceneContext{ action_tx, state: state.clone() },
       scenes: ctx.scenes,
-      stack: vec![ ctx.current.unwrap() ],
-      update_ctx: UpdateContext{ action_tx, state: state.clone() }
+      stack: vec![ ctx.current.unwrap() ]
     },
     Server{
       action_rx,
@@ -94,9 +94,9 @@ impl<'a,T: Actionable + Send + 'static> SceneDefinitionContext<T> {
 
 pub struct UI<T: Actionable + Send + 'static> {
   events_rx: mpsc::Receiver<Event>,
+  scene_ctx: SceneContext<T>,
   scenes: HashMap<&'static str, Box<dyn Scene<T>>>,
-  stack: Vec<&'static str>,
-  update_ctx: UpdateContext<T>
+  stack: Vec<&'static str>
 }
 
 impl<T: Actionable + Send + 'static> UI<T> {
@@ -141,7 +141,7 @@ impl<T: Actionable + Send + 'static> UI<T> {
   /// ...
   fn key_down( &mut self, key: KeyEvent ) -> bool {
     if let Some( scene ) = self.scenes.get_mut( *self.stack.last().unwrap() ) {
-      scene.on_key_down( key, &mut self.update_ctx )
+      scene.on_key_down( key, &mut self.scene_ctx )
     } else {
       false
     }
@@ -150,14 +150,14 @@ impl<T: Actionable + Send + 'static> UI<T> {
   /// ...
   fn update( &mut self ) {
     if let Some( scene ) = self.scenes.get_mut( *self.stack.last().unwrap() ) {
-      scene.on_update( &mut self.update_ctx );
+      scene.on_update( &mut self.scene_ctx );
     }
   }
 
   /// ...
   fn draw( &mut self, area: Rect, buf: &mut Buffer ) {
     if let Some( scene ) = self.scenes.get_mut( *self.stack.last().unwrap() ) {
-      scene.on_draw( area, buf, &self.update_ctx );
+      scene.on_draw( area, buf, &self.scene_ctx );
     }
   }
 
@@ -192,13 +192,14 @@ impl<T: Actionable + Send + 'static> UI<T> {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Update Context
 
-pub struct UpdateContext<T: Actionable + Send + 'static> {
+pub struct SceneContext<T: Actionable + Send + 'static>
+{
   action_tx: mpsc::Sender<T::Action>,
   state: Arc<RwLock<T>>
 }
 
-impl<T: Actionable + Send + 'static> UpdateContext<T> {
-  pub fn state( &self ) -> RwLockReadGuard<T> { self.state.blocking_read() }
+impl<T: Actionable + Send + 'static> SceneContext<T> {
+  pub fn state( &'_ self ) -> RwLockReadGuard<'_,T> { self.state.blocking_read() }
 
   pub fn invoke( &mut self, action: T::Action ) -> bool {
     self.action_tx.try_send( action ).is_ok()

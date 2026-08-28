@@ -35,7 +35,7 @@ impl ListScene {
 }
 
 impl scene::Scene<State> for ListScene {
-  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::UpdateContext<State> ) -> bool {
+  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::SceneContext<State> ) -> bool {
     match key.code {
       dir @ ( KeyCode::Up | KeyCode::Down ) => {
         let devices_count = ctx.state().device_map().len();
@@ -61,7 +61,7 @@ impl scene::Scene<State> for ListScene {
     false
   }
 
-  fn on_update( &mut self, ctx: &mut scene::UpdateContext<State> ) {
+  fn on_update( &mut self, ctx: &mut scene::SceneContext<State> ) {
     let state = ctx.state();
     let devices = state.device_map();
 
@@ -77,7 +77,7 @@ impl scene::Scene<State> for ListScene {
     }
   }
 
-  fn on_draw( &mut self, area: Rect, buf: &mut Buffer, ctx: &scene::UpdateContext<State> ) {
+  fn on_draw( &mut self, area: Rect, buf: &mut Buffer, ctx: &scene::SceneContext<State> ) {
     let block = Block::bordered().title( Line::raw( " Etherdream Devices " ).centered() );
 
     // If there are no devices, render a message saying as such
