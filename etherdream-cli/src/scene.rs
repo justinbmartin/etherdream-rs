@@ -41,27 +41,23 @@ pub trait Scene<T: Actionable + Send + 'static> {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Init
 
-pub fn init<T,U>( build_scene_fn: T, state: Arc<RwLock<U>> ) -> ( UI<U>, Server<U> )
-where T: Fn( &mut SceneDefinitionContext<U> ),
-      U: Actionable + Send + 'static
+pub fn init<T>( ctx: ScenesDefinition<T> ) -> ( Foreground<T>, Background<T> )
+where
+  T: Actionable + Send + 'static
 {
-  let ( action_tx, action_rx ) = mpsc::channel::<U::Action>( 16 );
+  let ( action_tx, action_rx ) = mpsc::channel::<T::Action>( 16 );
   let ( events_tx, events_rx ) = mpsc::channel::<Event>( 1024 );
 
-  // Call user-provided scene description builder
-  let mut ctx = SceneDefinitionContext::new();
-  build_scene_fn( &mut ctx );
-
   (
-    UI{
+    Foreground{
       events_rx,
-      scene_ctx: SceneContext{ action_tx, state: state.clone() },
+      scene_ctx: SceneContext{ action_tx, state: ctx.state.clone() },
       scenes: ctx.scenes,
       stack: vec![ ctx.current.unwrap() ]
     },
-    Server{
+    Background{
       action_rx,
-      actionable: state,
+      actionable: ctx.state,
       events_tx
     }
   )
@@ -69,16 +65,18 @@ where T: Fn( &mut SceneDefinitionContext<U> ),
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene Builder
 
-pub struct SceneDefinitionContext<T: Actionable + Send + 'static> {
+pub struct ScenesDefinition<T: Actionable + Send + 'static> {
   current: Option<&'static str>,
-  scenes: HashMap<&'static str, Box<dyn Scene<T>>>
+  scenes: HashMap<&'static str, Box<dyn Scene<T>>>,
+  state: Arc<RwLock<T>>
 }
 
-impl<'a,T: Actionable + Send + 'static> SceneDefinitionContext<T> {
-  pub fn new() -> Self {
+impl<'a,T: Actionable + Send + 'static> ScenesDefinition<T> {
+  pub fn new( state: Arc<RwLock<T>> ) -> Self {
     Self{
       current: None,
-      scenes: HashMap::new()
+      scenes: HashMap::new(),
+      state
     }
   }
 
@@ -92,14 +90,14 @@ impl<'a,T: Actionable + Send + 'static> SceneDefinitionContext<T> {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
-pub struct UI<T: Actionable + Send + 'static> {
+pub struct Foreground<T: Actionable + Send + 'static> {
   events_rx: mpsc::Receiver<Event>,
   scene_ctx: SceneContext<T>,
   scenes: HashMap<&'static str, Box<dyn Scene<T>>>,
   stack: Vec<&'static str>
 }
 
-impl<T: Actionable + Send + 'static> UI<T> {
+impl<T: Actionable + Send + 'static> Foreground<T> {
   pub fn run( &mut self ) {
     let mut terminal = ratatui::init();
 
@@ -214,13 +212,13 @@ pub enum Event {
   Tick( f64 )
 }
 
-pub struct Server<T: Actionable> {
+pub struct Background<T: Actionable> {
   actionable: Arc<RwLock<T>>,
   action_rx: mpsc::Receiver<T::Action>,
   events_tx: mpsc::Sender<Event>
 }
 
-impl<T: Actionable + Send + Sync + 'static> Server<T> {
+impl<T: Actionable + Send + Sync + 'static> Background<T> {
   pub async fn run( mut self ) {
     let mut tasks = JoinSet::new();
 

@@ -21,7 +21,8 @@ fn main() -> io::Result<()> {
   let cancellation_token = CancellationToken::new();
   let state = Arc::new( RwLock::new( state::State::default() ) );
 
-  let ( mut ui, server ) = scene::init( ui::build_scenes, state.clone() );
+  let scenes_definition = ui::build_scenes( state.clone() );
+  let ( mut fg, bg ) = scene::init( scenes_definition );
 
   let rt_thread =
     std::thread::spawn({
@@ -47,13 +48,10 @@ fn main() -> io::Result<()> {
             }
           });
 
-          // Start the scene server
+          // Start the scene background task
           tasks.spawn({
             let cancellation_token = cancellation_token.child_token();
-
-            async move {
-              cancellation_token.run_until_cancelled( server.run() ).await;
-            }
+            async move { cancellation_token.run_until_cancelled( bg.run() ).await; }
           });
 
           let _ = tasks.join_all().await;
@@ -62,8 +60,8 @@ fn main() -> io::Result<()> {
       }
     });
 
-  // [Blocks] Run the ui. Blocks this thread until exited by user.
-  ui.run();
+  // [Blocks] Run the foreground ui. Blocks this thread until exited by user.
+  fg.run();
 
   // Shutdown the background processes
   cancellation_token.cancel();

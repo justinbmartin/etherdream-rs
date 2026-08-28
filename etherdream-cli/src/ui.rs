@@ -1,4 +1,8 @@
-use crate::scene::{ Actionable, SceneDefinitionContext, SceneEvent };
+use std::sync::Arc;
+
+use tokio::sync::RwLock;
+
+use crate::scene::{ Actionable, ScenesDefinition, SceneEvent };
 use crate::state::State;
 
 mod connect;
@@ -47,8 +51,12 @@ impl Actionable for State {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene Definitions
 
-pub fn build_scenes( ctx: &mut SceneDefinitionContext<State> ) {
-  ctx.add_scene( LIST_ID, Box::new( list::ListScene::new() ) );
-  ctx.add_scene( DEVICE_ID, Box::new( device::DeviceScene::default() ) );
-  ctx.add_scene( CONNECT_ID, Box::new( connect::ConnectScene::new() ) );
+pub fn build_scenes( state: Arc<RwLock<State>> ) -> ScenesDefinition<State> {
+  let mut def = ScenesDefinition::new( state );
+
+  def.add_scene( LIST_ID, Box::new( list::ListScene::new() ) );
+  def.add_scene( DEVICE_ID, Box::new( device::DeviceScene::default() ) );
+  def.add_scene( CONNECT_ID, Box::new( connect::ConnectScene::new() ) );
+
+  def
 }
