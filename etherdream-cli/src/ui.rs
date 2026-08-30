@@ -5,6 +5,7 @@ use tokio::sync::RwLock;
 use crate::device::{ Device, DeviceMap };
 use crate::scene;
 
+mod common;
 mod connect;
 mod list;
 mod device;
