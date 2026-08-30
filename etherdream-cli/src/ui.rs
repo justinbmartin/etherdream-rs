@@ -13,6 +13,13 @@ pub const CONNECT_ID: &str  = "connect";
 pub const DEVICE_ID: &str   = "device";
 pub const LIST_ID: &str     = "list";
 
+#[derive( Debug )]
+pub enum Action {
+  Connect( u16 ),
+  SelectDevice( usize ),
+  DeselectDevice
+}
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  State
 
 #[derive( Default )]
@@ -40,15 +47,6 @@ impl State {
   pub fn get_device_mut( &mut self ) -> Option<&mut Device> {
     self.device_id.and_then(|d| self.device_map.get_mut( d ) )
   }
-}
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Actions
-
-#[derive( Debug )]
-pub enum Action {
-  Connect( u16 ),
-  SelectDevice( usize ),
-  DeselectDevice
 }
 
 impl scene::Actionable for State {
