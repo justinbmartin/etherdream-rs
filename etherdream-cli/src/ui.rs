@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
-use crate::scene::{ Actionable, ScenesDefinition, SceneEvent };
+use crate::scene;
 use crate::state::State;
 
 mod connect;
@@ -22,28 +22,26 @@ pub enum Action {
   DeselectDevice
 }
 
-impl Actionable for State {
+impl scene::Actionable for State {
   type Action = Action;
 
-  async fn invoke( &mut self, action: Action ) -> SceneEvent {
+  async fn invoke( &mut self, action: Action ) -> scene::SceneEvent {
     match action {
       Action::Connect( _port ) => {
-        let device_id = self.device_id().unwrap();
-
-        if let Some( device ) = self.device_by_id_mut( device_id ) {
+        if let Some( device ) = self.get_device_mut() {
           let _ = device.connect().await;
-          return SceneEvent::None;
+          return scene::SceneEvent::None;
         }
 
-        SceneEvent::Pop
+        scene::SceneEvent::Pop
       },
       Action::SelectDevice( device_id ) => {
-        self.set_device_id( Some( device_id ) );
-        SceneEvent::Switch( DEVICE_ID )
+        self.set_device( Some( device_id ) );
+        scene::SceneEvent::Switch( DEVICE_ID )
       },
       Action::DeselectDevice => {
-        self.set_device_id( None );
-        SceneEvent::Switch( LIST_ID )
+        self.set_device( None );
+        scene::SceneEvent::Switch( LIST_ID )
       }
     }
   }
@@ -51,12 +49,12 @@ impl Actionable for State {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene Definitions
 
-pub fn build_scenes( state: Arc<RwLock<State>> ) -> ScenesDefinition<State> {
-  let mut def = ScenesDefinition::new( state );
+pub fn build_scenes( state: Arc<RwLock<State>> ) -> Result<( scene::Foreground<State>, scene::Background<State> ),scene::BuilderError> {
+  let mut builder = scene::Builder::new( state );
 
-  def.add_scene( LIST_ID, Box::new( list::ListScene::new() ) );
-  def.add_scene( DEVICE_ID, Box::new( device::DeviceScene::default() ) );
-  def.add_scene( CONNECT_ID, Box::new( connect::ConnectScene::new() ) );
+  builder.add_scene( LIST_ID, Box::new( list::ListScene::new() ) );
+  builder.add_scene( DEVICE_ID, Box::new( device::DeviceScene::default() ) );
+  builder.add_scene( CONNECT_ID, Box::new( connect::ConnectScene::new() ) );
 
-  def
+  builder.build()
 }

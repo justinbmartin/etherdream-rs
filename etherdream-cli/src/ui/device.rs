@@ -7,7 +7,7 @@ use ratatui::widgets::{ Block, /* Cell, */ Padding, Paragraph, Row, Widget, Tabl
 use ratatui_textarea::TextArea;
 
 use crate::device::Device;
-use crate::scene::{ self, SceneContext };
+use crate::scene;
 use crate::state::State;
 use crate::ui::Action;
 
@@ -18,7 +18,7 @@ const TABLE_KEY_WIDTH: u16 = 25;
 pub struct DeviceScene;
 
 impl scene::Scene<State> for DeviceScene {
-  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut SceneContext<State> ) -> bool {
+  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::Context<State> ) -> bool {
     match key.code {
       KeyCode::Char( 'q' ) => {
         ctx.invoke( Action::DeselectDevice );
@@ -34,11 +34,11 @@ impl scene::Scene<State> for DeviceScene {
     }
   }
 
-  fn on_draw( &mut self, area: Rect, buf: &mut Buffer, ctx: &SceneContext<State> ) {
+  fn on_draw( &mut self, area: Rect, buf: &mut Buffer, ctx: &scene::Context<State> ) {
     let layout = Layout::vertical([ Constraint::Length( 3 ), Constraint::Fill( 1 ) ]);
     let [ header, body ] = area.layout( &layout );
     
-    if let Some( device ) = ctx.state().current_device() {
+    if let Some( device ) = ctx.state().get_device() {
 
       // Render the header
       Paragraph::new( format!( " Device: {} ", device.info().ip() ) ).render( header, buf );

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::fmt::Debug;
+use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -13,65 +13,62 @@ const DEFAULT_FPS: f32 = 30.0;
 
 #[derive( Debug )]
 pub enum SceneEvent {
+  /// No action.
+  None,
+  /// Pushes a new scene on to the stack. Useful for modals.
   Push( &'static str ),
+  /// Pops the current scene from the stack.
   Pop,
-  Switch( &'static str ),
-  None
+  /// Swaps the current scene with a new scene.
+  Switch( &'static str )
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Actionable
 
 pub trait Actionable {
-  /// TODO: An enum defining actions between the frontend and backend.
-  type Action: 'static + Send + Debug;
+  /// Actions that the user-defined scene Backend supports.
+  type Action: 'static + Send + fmt::Debug;
 
-  /// ...
+  /// Sends an implementation-defined `Action` from the `Foreground<T>` to the
+  /// asynchronous `Background<T>` handler. Must return a `SceneEvent`.
   fn invoke( &mut self, action: Self::Action ) -> impl Future<Output=SceneEvent> + Send;
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene
 
 pub trait Scene<T: Actionable + Send + 'static> {
+  /// Called once, before any update or draw, when the scene is entered.
   fn on_enter( &mut self ) { }
+
+  /// Called once, after the last update and draw, when the scene is exited.
   fn on_exit( &mut self ) { }
-  fn on_key_down( &mut self, _key: KeyEvent, _ctx: &mut SceneContext<T> ) -> bool { false }
-  fn on_update( &mut self, _ctx: &mut SceneContext<T> ) { }
-  fn on_draw( &mut self, area: Rect, buf: &mut Buffer, state: &SceneContext<T> );
+
+  /// Called each time a key is pressed if the scene is active. Return true if
+  /// this call handled the key event. Return false to bubble the key event up
+  /// the scene stack.
+  fn on_key_down( &mut self, _key: KeyEvent, _ctx: &mut Context<T> ) -> bool { false }
+
+  /// Called when the scene is requested to update.
+  fn on_update( &mut self, _ctx: &mut Context<T> ) { }
+
+  /// Called when the scene is requested to draw a frame. Receives the `area`
+  /// it is to render into, and the writable `buf`.
+  fn on_draw( &mut self, area: Rect, buf: &mut Buffer, state: &Context<T> );
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Init
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Builder
 
-pub fn init<T>( ctx: ScenesDefinition<T> ) -> ( Foreground<T>, Background<T> )
-where
-  T: Actionable + Send + 'static
-{
-  let ( action_tx, action_rx ) = mpsc::channel::<T::Action>( 16 );
-  let ( events_tx, events_rx ) = mpsc::channel::<Event>( 1024 );
-
-  (
-    Foreground{
-      events_rx,
-      scene_ctx: SceneContext{ action_tx, state: ctx.state.clone() },
-      scenes: ctx.scenes,
-      stack: vec![ ctx.current.unwrap() ]
-    },
-    Background{
-      action_rx,
-      actionable: ctx.state,
-      events_tx
-    }
-  )
+pub enum BuilderError {
+  SceneRequired
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene Builder
-
-pub struct ScenesDefinition<T: Actionable + Send + 'static> {
+pub struct Builder<T: Actionable + Send + 'static> {
   current: Option<&'static str>,
   scenes: HashMap<&'static str, Box<dyn Scene<T>>>,
   state: Arc<RwLock<T>>
 }
 
-impl<'a,T: Actionable + Send + 'static> ScenesDefinition<T> {
+impl<'a,T: Actionable + Send + 'static> Builder<T> {
   pub fn new( state: Arc<RwLock<T>> ) -> Self {
     Self{
       current: None,
@@ -80,25 +77,58 @@ impl<'a,T: Actionable + Send + 'static> ScenesDefinition<T> {
     }
   }
 
-  /// Adds a scene to the builder.
+  /// Adds a scene to the builder definition.
   pub fn add_scene( &mut self, id: &'static str, scene: Box<dyn Scene<T>> ) -> bool {
     self.scenes.insert( id, scene );
     if self.current.is_none() { self.current = Some( id ) }
     true
   }
+
+  /// Builds the scene definitions, returning back a foreground and background
+  /// handler. TODO: elaborate...
+  pub fn build( self ) -> Result<( Foreground<T>, Background<T> ),BuilderError> {
+    if let Some( current ) = self.current {
+      let ( action_tx, action_rx ) = mpsc::channel::<T::Action>( 16 );
+      let ( events_tx, events_rx ) = mpsc::channel::<Event>( 1024 );
+
+      Ok( (
+        Foreground{
+          ctx: Context{ action_tx, state: self.state.clone() },
+          events_rx,
+          scenes: self.scenes,
+          stack: vec![ current ]
+        },
+        Background{
+          action_rx,
+          actionable: self.state,
+          events_tx
+        }
+      ) )
+    } else {
+      Err( BuilderError::SceneRequired )
+    }
+  }
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
+impl fmt::Display for BuilderError {
+  fn fmt( &self, f: &mut fmt::Formatter<'_> ) -> fmt::Result {
+    match self {
+      BuilderError::SceneRequired => write!( f, "At least one scene is required." )
+    }
+  }
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - -  Foreground UI Handler
 
 pub struct Foreground<T: Actionable + Send + 'static> {
+  ctx: Context<T>,
   events_rx: mpsc::Receiver<Event>,
-  scene_ctx: SceneContext<T>,
   scenes: HashMap<&'static str, Box<dyn Scene<T>>>,
   stack: Vec<&'static str>
 }
 
 impl<T: Actionable + Send + 'static> Foreground<T> {
-  pub fn run( &mut self ) {
+  pub fn run( mut self ) {
     let mut terminal = ratatui::init();
 
     while let Some( event ) = self.events_rx.blocking_recv() {
@@ -132,14 +162,12 @@ impl<T: Actionable + Send + 'static> Foreground<T> {
         }
       }
     }
-
-    ratatui::restore();
   }
 
   /// ...
   fn key_down( &mut self, key: KeyEvent ) -> bool {
-    if let Some( scene ) = self.scenes.get_mut( *self.stack.last().unwrap() ) {
-      scene.on_key_down( key, &mut self.scene_ctx )
+    if let Some( scene ) = self.stack.last().and_then( |current| self.scenes.get_mut( current ) ) {
+      scene.on_key_down( key, &mut self.ctx )
     } else {
       false
     }
@@ -148,14 +176,14 @@ impl<T: Actionable + Send + 'static> Foreground<T> {
   /// ...
   fn update( &mut self ) {
     if let Some( scene ) = self.scenes.get_mut( *self.stack.last().unwrap() ) {
-      scene.on_update( &mut self.scene_ctx );
+      scene.on_update( &mut self.ctx );
     }
   }
 
   /// ...
   fn draw( &mut self, area: Rect, buf: &mut Buffer ) {
     if let Some( scene ) = self.scenes.get_mut( *self.stack.last().unwrap() ) {
-      scene.on_draw( area, buf, &self.scene_ctx );
+      scene.on_draw( area, buf, &self.ctx );
     }
   }
 
@@ -188,15 +216,18 @@ impl<T: Actionable + Send + 'static> Foreground<T> {
   }
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Update Context
+impl<T: Actionable + Send + 'static> Drop for Foreground<T> {
+  // Restores the original terminal state when `Foreground<T>` is dropped.
+  fn drop( &mut self ) { ratatui::restore(); }
+}
 
-pub struct SceneContext<T: Actionable + Send + 'static>
+pub struct Context<T: Actionable + Send + 'static>
 {
   action_tx: mpsc::Sender<T::Action>,
   state: Arc<RwLock<T>>
 }
 
-impl<T: Actionable + Send + 'static> SceneContext<T> {
+impl<T: Actionable + Send + 'static> Context<T> {
   pub fn state( &'_ self ) -> RwLockReadGuard<'_,T> { self.state.blocking_read() }
 
   pub fn invoke( &mut self, action: T::Action ) -> bool {
@@ -204,7 +235,7 @@ impl<T: Actionable + Send + 'static> SceneContext<T> {
   }
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Event Context
+// - - - - - - - - - - - - - - - - - - - - - - - - -  Background Action Handler
 
 pub enum Event {
   Key( KeyEvent ),
@@ -212,7 +243,7 @@ pub enum Event {
   Tick( f64 )
 }
 
-pub struct Background<T: Actionable> {
+pub struct Background<T: Actionable + Send + 'static> {
   actionable: Arc<RwLock<T>>,
   action_rx: mpsc::Receiver<T::Action>,
   events_tx: mpsc::Sender<Event>

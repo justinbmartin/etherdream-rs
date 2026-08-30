@@ -12,17 +12,16 @@ mod scene;
 mod state;
 mod ui;
 
-fn main() -> io::Result<()> {
+fn main() -> Result<(),String> {
   let rt = tokio::runtime::Builder::new_multi_thread()
     .enable_all()
     .thread_name( "background" )
-    .build()?;
+    .build()
+    .map_err( |e| format!( "Failed to build Tokio run-time: {}", e ) )?;
 
   let cancellation_token = CancellationToken::new();
   let state = Arc::new( RwLock::new( state::State::default() ) );
-
-  let scenes_definition = ui::build_scenes( state.clone() );
-  let ( mut fg, bg ) = scene::init( scenes_definition );
+  let ( mut fg, bg ) = ui::build_scenes( state.clone() ).map_err( |e| format!( "Failed to build scenes: {}", e ) )?;
 
   let rt_thread =
     std::thread::spawn({
@@ -69,3 +68,4 @@ fn main() -> io::Result<()> {
 
   Ok( () )
 }
+

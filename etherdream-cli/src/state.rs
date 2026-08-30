@@ -2,27 +2,27 @@ use crate::device::{ Device, DeviceMap };
 
 #[derive( Default )]
 pub struct State {
+  // The currently selected device
   device_id: Option<usize>,
+  // A map of all devices
   device_map: DeviceMap
 }
 
 impl State {
-  // Device Id
-  pub fn device_id( &self ) -> Option<usize> { self.device_id }
-  pub fn set_device_id( &mut self, device_id: Option<usize> ) { self.device_id = device_id }
-
-  // Device Map
-  pub fn device_by_id( &self, device_id: usize ) -> Option<&Device> { self.device_map.get( device_id ) }
-  pub fn device_by_id_mut( &mut self, device_id: usize ) -> Option<&mut Device> { self.device_map.get_mut( device_id ) }
+  /// Get a read-only reference to the device map
+  pub fn get_device_map( &self ) -> &DeviceMap { &self.device_map }
+  /// Add's a device to the device map
   pub fn add_device_to_map( &mut self, device_info: etherdream::DeviceInfo ) { self.device_map.insert( device_info ) }
-  pub fn device_map( &self ) -> &DeviceMap { &self.device_map }
+  /// Set the currently selected device id
+  pub fn set_device( &mut self, device_id: Option<usize> ) { self.device_id = device_id }
 
-  //
-  pub fn current_device( &self ) -> Option<&Device> {
-    if let Some( device_id ) = self.device_id {
-      self.device_map.get( device_id )
-    } else {
-      None
-    }
+  /// Get an immutable reference to the currently selected device
+  pub fn get_device( &self ) -> Option<&Device> {
+    self.device_id.and_then(|d| self.device_map.get( d ) )
+  }
+
+  /// Get a mutable reference to the currently selected device
+  pub fn get_device_mut( &mut self ) -> Option<&mut Device> {
+    self.device_id.and_then(|d| self.device_map.get_mut( d ) )
   }
 }

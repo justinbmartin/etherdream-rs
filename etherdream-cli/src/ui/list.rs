@@ -35,10 +35,10 @@ impl ListScene {
 }
 
 impl scene::Scene<State> for ListScene {
-  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::SceneContext<State> ) -> bool {
+  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::Context<State> ) -> bool {
     match key.code {
       dir @ ( KeyCode::Up | KeyCode::Down ) => {
-        let devices_count = ctx.state().device_map().len();
+        let devices_count = ctx.state().get_device_map().len();
 
         if devices_count > 0 {
           let selected = self.selected.unwrap_or( 0 );
@@ -61,9 +61,9 @@ impl scene::Scene<State> for ListScene {
     false
   }
 
-  fn on_update( &mut self, ctx: &mut scene::SceneContext<State> ) {
+  fn on_update( &mut self, ctx: &mut scene::Context<State> ) {
     let state = ctx.state();
-    let devices = state.device_map();
+    let devices = state.get_device_map();
 
     // Refresh our local sorted device cache if the remote device map has changed
     if devices.version() != self.device_map_version {
@@ -77,7 +77,7 @@ impl scene::Scene<State> for ListScene {
     }
   }
 
-  fn on_draw( &mut self, area: Rect, buf: &mut Buffer, ctx: &scene::SceneContext<State> ) {
+  fn on_draw( &mut self, area: Rect, buf: &mut Buffer, ctx: &scene::Context<State> ) {
     let block = Block::bordered().title( Line::raw( " Etherdream Devices " ).centered() );
 
     // If there are no devices, render a message saying as such
@@ -100,7 +100,7 @@ impl scene::Scene<State> for ListScene {
         .iter()
         .enumerate()
         .filter_map(|( i, id )|{
-          if let Some( device ) = state.device_map().get( *id ) {
+          if let Some( device ) = state.get_device_map().get( *id ) {
             let selected = self.table.selected().filter(| si |{ *si == i }).is_some();
             let theme = if selected { HIGHLIGHT_STYLE } else { Style::new() };
 
