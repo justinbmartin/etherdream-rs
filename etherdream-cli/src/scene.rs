@@ -19,7 +19,8 @@ pub enum SceneEvent {
   Push( &'static str ),
   /// Pops the current scene from the stack.
   Pop,
-  /// Swaps the current scene with a new scene.
+  /// Clears the stack, calling `Scene::on_exit` for each scene. Pushes into
+  /// the new scene.
   Switch( &'static str )
 }
 
@@ -38,10 +39,10 @@ pub trait Actionable {
 
 pub trait Scene<T: Actionable + Send + 'static> {
   /// Called once, before any update or draw, when the scene is entered.
-  fn on_enter( &mut self ) { }
+  fn on_enter( &mut self, _ctx: &Context<T> ) { }
 
   /// Called once, after the last update and draw, when the scene is exited.
-  fn on_exit( &mut self ) { }
+  fn on_exit( &mut self, _ctx: &Context<T> ) { }
 
   /// Called each time a key is pressed if the scene is active. Return true if
   /// this call handled the key event. Return false to bubble the key event up
@@ -142,20 +143,22 @@ impl<T: Actionable + Send + 'static> Foreground<T> {
           }
         },
         Event::Tick( _time ) => {
-          let _ = self.update();
+          if let Some( scene ) = self.stack.last().and_then( |current| self.scenes.get_mut( current ) ) {
+            let _ = scene.on_update( &mut self.ctx );
 
-          let _ = terminal.draw(| frame |{
-            let main_layout = Layout::vertical([ Constraint::Fill( 1 ), Constraint::Length( 1 ) ]);
-            let [ body_area, footer_area ] = frame.area().layout( &main_layout );
+            let _ = terminal.draw(| frame |{
+              let main_layout = Layout::vertical([ Constraint::Fill( 1 ), Constraint::Length( 1 ) ]);
+              let [ body_area, footer_area ] = frame.area().layout( &main_layout );
 
-            // Main > Body
-            self.draw( body_area, frame.buffer_mut() );
+              // Main > Body
+              scene.on_draw( body_area, frame.buffer_mut(), &self.ctx );
 
-            // Main > Footer
-            Paragraph::new( "Use ↓↑ to move, <Enter> to select a device, 'q' to quit." )
-              .centered()
-              .render( footer_area, frame.buffer_mut() );
-          });
+              // Main > Footer
+              Paragraph::new( "Use ↓↑ to move, <Enter> to select a device, 'q' to quit." )
+                .centered()
+                .render( footer_area, frame.buffer_mut() );
+            });
+          }
         }
         Event::Scene( event ) => {
           self.on_event( event )
@@ -173,42 +176,44 @@ impl<T: Actionable + Send + 'static> Foreground<T> {
     }
   }
 
-  /// ...
-  fn update( &mut self ) {
-    if let Some( scene ) = self.scenes.get_mut( *self.stack.last().unwrap() ) {
-      scene.on_update( &mut self.ctx );
-    }
-  }
-
-  /// ...
-  fn draw( &mut self, area: Rect, buf: &mut Buffer ) {
-    if let Some( scene ) = self.scenes.get_mut( *self.stack.last().unwrap() ) {
-      scene.on_draw( area, buf, &self.ctx );
-    }
-  }
-
   fn on_event( &mut self, event: SceneEvent ) {
     match event {
-      SceneEvent::Push( next_scene ) => {
-        if let Some( scene_id ) = self.stack.last() && let Some( scene ) = self.scenes.get_mut( scene_id ) {
-          scene.on_exit();
-          self.stack.push( next_scene );
-          self.scenes.get_mut( *self.stack.last().unwrap() ).unwrap().on_enter();
+      SceneEvent::Push( next_scene_id ) => {
+        if let Some( current_id ) = self.stack.last() {
+          if let [Some( current_scene ), Some( next_scene )] = self.scenes.get_disjoint_mut([ *current_id, next_scene_id ]) {
+            current_scene.on_exit( &self.ctx );
+            self.stack.push( next_scene_id );
+            next_scene.on_enter( &self.ctx );
+          }
         }
       },
       SceneEvent::Pop => {
-        if let Some( scene_id ) = self.stack.last() && let Some( scene ) = self.scenes.get_mut( scene_id ) {
-          scene.on_exit();
+        if let Some( scene ) = self.stack.last().and_then( |current| self.scenes.get_mut( current ) ) {
+          scene.on_exit( &self.ctx );
           self.stack.pop();
-          self.scenes.get_mut( *self.stack.last().unwrap() ).unwrap().on_enter();
+
+          if let Some( parent_scene ) = self.stack.last().and_then( |parent_id| self.scenes.get_mut( parent_id ) ) {
+            parent_scene.on_enter( &self.ctx );
+          }
         }
       }
-      SceneEvent::Switch( next_scene ) => {
-        if let Some( scene_id ) = self.stack.last() && let Some( scene ) = self.scenes.get_mut( scene_id ) {
-          scene.on_exit();
+      SceneEvent::Switch( next_scene_id ) => {
+        if self.scenes.contains_key( next_scene_id ) {
+          // Call `Scene::on_exit` for each scene in the stack, in reverse
+          for scene_id in self.stack.iter().rev() {
+            if let Some( scene ) = self.scenes.get_mut( scene_id ) {
+              scene.on_exit( &self.ctx );
+            }
+          }
+
+          // Clear the stack
           self.stack.clear();
-          self.stack.push( next_scene );
-          self.scenes.get_mut( *self.stack.last().unwrap() ).unwrap().on_enter();
+
+          // Call `Scene::on_enter` for the new scene
+          if let Some( next_scene ) = self.scenes.get_mut( next_scene_id ) {
+            self.stack.push( next_scene_id );
+            next_scene.on_enter( &self.ctx );
+          }
         }
       }
       SceneEvent::None => {}
@@ -221,6 +226,8 @@ impl<T: Actionable + Send + 'static> Drop for Foreground<T> {
   fn drop( &mut self ) { ratatui::restore(); }
 }
 
+/// Passed as an argument to all `Scene` trait functions, providing access to
+/// internal scene attribute's and capabilities.
 pub struct Context<T: Actionable + Send + 'static>
 {
   action_tx: mpsc::Sender<T::Action>,
@@ -228,8 +235,11 @@ pub struct Context<T: Actionable + Send + 'static>
 }
 
 impl<T: Actionable + Send + 'static> Context<T> {
+  /// Returns a read-only guard to the `Actionable` state.
   pub fn state( &'_ self ) -> RwLockReadGuard<'_,T> { self.state.blocking_read() }
 
+  /// Sends `action` to the asynchronous `Background<T>` task. Returns true if
+  /// the `action` was successfully published.
   pub fn invoke( &mut self, action: T::Action ) -> bool {
     self.action_tx.try_send( action ).is_ok()
   }

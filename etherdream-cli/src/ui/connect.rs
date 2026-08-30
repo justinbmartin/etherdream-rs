@@ -31,7 +31,7 @@ impl<'a> ConnectScene<'a> {
 }
 
 impl<'a> scene::Scene<State> for ConnectScene<'a> {
-  fn on_enter( &mut self ) {
+  fn on_enter( &mut self, _ctx: &scene::Context<State> ) {
     self.input_selected = INPUT_CONNECT_BUTTON;
   }
 
