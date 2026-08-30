@@ -1,6 +1,6 @@
 use crossterm::event::{ KeyCode, KeyEvent };
 use ratatui::buffer::Buffer;
-use ratatui::layout::{ Constraint, Rect };
+use ratatui::layout::{ Constraint, Layout, Rect };
 use ratatui::style::{ Color, palette::tailwind::SLATE, Style };
 use ratatui::text::Line;
 use ratatui::widgets::{ Block, Cell, Paragraph, Row, StatefulWidget, Table, TableState, Widget };
@@ -78,6 +78,9 @@ impl scene::Scene<State> for ListScene {
   }
 
   fn on_draw( &mut self, area: Rect, buf: &mut Buffer, ctx: &scene::Context<State> ) {
+    let main_layout = Layout::vertical([ Constraint::Fill( 1 ), Constraint::Length( 1 ) ]);
+    let [ body_area, footer_area ] = area.layout( &main_layout );
+
     let block = Block::bordered().title( Line::raw( " Etherdream Devices " ).centered() );
 
     // If there are no devices, render a message saying as such
@@ -123,7 +126,12 @@ impl scene::Scene<State> for ListScene {
       .highlight_spacing( ratatui::widgets::HighlightSpacing::Always )
       .highlight_symbol( "> " );
 
-    StatefulWidget::render( table, area, buf, &mut self.table );
+    StatefulWidget::render( table, body_area, buf, &mut self.table );
+
+    // Main > Footer
+    Paragraph::new( "Use ↓↑ to move, <Enter> to select a device, 'q' to quit." )
+      .centered()
+      .render( footer_area, buf );
   }
 }
 

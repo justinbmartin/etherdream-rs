@@ -35,8 +35,11 @@ impl scene::Scene<State> for DeviceScene {
   }
 
   fn on_draw( &mut self, area: Rect, buf: &mut Buffer, ctx: &scene::Context<State> ) {
+    let main_layout = Layout::vertical([ Constraint::Fill( 1 ), Constraint::Length( 1 ) ]);
+    let [ body_area, footer_area ] = area.layout( &main_layout );
+
     let layout = Layout::vertical([ Constraint::Length( 3 ), Constraint::Fill( 1 ) ]);
-    let [ header, body ] = area.layout( &layout );
+    let [ header, body ] = body_area.layout( &layout );
     
     if let Some( device ) = ctx.state().get_device() {
 
@@ -62,6 +65,11 @@ impl scene::Scene<State> for DeviceScene {
     } else {
       Paragraph::new( " No Device " ).render( header, buf );
     }
+
+    // Main > Footer
+    Paragraph::new( "Use ↓↑ to move, <Enter> to select a device, 'q' to quit." )
+      .centered()
+      .render( footer_area, buf );
   }
 }
 

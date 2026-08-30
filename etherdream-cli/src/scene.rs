@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use crossterm::event::{ self, EventStream, KeyCode, KeyEvent, KeyEventKind };
 use futures::{ FutureExt, StreamExt };
-use ratatui::{ buffer::Buffer, layout::{ Constraint, Layout, Rect }, widgets::{ Paragraph, Widget } };
+use ratatui::{ buffer::Buffer, layout::Rect };
 use tokio::{ sync::{ mpsc, RwLock, RwLockReadGuard }, task::JoinSet, time };
 use tokio_util::sync::CancellationToken;
 
@@ -15,10 +15,10 @@ const DEFAULT_FPS: f32 = 30.0;
 pub enum SceneEvent {
   /// No action.
   None,
-  /// Pushes a new scene on to the stack. Useful for modals.
-  Push( &'static str ),
   /// Pops the current scene from the stack.
   Pop,
+  /// Pushes a new scene on to the stack. Useful for modals.
+  Push( &'static str ),
   /// Clears the stack, calling `Scene::on_exit` for each scene. Pushes into
   /// the new scene.
   Switch( &'static str )
@@ -135,44 +135,25 @@ impl<T: Actionable + Send + 'static> Foreground<T> {
     while let Some( event ) = self.events_rx.blocking_recv() {
       match event {
         Event::Key( key ) => {
-          if ! self.key_down( key ) {
-            match key.code {
-              KeyCode::Char( 'q' ) | KeyCode::Esc => { break; },
-              _ => { }
+          if let Some( scene ) = self.stack.last().and_then( |current| self.scenes.get_mut( current ) ) {
+            if ! scene.on_key_down( key, &mut self.ctx ) {
+              match key.code {
+                KeyCode::Char( 'q' ) | KeyCode::Esc => { break; },
+                _ => { }
+              }
             }
           }
         },
         Event::Tick( _time ) => {
           if let Some( scene ) = self.stack.last().and_then( |current| self.scenes.get_mut( current ) ) {
             let _ = scene.on_update( &mut self.ctx );
-
-            let _ = terminal.draw(| frame |{
-              let main_layout = Layout::vertical([ Constraint::Fill( 1 ), Constraint::Length( 1 ) ]);
-              let [ body_area, footer_area ] = frame.area().layout( &main_layout );
-
-              // Main > Body
-              scene.on_draw( body_area, frame.buffer_mut(), &self.ctx );
-
-              // Main > Footer
-              Paragraph::new( "Use ↓↑ to move, <Enter> to select a device, 'q' to quit." )
-                .centered()
-                .render( footer_area, frame.buffer_mut() );
-            });
+            let _ = terminal.draw(| frame |{ scene.on_draw( frame.area(), frame.buffer_mut(), &self.ctx ); });
           }
         }
         Event::Scene( event ) => {
           self.on_event( event )
         }
       }
-    }
-  }
-
-  /// ...
-  fn key_down( &mut self, key: KeyEvent ) -> bool {
-    if let Some( scene ) = self.stack.last().and_then( |current| self.scenes.get_mut( current ) ) {
-      scene.on_key_down( key, &mut self.ctx )
-    } else {
-      false
     }
   }
 
@@ -216,7 +197,9 @@ impl<T: Actionable + Send + 'static> Foreground<T> {
           }
         }
       }
-      SceneEvent::None => {}
+      SceneEvent::None => {
+        /* Do nothing */
+      }
     }
   }
 }
