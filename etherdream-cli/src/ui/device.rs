@@ -8,8 +8,7 @@ use ratatui_textarea::TextArea;
 
 use crate::device::Device;
 use crate::scene;
-use crate::state::State;
-use crate::ui::Action;
+use crate::ui::{ Action, State };
 
 const HIGHLIGHT_STYLE: Style = Style::new().bg( SLATE.c800 );
 const TABLE_KEY_WIDTH: u16 = 25;

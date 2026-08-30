@@ -9,7 +9,6 @@ use tokio_util::sync::CancellationToken;
 mod device;
 mod executors;
 mod scene;
-mod state;
 mod ui;
 
 fn main() -> Result<(),String> {
@@ -20,8 +19,8 @@ fn main() -> Result<(),String> {
     .map_err( |e| format!( "Failed to build Tokio run-time: {}", e ) )?;
 
   let cancellation_token = CancellationToken::new();
-  let state = Arc::new( RwLock::new( state::State::default() ) );
-  let ( mut fg, bg ) = ui::build_scenes( state.clone() ).map_err( |e| format!( "Failed to build scenes: {}", e ) )?;
+  let state = Arc::new( RwLock::new( ui::State::default() ) );
+  let ( fg, bg ) = ui::build_scenes( state.clone() ).map_err( |e| format!( "Failed to build scenes: {}", e ) )?;
 
   let rt_thread =
     std::thread::spawn({

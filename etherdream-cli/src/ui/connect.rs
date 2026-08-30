@@ -5,8 +5,7 @@ use ratatui::style::{ Color, Style };
 use ratatui_textarea::TextArea;
 
 use crate::scene;
-use crate::state::State;
-use crate::ui::Action;
+use crate::ui::{ Action, State };
 
 const INPUT_CONNECT_BUTTON: usize = 1;
 const INPUT_PORT: usize = 0;

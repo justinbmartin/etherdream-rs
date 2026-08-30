@@ -7,8 +7,7 @@ use ratatui::widgets::{ Block, Cell, Paragraph, Row, StatefulWidget, Table, Tabl
 
 use crate::device;
 use crate::scene;
-use crate::state::State;
-use crate::ui::Action;
+use crate::ui::{ Action, State };
 
 const CONNECTED: &str = " Connected ";
 const DISCONNECTED: &str = "Disconnected";
