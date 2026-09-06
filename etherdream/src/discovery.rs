@@ -2,10 +2,12 @@
 use std::collections::HashMap;
 use std::io;
 use std::net::{ IpAddr, Ipv4Addr, SocketAddr };
+use std::sync::Arc;
+use std::time::Instant;
 
 use futures::stream::StreamExt;
 use tokio::net::UdpSocket;
-use tokio::sync::mpsc;
+use tokio::sync::{ mpsc, RwLock, RwLockReadGuard };
 use tokio_util::bytes::BytesMut;
 use tokio_util::codec::Decoder;
 use tokio_util::sync::CancellationToken;
@@ -14,54 +16,99 @@ use tokio_util::udp::UdpFramed;
 use crate::device_info::DeviceInfo;
 use crate::protocol;
 
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Broadcast
+
+pub struct Broadcast {
+  device_info: DeviceInfo,
+  inserted_at: Instant,
+  state: protocol::State,
+  updated_at: Instant
+}
+
+impl Broadcast {
+  fn new( device_info: DeviceInfo, state: protocol::State ) -> Self {
+    Self{ device_info, inserted_at: Instant::now(), state, updated_at: Instant::now() }
+  }
+
+  pub fn device_info( &self ) -> &DeviceInfo { &self.device_info }
+  pub fn inserted_at( &self ) -> &Instant { &self.inserted_at }
+  pub fn state( &self ) -> &protocol::State { &self.state }
+  pub fn updated_at( &self ) -> &Instant { &self.updated_at }
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Builder
+
+pub struct Builder {
+  address: SocketAddr,
+  device_info_tx: Option<mpsc::Sender<DeviceInfo>>
+}
+
+impl Builder {
+  /// Creates a `Discovery` builder configured to listen to Etherdream
+  /// broadcasts on `0.0.0.0:7654`.
+  pub fn new() -> Self {
+    Self{
+      address: SocketAddr::new( IpAddr::V4( Ipv4Addr::UNSPECIFIED ), protocol::BROADCAST_PORT ),
+      device_info_tx: None
+    }
+  }
+
+  /// Assign a custom socket address that the `Discovery` server will listen
+  /// for Etherdream broadcast messages from. Useful for testing.
+  pub fn address( mut self, address: SocketAddr ) -> Self {
+    self.address = address;
+    self
+  }
+
+  /// Assign a channel that will receive a single `DeviceInfo` message for each
+  /// new device.
+  pub fn notify( mut self, device_info_tx: mpsc::Sender<DeviceInfo> ) -> Self {
+    self.device_info_tx = Some( device_info_tx );
+    self
+  }
+
+  /// Starts the `Discovery` task.
+  pub async fn listen( self ) -> Result<Discovery,io::Error>
+  {
+    let registry = Arc::new( RwLock::new( HashMap::<SocketAddr,Broadcast>::new() ) );
+    let shutdown_token = CancellationToken::new();
+
+    let socket = UdpSocket::bind( self.address ).await?;
+    let local_address = socket.local_addr()?;
+
+    tokio::spawn({
+      let registry = registry.clone();
+      let shutdown_token = shutdown_token.child_token();
+      async move { shutdown_token.run_until_cancelled( do_listen( socket, registry, self.device_info_tx ) ).await; }
+    });
+
+    Ok( Discovery{
+      address: local_address,
+      registry,
+      shutdown_token
+    } )
+  }
+}
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Discovery Server
 
 pub struct Discovery {
-  // The local socket address that the discovery server is listening on.
+  // The local socket address that the discovery service is listening on.
   address: SocketAddr,
-  // Receiver for discovered devices.
-  device_rx: mpsc::Receiver<( DeviceInfo, protocol::State )>,
+  // Registry of all discovered devices, by socket address.
+  registry: Arc<RwLock<HashMap<SocketAddr,Broadcast>>>,
   // The cancellation token used to shut down the discovery server.
   shutdown_token: CancellationToken
 }
 
 impl Discovery {
-  /// Starts the discovery server and listens for Etherdream broadcasts on
-  /// `0.0.0.0:7654`.
-  pub async fn listen() -> Result<Self,io::Error>
-  {
-    Self::listen_with_address(
-      SocketAddr::new( IpAddr::V4( Ipv4Addr::UNSPECIFIED ), protocol::BROADCAST_PORT ),
-    ).await
-  }
-
-  /// Starts the discovery server and listens for Etherdream broadcasts on a
-  /// user-provided socket address.
-  pub async fn listen_with_address( address: SocketAddr ) -> Result<Self,io::Error>
-  {
-    let ( device_tx, device_rx ) = mpsc::channel::<( DeviceInfo, protocol::State )>( 16 );
-    let shutdown_token = CancellationToken::new();
-
-    let socket = UdpSocket::bind( address ).await?;
-    let local_address = socket.local_addr()?;
-
-    tokio::spawn({
-      let shutdown_token = shutdown_token.child_token();
-      async move { shutdown_token.run_until_cancelled( do_listen( socket, device_tx ) ).await; }
-    });
-
-    Ok( Self{
-      address: local_address,
-      device_rx,
-      shutdown_token
-    } )
-  }
-
   /// Returns the local socket address that the discovery server is bound to.
   pub fn address( &self ) -> &SocketAddr { &self.address }
 
-  /// Receives devices as they are discovered.
-  pub async fn recv( &mut self ) -> Option<( DeviceInfo, protocol::State )> { self.device_rx.recv().await }
+  /// Returns a read-only guard referencing the discovered device registry.
+  pub async fn read_registry( &'_ self ) -> RwLockReadGuard<'_,HashMap<SocketAddr,Broadcast>> {
+    self.registry.read().await
+  }
 
   /// Shuts down the discovery server and consumes `self`.
   pub fn shutdown( self ) { self.shutdown_token.cancel(); }
@@ -73,28 +120,32 @@ impl Drop for Discovery {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Listen Handler
 
-async fn do_listen( socket: UdpSocket, device_tx: mpsc::Sender<( DeviceInfo, protocol::State )> )
+async fn do_listen(
+  socket: UdpSocket,
+  registry: Arc<RwLock<HashMap<SocketAddr,Broadcast>>>,
+  device_info_tx: Option<mpsc::Sender<DeviceInfo>>
+)
   -> Result<(),io::Error>
 {
   let mut framed = UdpFramed::new( socket, BroadcastDecoder{} );
-  let mut registry = HashMap::<SocketAddr,DeviceInfo>::new();
 
   loop {
     if let Some( frame ) = framed.next().await {
       match frame {
         Ok( ( ( intrinsics, state ), address ) ) => {
-          if registry.contains_key( &address ) { continue; }
+          let mut guard = registry.write().await;
+          if let Some( broadcast ) = guard.get_mut( &address ) {
+            broadcast.updated_at = Instant::now();
+          } else {
+            let client_addr = SocketAddr::new( address.ip(), protocol::CLIENT_PORT );
+            let device_info = DeviceInfo::new( client_addr, intrinsics );
 
-          // The broadcast port is not the same port that the client will
-          // communicate on. Construct a `client_addr` with the broadcast
-          // address, but `protocol::CLIENT_PORT`.
-          let client_addr = SocketAddr::new( address.ip(), protocol::CLIENT_PORT );
+            guard.insert( address, Broadcast::new( device_info, state ) );
 
-          let device_info = DeviceInfo::new( client_addr, intrinsics );
-
-          // Insert the device into the registry and broadcast it to `tx`
-          registry.insert( address, device_info.clone() );
-          let _ = device_tx.send( ( device_info, state ) ).await;
+            if let Some( device_info_tx ) = device_info_tx.as_ref() {
+              let _ = device_info_tx.send( device_info ).await;
+            }
+          }
         }
         Err( e ) => {
           eprintln!( "Error receiving discovery broadcast: {}", e );

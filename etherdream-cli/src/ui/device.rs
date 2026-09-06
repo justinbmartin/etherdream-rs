@@ -34,7 +34,7 @@ impl scene::Scene<State> for DeviceScene {
   }
 
   fn on_draw( &mut self, area: Rect, buf: &mut Buffer, ctx: &scene::Context<State> ) {
-    let body_area = super::common::layout( area, buf, "Use ↓↑ to move, <Enter> to select a device, 'q' to quit." );
+    let body_area = super::common::layout( area, buf, "Use 'c' to connect, 'q' to go back." );
 
     let layout = Layout::vertical([ Constraint::Length( 3 ), Constraint::Fill( 1 ) ]);
     let [ header, body ] = body_area.layout( &layout );

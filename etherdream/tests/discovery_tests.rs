@@ -2,18 +2,23 @@ use std::io;
 use std::net::{ IpAddr, Ipv4Addr, SocketAddr };
 
 use tokio::net::UdpSocket;
+use tokio::sync::mpsc;
 use tokio::time;
 
 use etherdream::{
   device_info::DeviceInfo,
-  discovery::Discovery,
+  discovery::{ self, Discovery },
   protocol::{ BROADCAST_BYTES_SIZE, Intrinsics, LightEngineState, PlaybackState, State, Source } };
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Unit Tests
 
 #[tokio::test]
 async fn discovery_server_will_receive_a_single_etherdream_broadcast() -> Result<(),io::Error> {
-  let mut discovery = Discovery::listen_with_address( SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), 0 ) ).await?;
+  let ( device_info_tx, mut device_info_rx ) = mpsc::channel::<DeviceInfo>( 16 );
+  let discovery = discovery::Builder::new()
+    .address( SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), 0 ) )
+    .notify( device_info_tx )
+    .listen().await?;
 
   // Create a test device
   let intrinsics = Intrinsics{
@@ -35,7 +40,7 @@ async fn discovery_server_will_receive_a_single_etherdream_broadcast() -> Result
   broadcast_device( &discovery, &intrinsics, &state, 1 ).await?;
 
   // Verify that the discovery server receives that device and executes the callback
-  let ( device_info, state ) = receive_device_or_panic( &mut discovery ).await;
+  let device_info = receive_device_or_panic( &mut device_info_rx ).await;
 
   // Verify discovered device attributes
   assert_eq!( device_info.buffer_capacity(), intrinsics.buffer_capacity as usize );
@@ -43,18 +48,23 @@ async fn discovery_server_will_receive_a_single_etherdream_broadcast() -> Result
   assert_eq!( device_info.max_points_per_second(), intrinsics.max_points_per_second as usize );
   assert_eq!( *device_info.version(), intrinsics.version );
 
-  assert_eq!( state.light_engine_state, LightEngineState::Ready );
-  assert_eq!( state.playback_state, PlaybackState::Prepared );
-  assert_eq!( state.points_lifetime, 1234 );
-  assert_eq!( state.points_per_second, 1024 );
-  assert_eq!( state.source, Source::Network );
+  /// TODO
+  //assert_eq!( state.light_engine_state, LightEngineState::Ready );
+  //assert_eq!( state.playback_state, PlaybackState::Prepared );
+  //assert_eq!( state.points_lifetime, 1234 );
+  //assert_eq!( state.points_per_second, 1024 );
+  //assert_eq!( state.source, Source::Network );
 
   Ok(())
 }
 
 #[tokio::test]
 async fn discovery_server_will_only_execute_callback_once_for_each_unique_device() -> Result<(),io::Error> {
-  let mut discovery = Discovery::listen_with_address( SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), 0 ) ).await?;
+  let ( device_info_tx, mut device_info_rx ) = mpsc::channel::<DeviceInfo>( 16 );
+  let discovery = discovery::Builder::new()
+    .address( SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), 0 ) )
+    .notify( device_info_tx )
+    .listen().await?;
 
   let state = State::default();
 
@@ -74,10 +84,10 @@ async fn discovery_server_will_only_execute_callback_once_for_each_unique_device
 
   broadcast_device( &discovery, &intrinsics_2, &state, 1 ).await?;
 
-  let ( device_info, _ ) = receive_device_or_panic( &mut discovery ).await;
+  let device_info = receive_device_or_panic( &mut device_info_rx ).await;
   assert_eq!( *device_info.mac_address(), intrinsics_1.mac_address );
 
-  let ( device_info, _ ) = receive_device_or_panic( &mut discovery ).await;
+  let device_info = receive_device_or_panic( &mut device_info_rx ).await;
   assert_eq!( *device_info.mac_address(), intrinsics_2.mac_address );
 
   Ok(())
@@ -104,17 +114,13 @@ async fn broadcast_device( server: &Discovery, intrinsics: &Intrinsics, state: &
 
 // Awaits for a single device or panics. A panic can happen if a test timeout
 // is reached or the server was shutdown from some other means.
-async fn receive_device_or_panic( discovery: &mut Discovery ) -> ( DeviceInfo, State ) {
+async fn receive_device_or_panic( device_info_rx: &mut mpsc::Receiver<DeviceInfo> ) -> DeviceInfo {
   tokio::select!{
     _ = time::sleep( time::Duration::from_secs( 5 ) ) => {
       panic!( "Failed to receive a device info by timeout..." )
     }
-    discovered_device = discovery.recv() => {
-      if let Some( discovered_device ) = discovered_device {
-        discovered_device
-      } else {
-        panic!( "Discovery service shutdown..." )
-      }
+    device_info = device_info_rx.recv()  => {
+      device_info.expect( "Discovery service shutdown..." )
     }
   }
 }

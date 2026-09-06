@@ -1,6 +1,6 @@
 use crossterm::event::{ KeyCode, KeyEvent };
 use ratatui::buffer::Buffer;
-use ratatui::layout::{ Constraint, Layout, Rect };
+use ratatui::layout::{ Constraint, Rect };
 use ratatui::style::{ Color, palette::tailwind::SLATE, Style };
 use ratatui::text::Line;
 use ratatui::widgets::{ Block, Cell, Paragraph, Row, StatefulWidget, Table, TableState, Widget };
@@ -10,7 +10,7 @@ use crate::scene;
 use crate::ui::{ Action, State };
 
 const CONNECTED: &str = " Connected ";
-const DISCONNECTED: &str = "Disconnected";
+const DISCONNECTED: &str = " Disconnected ";
 const PLAYING: &str = " Playing ";
 
 const HIGHLIGHT_STYLE: Style = Style::new().bg( SLATE.c800 );
@@ -86,13 +86,6 @@ impl scene::Scene<State> for ListScene {
       return;
     }
 
-    // Render our table of discovered devices
-    let constraints = [
-      Constraint::Length( 20 ),
-      Constraint::Length( 10 ),
-      Constraint::Length( 30 ),
-      Constraint::Fill( 1 ) ];
-
     let rows: Vec<Row> = {
       let state = ctx.state();
 
@@ -117,9 +110,15 @@ impl scene::Scene<State> for ListScene {
         .collect()
     };
 
+    let constraints = [
+      Constraint::Min( 20 ),
+      Constraint::Percentage( 25 ),
+      Constraint::Percentage( 25 ),
+      Constraint::Fill( 1 ) ];
+
     let table = Table::new( rows, constraints )
       .block( block )
-      .header( Row::new(vec![ "Ip", "Port", "MAC", "Status" ]).style( Style::new().bold() ) )
+      .header( Row::new( vec![ "Ip", "Port", "MAC", "Status" ] ).style( Style::new().bold() ) )
       .highlight_spacing( ratatui::widgets::HighlightSpacing::Always )
       .highlight_symbol( "> " );
 

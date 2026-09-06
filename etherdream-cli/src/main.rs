@@ -2,7 +2,7 @@
 use std::io;
 use std::sync::Arc;
 
-use tokio::sync::RwLock;
+use tokio::sync::{ mpsc, RwLock };
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
@@ -37,8 +37,9 @@ fn main() -> Result<(),String> {
 
             async move {
               cancellation_token.run_until_cancelled( async move {
-                if let Ok( mut discovery ) = etherdream::discover().await {
-                  while let Some( ( device_info, _ ) ) = discovery.recv().await {
+                let ( tx, mut rx ) = mpsc::channel::<etherdream::DeviceInfo>( 16 );
+                if let Ok( _ ) = etherdream::discover_with_notifier( tx ).await {
+                  while let Some( device_info ) = rx.recv().await {
                     state.write().await.add_device_to_map( device_info );
                   }
                 }
