@@ -6,7 +6,6 @@ use tokio::sync::mpsc;
 use tokio::time;
 
 use etherdream::{
-  device_info::DeviceInfo,
   discovery::{ self, Discovery },
   protocol::{ BROADCAST_BYTES_SIZE, Intrinsics, LightEngineState, PlaybackState, State, Source } };
 
@@ -14,10 +13,11 @@ use etherdream::{
 
 #[tokio::test]
 async fn discovery_server_will_receive_a_single_etherdream_broadcast() -> Result<(),io::Error> {
-  let ( device_info_tx, mut device_info_rx ) = mpsc::channel::<DeviceInfo>( 16 );
-  let discovery = discovery::Builder::new()
+  let ( discovery_tx, mut discovery_rx ) = mpsc::channel::<SocketAddr>( 16 );
+  let registry = discovery::Registry::default();
+  let discovery = discovery::Builder::new( registry.clone() )
     .address( SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), 0 ) )
-    .notify( device_info_tx )
+    .notify( discovery_tx )
     .listen().await?;
 
   // Create a test device
@@ -39,8 +39,12 @@ async fn discovery_server_will_receive_a_single_etherdream_broadcast() -> Result
   // Broadcast the test device to the discovery server
   broadcast_device( &discovery, &intrinsics, &state, 1 ).await?;
 
-  // Verify that the discovery server receives that device and executes the callback
-  let device_info = receive_device_or_panic( &mut device_info_rx ).await;
+  // TODO: Verify that the discovery server receives that device and executes the callback
+  let address = receive_device_or_panic( &mut discovery_rx ).await;
+  let registry = registry.read().await;
+  let broadcast = registry.get( &address ).expect( "Device not found." );
+  let device_info = broadcast.device_info();
+  let state = broadcast.state();
 
   // Verify discovered device attributes
   assert_eq!( device_info.buffer_capacity(), intrinsics.buffer_capacity as usize );
@@ -48,22 +52,22 @@ async fn discovery_server_will_receive_a_single_etherdream_broadcast() -> Result
   assert_eq!( device_info.max_points_per_second(), intrinsics.max_points_per_second as usize );
   assert_eq!( *device_info.version(), intrinsics.version );
 
-  /// TODO
-  //assert_eq!( state.light_engine_state, LightEngineState::Ready );
-  //assert_eq!( state.playback_state, PlaybackState::Prepared );
-  //assert_eq!( state.points_lifetime, 1234 );
-  //assert_eq!( state.points_per_second, 1024 );
-  //assert_eq!( state.source, Source::Network );
+  assert_eq!( state.light_engine_state, LightEngineState::Ready );
+  assert_eq!( state.playback_state, PlaybackState::Prepared );
+  assert_eq!( state.points_lifetime, 1234 );
+  assert_eq!( state.points_per_second, 1024 );
+  assert_eq!( state.source, Source::Network );
 
   Ok(())
 }
 
 #[tokio::test]
 async fn discovery_server_will_only_execute_callback_once_for_each_unique_device() -> Result<(),io::Error> {
-  let ( device_info_tx, mut device_info_rx ) = mpsc::channel::<DeviceInfo>( 16 );
-  let discovery = discovery::Builder::new()
+  let ( discovery_tx, mut discovery_rx ) = mpsc::channel::<SocketAddr>( 16 );
+  let registry = discovery::Registry::default();
+  let discovery = discovery::Builder::new( registry.clone() )
     .address( SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), 0 ) )
-    .notify( device_info_tx )
+    .notify( discovery_tx )
     .listen().await?;
 
   let state = State::default();
@@ -84,12 +88,19 @@ async fn discovery_server_will_only_execute_callback_once_for_each_unique_device
 
   broadcast_device( &discovery, &intrinsics_2, &state, 1 ).await?;
 
-  let device_info = receive_device_or_panic( &mut device_info_rx ).await;
-  assert_eq!( *device_info.mac_address(), intrinsics_1.mac_address );
+  {
+    let address = receive_device_or_panic( &mut discovery_rx ).await;
+    let registry = registry.read().await;
+    let broadcast = registry.get( &address ).expect( "Device not found." );
+    assert_eq!( *broadcast.device_info().mac_address(), intrinsics_1.mac_address );
+  }
 
-  let device_info = receive_device_or_panic( &mut device_info_rx ).await;
-  assert_eq!( *device_info.mac_address(), intrinsics_2.mac_address );
-
+  {
+    let address = receive_device_or_panic( &mut discovery_rx ).await;
+    let registry = registry.read().await;
+    let broadcast = registry.get( &address ).expect( "Device not found." );
+    assert_eq!( *broadcast.device_info().mac_address(), intrinsics_2.mac_address );
+  }
   Ok(())
 }
 
@@ -114,13 +125,13 @@ async fn broadcast_device( server: &Discovery, intrinsics: &Intrinsics, state: &
 
 // Awaits for a single device or panics. A panic can happen if a test timeout
 // is reached or the server was shutdown from some other means.
-async fn receive_device_or_panic( device_info_rx: &mut mpsc::Receiver<DeviceInfo> ) -> DeviceInfo {
+async fn receive_device_or_panic( discovery_rx: &mut mpsc::Receiver<SocketAddr> ) -> SocketAddr {
   tokio::select!{
     _ = time::sleep( time::Duration::from_secs( 5 ) ) => {
       panic!( "Failed to receive a device info by timeout..." )
     }
-    device_info = device_info_rx.recv()  => {
-      device_info.expect( "Discovery service shutdown..." )
+    address = discovery_rx.recv()  => {
+      address.expect( "Discovery service shutdown..." )
     }
   }
 }

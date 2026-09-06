@@ -3,8 +3,6 @@
 //! Tools to discover, connect, and write laser data to Etherdream devices.
 use std::io;
 
-use tokio::sync::mpsc;
-
 mod circular_buffer;
 pub mod client;
 pub mod protocol;
@@ -17,18 +15,14 @@ pub use client::{ Client, State };
 pub use device_info::DeviceInfo;
 pub use generator::Generator;
 
-/// Starts a server that discovers Etherdream network device's. The server will
-/// shut down:
+/// Starts a discovery service that will listen for Etherdream network device's
+/// on the local network. The service will shut down:
 ///   (A) When `Discovery::shutdown` is called, or...
 ///   (B) When the Discovery instance is dropped
-pub async fn discover() -> Result<discovery::Discovery,io::Error> {
-  discovery::Builder::new().listen().await
-}
-
-/// Same as `discover`, but provides for assigning a channel to receive a
-/// `DeviceInfo` message once for each device discovered.
-pub async fn discover_with_notifier( device_info_tx: mpsc::Sender<DeviceInfo> ) -> Result<discovery::Discovery,io::Error> {
-  discovery::Builder::new().notify( device_info_tx ).listen().await
+///
+/// Use `discovery::Builder` for further service customization.
+pub async fn discover( registry: discovery::Registry ) -> Result<discovery::Discovery,io::Error> {
+  discovery::Builder::new( registry ).listen().await
 }
 
 /// Connects to an Etherdream network device using the provided `DeviceInfo`,

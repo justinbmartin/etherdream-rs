@@ -40,19 +40,16 @@ impl Broadcast {
 
 pub struct Builder {
   address: SocketAddr,
-  device_info_tx: Option<mpsc::Sender<DeviceInfo>>,
+  notifier: Option<mpsc::Sender<SocketAddr>>,
   registry: Registry
 }
 
 impl Builder {
-  /// Creates a `Discovery` builder.
-  pub fn new() -> Self { Self::with_registry( Registry::default() ) }
-
-  /// Creates a `Discovery` builder with a user-provided `Registry`.
-  pub fn with_registry( registry: Registry ) -> Self {
+  /// Creates a `Discovery` builder with a user-provided device registry.
+  pub fn new( registry: Registry ) -> Self {
     Self{
       address: SocketAddr::new( IpAddr::V4( Ipv4Addr::UNSPECIFIED ), protocol::BROADCAST_PORT ),
-      device_info_tx: None,
+      notifier: None,
       registry
     }
   }
@@ -66,8 +63,8 @@ impl Builder {
 
   /// Assign a channel that will receive a single `DeviceInfo` message for each
   /// new device.
-  pub fn notify( mut self, device_info_tx: mpsc::Sender<DeviceInfo> ) -> Self {
-    self.device_info_tx = Some( device_info_tx );
+  pub fn notify( mut self, notifier: mpsc::Sender<SocketAddr> ) -> Self {
+    self.notifier = Some( notifier );
     self
   }
 
@@ -82,11 +79,15 @@ impl Builder {
     tokio::spawn({
       let registry = self.registry.clone();
       let shutdown_token = shutdown_token.child_token();
-      async move { shutdown_token.run_until_cancelled( do_listen( socket, registry, self.device_info_tx ) ).await; }
+
+      async move { shutdown_token.run_until_cancelled(
+        do_listen( socket, registry, self.notifier ) ).await;
+      }
     });
 
     Ok( Discovery{
       address: local_address,
+      registry: self.registry,
       shutdown_token
     } )
   }
@@ -97,6 +98,8 @@ impl Builder {
 pub struct Discovery {
   // The local socket address that the discovery service is listening on.
   address: SocketAddr,
+  //
+  registry: Registry,
   // The cancellation token used to shut down the discovery server.
   shutdown_token: CancellationToken
 }
@@ -104,6 +107,9 @@ pub struct Discovery {
 impl Discovery {
   /// Returns the local socket address that the discovery server is bound to.
   pub fn address( &self ) -> &SocketAddr { &self.address }
+
+  /// Clones a read-only version of the discovery registry.
+  pub fn clone_registry( &self ) -> Registry { self.registry.clone() }
 
   /// Shuts down the discovery server and consumes `self`.
   pub fn shutdown( self ) { self.shutdown_token.cancel(); }
@@ -149,7 +155,7 @@ impl Clone for Registry {
 async fn do_listen(
   socket: UdpSocket,
   registry: Registry,
-  device_info_tx: Option<mpsc::Sender<DeviceInfo>>
+  notifier: Option<mpsc::Sender<SocketAddr>>
 )
   -> Result<(),io::Error>
 {
@@ -168,8 +174,8 @@ async fn do_listen(
 
             guard.insert( address, Broadcast::new( device_info, state ) );
 
-            if let Some( device_info_tx ) = device_info_tx.as_ref() {
-              let _ = device_info_tx.send( device_info ).await;
+            if let Some( notifier ) = notifier.as_ref() {
+              let _ = notifier.send( address ).await;
             }
           }
         }

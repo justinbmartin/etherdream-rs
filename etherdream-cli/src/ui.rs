@@ -1,3 +1,4 @@
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use etherdream::discovery;
@@ -45,8 +46,13 @@ impl State {
 
   /// Get a read-only reference to the device map
   pub fn get_device_map( &self ) -> &DeviceMap { &self.device_map }
+  
   /// Add's a device to the device map
-  pub fn add_device_to_map( &mut self, device_info: etherdream::DeviceInfo ) { self.device_map.insert( device_info ) }
+  pub async fn add_device_to_map( &mut self, address: SocketAddr ) {
+    if let Some( broadcast ) = self.registry.read().await.get( &address ) {
+      self.device_map.insert( *broadcast.device_info() )
+    }
+  }
   /// Set the currently selected device id
   pub fn set_device( &mut self, device_id: Option<usize> ) { self.device_id = device_id }
 
