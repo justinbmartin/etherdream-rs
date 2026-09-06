@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use futures::stream::StreamExt;
 use tokio::net::UdpSocket;
-use tokio::sync::{ mpsc, RwLock, RwLockReadGuard };
+use tokio::sync::{ mpsc, RwLock, RwLockReadGuard, RwLockWriteGuard };
 use tokio_util::bytes::BytesMut;
 use tokio_util::codec::Decoder;
 use tokio_util::sync::CancellationToken;
@@ -40,16 +40,20 @@ impl Broadcast {
 
 pub struct Builder {
   address: SocketAddr,
-  device_info_tx: Option<mpsc::Sender<DeviceInfo>>
+  device_info_tx: Option<mpsc::Sender<DeviceInfo>>,
+  registry: Registry
 }
 
 impl Builder {
-  /// Creates a `Discovery` builder configured to listen to Etherdream
-  /// broadcasts on `0.0.0.0:7654`.
-  pub fn new() -> Self {
+  /// Creates a `Discovery` builder.
+  pub fn new() -> Self { Self::with_registry( Registry::default() ) }
+
+  /// Creates a `Discovery` builder with a user-provided `Registry`.
+  pub fn with_registry( registry: Registry ) -> Self {
     Self{
       address: SocketAddr::new( IpAddr::V4( Ipv4Addr::UNSPECIFIED ), protocol::BROADCAST_PORT ),
-      device_info_tx: None
+      device_info_tx: None,
+      registry
     }
   }
 
@@ -70,21 +74,19 @@ impl Builder {
   /// Starts the `Discovery` task.
   pub async fn listen( self ) -> Result<Discovery,io::Error>
   {
-    let registry = Arc::new( RwLock::new( HashMap::<SocketAddr,Broadcast>::new() ) );
     let shutdown_token = CancellationToken::new();
 
     let socket = UdpSocket::bind( self.address ).await?;
     let local_address = socket.local_addr()?;
 
     tokio::spawn({
-      let registry = registry.clone();
+      let registry = self.registry.clone();
       let shutdown_token = shutdown_token.child_token();
       async move { shutdown_token.run_until_cancelled( do_listen( socket, registry, self.device_info_tx ) ).await; }
     });
 
     Ok( Discovery{
       address: local_address,
-      registry,
       shutdown_token
     } )
   }
@@ -95,8 +97,6 @@ impl Builder {
 pub struct Discovery {
   // The local socket address that the discovery service is listening on.
   address: SocketAddr,
-  // Registry of all discovered devices, by socket address.
-  registry: Arc<RwLock<HashMap<SocketAddr,Broadcast>>>,
   // The cancellation token used to shut down the discovery server.
   shutdown_token: CancellationToken
 }
@@ -104,11 +104,6 @@ pub struct Discovery {
 impl Discovery {
   /// Returns the local socket address that the discovery server is bound to.
   pub fn address( &self ) -> &SocketAddr { &self.address }
-
-  /// Returns a read-only guard referencing the discovered device registry.
-  pub async fn read_registry( &'_ self ) -> RwLockReadGuard<'_,HashMap<SocketAddr,Broadcast>> {
-    self.registry.read().await
-  }
 
   /// Shuts down the discovery server and consumes `self`.
   pub fn shutdown( self ) { self.shutdown_token.cancel(); }
@@ -118,11 +113,42 @@ impl Drop for Discovery {
   fn drop( &mut self ) { self.shutdown_token.cancel(); }
 }
 
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Read-only Registry
+
+#[derive( Default )]
+pub struct Registry {
+  inner: Arc<RwLock<HashMap<SocketAddr,Broadcast>>>
+}
+
+impl Registry {
+  /// Returns a read-only guard of the discovery registry. This function will
+  /// panic if called from an async context.
+  pub fn blocking_read( &'_ self ) -> RwLockReadGuard<'_,HashMap<SocketAddr,Broadcast>> {
+    self.inner.blocking_read()
+  }
+
+  /// Returns a read-only guard of the discovery registry.
+  pub async fn read( &'_ self ) -> RwLockReadGuard<'_,HashMap<SocketAddr,Broadcast>> {
+    self.inner.read().await
+  }
+
+  // Private-function, for use by the Discovery service.
+  async fn write( &'_ self ) -> RwLockWriteGuard<'_,HashMap<SocketAddr,Broadcast>> {
+    self.inner.write().await
+  }
+}
+
+impl Clone for Registry {
+  fn clone( &self ) -> Self {
+    Self{ inner: self.inner.clone() }
+  }
+}
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Listen Handler
 
 async fn do_listen(
   socket: UdpSocket,
-  registry: Arc<RwLock<HashMap<SocketAddr,Broadcast>>>,
+  registry: Registry,
   device_info_tx: Option<mpsc::Sender<DeviceInfo>>
 )
   -> Result<(),io::Error>

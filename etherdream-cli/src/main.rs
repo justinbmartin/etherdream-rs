@@ -18,8 +18,12 @@ fn main() -> Result<(),String> {
     .build()
     .map_err( |e| format!( "Failed to build Tokio run-time: {}", e ) )?;
 
+  //
+  let ( device_info_tx, mut device_info_rx ) = mpsc::channel::<etherdream::DeviceInfo>( 16 );
+  let device_registry = etherdream::discovery::Registry::default();
+
   let cancellation_token = CancellationToken::new();
-  let state = Arc::new( RwLock::new( ui::State::default() ) );
+  let state = Arc::new( RwLock::new( ui::State::new( device_registry.clone() ) ) );
   let ( fg, bg ) = ui::build_scenes( state.clone() ).map_err( |e| format!( "Failed to build scenes: {}", e ) )?;
 
   let rt_thread =
@@ -37,9 +41,11 @@ fn main() -> Result<(),String> {
 
             async move {
               cancellation_token.run_until_cancelled( async move {
-                let ( tx, mut rx ) = mpsc::channel::<etherdream::DeviceInfo>( 16 );
-                if let Ok( _ ) = etherdream::discover_with_notifier( tx ).await {
-                  while let Some( device_info ) = rx.recv().await {
+                let discovery = etherdream::discovery::Builder::with_registry( device_registry )
+                  .notify( device_info_tx );
+
+                if let Ok( _ ) = discovery.listen().await {
+                  while let Some( device_info ) = device_info_rx.recv().await {
                     state.write().await.add_device_to_map( device_info );
                   }
                 }

@@ -21,14 +21,12 @@ pub use generator::Generator;
 /// shut down:
 ///   (A) When `Discovery::shutdown` is called, or...
 ///   (B) When the Discovery instance is dropped
-///
-/// Use `Discovery::recv` to consume all discovered devices. Each unique device
-/// (by remote socket address) will be published to `Discovery::recv` exactly
-/// one time.
 pub async fn discover() -> Result<discovery::Discovery,io::Error> {
   discovery::Builder::new().listen().await
 }
 
+/// Same as `discover`, but provides for assigning a channel to receive a
+/// `DeviceInfo` message once for each device discovered.
 pub async fn discover_with_notifier( device_info_tx: mpsc::Sender<DeviceInfo> ) -> Result<discovery::Discovery,io::Error> {
   discovery::Builder::new().notify( device_info_tx ).listen().await
 }

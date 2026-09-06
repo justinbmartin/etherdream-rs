@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use etherdream::discovery;
 use tokio::sync::RwLock;
 
 use crate::device::{ Device, DeviceMap };
@@ -23,15 +24,25 @@ pub enum Action {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  State
 
-#[derive( Default )]
 pub struct State {
   // The currently selected device
   device_id: Option<usize>,
   // A map of all devices
-  device_map: DeviceMap
+  device_map: DeviceMap,
+  //
+  registry: discovery::Registry
 }
 
 impl State {
+  /// ...
+  pub fn new( registry: discovery::Registry ) -> Self {
+    Self{
+      device_id: None,
+      device_map: DeviceMap::default(),
+      registry
+    }
+  }
+
   /// Get a read-only reference to the device map
   pub fn get_device_map( &self ) -> &DeviceMap { &self.device_map }
   /// Add's a device to the device map
