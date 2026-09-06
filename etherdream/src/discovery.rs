@@ -26,6 +26,7 @@ pub struct Broadcast {
 }
 
 impl Broadcast {
+  // Creates a new `Broadcast` instance.
   fn new( device_info: DeviceInfo, state: protocol::State ) -> Self {
     Self{ device_info, inserted_at: Instant::now(), state, updated_at: Instant::now() }
   }
@@ -38,15 +39,20 @@ impl Broadcast {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Builder
 
-pub struct Builder {
+pub struct Discovery {
   address: SocketAddr,
   notifier: Option<mpsc::Sender<SocketAddr>>,
   registry: Registry
 }
 
-impl Builder {
-  /// Creates a `Discovery` builder with a user-provided device registry.
-  pub fn new( registry: Registry ) -> Self {
+impl Discovery {
+  /// Creates a `Discovery` service builder.
+  pub fn new() -> Self {
+    Self::with_registry( Registry::default() )
+  }
+
+  /// Creates a `Discovery` service builder with a user-provided device registry.
+  pub fn with_registry( registry: Registry ) -> Self {
     Self{
       address: SocketAddr::new( IpAddr::V4( Ipv4Addr::UNSPECIFIED ), protocol::BROADCAST_PORT ),
       notifier: None,
@@ -61,15 +67,15 @@ impl Builder {
     self
   }
 
-  /// Assign a channel that will receive a single `DeviceInfo` message for each
-  /// new device.
+  /// Assign a channel that will receive a message for each unique device
+  /// discovered.
   pub fn notify( mut self, notifier: mpsc::Sender<SocketAddr> ) -> Self {
     self.notifier = Some( notifier );
     self
   }
 
   /// Starts the `Discovery` task.
-  pub async fn listen( self ) -> Result<Discovery,io::Error>
+  pub async fn listen( self ) -> Result<Service,io::Error>
   {
     let shutdown_token = CancellationToken::new();
 
@@ -85,7 +91,7 @@ impl Builder {
       }
     });
 
-    Ok( Discovery{
+    Ok( Service{
       address: local_address,
       registry: self.registry,
       shutdown_token
@@ -93,33 +99,33 @@ impl Builder {
   }
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Discovery Server
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Service
 
-pub struct Discovery {
+pub struct Service {
   // The local socket address that the discovery service is listening on.
   address: SocketAddr,
-  //
+  // The device registry that all found devices are recorded.
   registry: Registry,
-  // The cancellation token used to shut down the discovery server.
+  // The cancellation token used to shut down the service.
   shutdown_token: CancellationToken
 }
 
-impl Discovery {
-  /// Returns the local socket address that the discovery server is bound to.
+impl Service {
+  /// Returns the local socket address that the service is bound to.
   pub fn address( &self ) -> &SocketAddr { &self.address }
 
-  /// Clones a read-only version of the discovery registry.
-  pub fn clone_registry( &self ) -> Registry { self.registry.clone() }
+  /// Returns a reference to the services device registry.
+  pub fn registry( &self ) -> &Registry { &self.registry }
 
-  /// Shuts down the discovery server and consumes `self`.
+  /// Shuts down the discovery service and consumes `self`.
   pub fn shutdown( self ) { self.shutdown_token.cancel(); }
 }
 
-impl Drop for Discovery {
+impl Drop for Service {
   fn drop( &mut self ) { self.shutdown_token.cancel(); }
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Read-only Registry
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Registry
 
 #[derive( Default )]
 pub struct Registry {
@@ -127,18 +133,18 @@ pub struct Registry {
 }
 
 impl Registry {
-  /// Returns a read-only guard of the discovery registry. This function will
-  /// panic if called from an async context.
+  /// Returns a read-only guard of the device registry, blocking the current
+  /// thread. This function will panic if called from an async context.
   pub fn blocking_read( &'_ self ) -> RwLockReadGuard<'_,HashMap<SocketAddr,Broadcast>> {
     self.inner.blocking_read()
   }
 
-  /// Returns a read-only guard of the discovery registry.
+  /// Returns a read-only guard of the device registry.
   pub async fn read( &'_ self ) -> RwLockReadGuard<'_,HashMap<SocketAddr,Broadcast>> {
     self.inner.read().await
   }
 
-  // Private-function, for use by the Discovery service.
+  // Private module-helper used to modify the device registry.
   async fn write( &'_ self ) -> RwLockWriteGuard<'_,HashMap<SocketAddr,Broadcast>> {
     self.inner.write().await
   }
@@ -152,31 +158,34 @@ impl Clone for Registry {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Listen Handler
 
-async fn do_listen(
-  socket: UdpSocket,
-  registry: Registry,
-  notifier: Option<mpsc::Sender<SocketAddr>>
-)
+async fn do_listen( socket: UdpSocket, registry: Registry, notifier: Option<mpsc::Sender<SocketAddr>> )
   -> Result<(),io::Error>
 {
   let mut framed = UdpFramed::new( socket, BroadcastDecoder{} );
+  let mut do_notify: bool;
 
   loop {
     if let Some( frame ) = framed.next().await {
       match frame {
         Ok( ( ( intrinsics, state ), address ) ) => {
-          let mut guard = registry.write().await;
-          if let Some( broadcast ) = guard.get_mut( &address ) {
-            broadcast.updated_at = Instant::now();
-          } else {
-            let client_addr = SocketAddr::new( address.ip(), protocol::CLIENT_PORT );
-            let device_info = DeviceInfo::new( client_addr, intrinsics );
+          do_notify = {
+            let mut registry = registry.write().await;
 
-            guard.insert( address, Broadcast::new( device_info, state ) );
+            if let Some( broadcast ) = registry.get_mut( &address ) {
+              broadcast.updated_at = Instant::now();
+              broadcast.state = state;
+              false
+            } else {
+              let client_addr = SocketAddr::new( address.ip(), protocol::CLIENT_PORT );
+              let device_info = DeviceInfo::new( client_addr, intrinsics );
 
-            if let Some( notifier ) = notifier.as_ref() {
-              let _ = notifier.send( address ).await;
+              registry.insert( address, Broadcast::new( device_info, state ) );
+              true
             }
+          };
+
+          if do_notify && let Some( notifier ) = notifier.as_ref() {
+            let _ = notifier.send( address ).await;
           }
         }
         Err( e ) => {

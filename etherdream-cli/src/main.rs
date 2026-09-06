@@ -22,10 +22,10 @@ fn main() -> Result<(),String> {
 
   //
   let ( discovery_tx, mut discovery_rx ) = mpsc::channel::<SocketAddr>( 16 );
-  let device_registry = discovery::Registry::default();
+  let registry = discovery::Registry::default();
 
   let cancellation_token = CancellationToken::new();
-  let state = Arc::new( RwLock::new( ui::State::new( device_registry.clone() ) ) );
+  let state = Arc::new( RwLock::new( ui::State::new( registry.clone() ) ) );
   let ( fg, bg ) = ui::build_scenes( state.clone() ).map_err( |e| format!( "Failed to build scenes: {}", e ) )?;
 
   let rt_thread =
@@ -43,7 +43,7 @@ fn main() -> Result<(),String> {
 
             async move {
               cancellation_token.run_until_cancelled( async move {
-                let discovery = discovery::Builder::new( device_registry )
+                let discovery = discovery::Discovery::with_registry( registry )
                   .notify( discovery_tx );
 
                 if let Ok( _ ) = discovery.listen().await {

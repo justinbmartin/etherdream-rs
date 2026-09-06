@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 use tokio::time;
 
 use etherdream::{
-  discovery::{ self, Discovery },
+  discovery,
   protocol::{ BROADCAST_BYTES_SIZE, Intrinsics, LightEngineState, PlaybackState, State, Source } };
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Unit Tests
@@ -14,8 +14,8 @@ use etherdream::{
 #[tokio::test]
 async fn discovery_server_will_receive_a_single_etherdream_broadcast() -> Result<(),io::Error> {
   let ( discovery_tx, mut discovery_rx ) = mpsc::channel::<SocketAddr>( 16 );
-  let registry = discovery::Registry::default();
-  let discovery = discovery::Builder::new( registry.clone() )
+
+  let discovery = discovery::Discovery::new()
     .address( SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), 0 ) )
     .notify( discovery_tx )
     .listen().await?;
@@ -41,22 +41,24 @@ async fn discovery_server_will_receive_a_single_etherdream_broadcast() -> Result
 
   // TODO: Verify that the discovery server receives that device and executes the callback
   let address = receive_device_or_panic( &mut discovery_rx ).await;
-  let registry = registry.read().await;
-  let broadcast = registry.get( &address ).expect( "Device not found." );
-  let device_info = broadcast.device_info();
-  let state = broadcast.state();
 
-  // Verify discovered device attributes
-  assert_eq!( device_info.buffer_capacity(), intrinsics.buffer_capacity as usize );
-  assert_eq!( *device_info.mac_address(), intrinsics.mac_address );
-  assert_eq!( device_info.max_points_per_second(), intrinsics.max_points_per_second as usize );
-  assert_eq!( *device_info.version(), intrinsics.version );
+  {
+    let registry = discovery.registry().read().await;
+    let broadcast = registry.get( &address ).expect( "Device not found." );
 
-  assert_eq!( state.light_engine_state, LightEngineState::Ready );
-  assert_eq!( state.playback_state, PlaybackState::Prepared );
-  assert_eq!( state.points_lifetime, 1234 );
-  assert_eq!( state.points_per_second, 1024 );
-  assert_eq!( state.source, Source::Network );
+    let device_info = broadcast.device_info();
+    assert_eq!( device_info.buffer_capacity(), intrinsics.buffer_capacity as usize );
+    assert_eq!( *device_info.mac_address(), intrinsics.mac_address );
+    assert_eq!( device_info.max_points_per_second(), intrinsics.max_points_per_second as usize );
+    assert_eq!( *device_info.version(), intrinsics.version );
+
+    let state = broadcast.state();
+    assert_eq!( state.light_engine_state, LightEngineState::Ready );
+    assert_eq!( state.playback_state, PlaybackState::Prepared );
+    assert_eq!( state.points_lifetime, 1234 );
+    assert_eq!( state.points_per_second, 1024 );
+    assert_eq!( state.source, Source::Network );
+  }
 
   Ok(())
 }
@@ -64,8 +66,8 @@ async fn discovery_server_will_receive_a_single_etherdream_broadcast() -> Result
 #[tokio::test]
 async fn discovery_server_will_only_execute_callback_once_for_each_unique_device() -> Result<(),io::Error> {
   let ( discovery_tx, mut discovery_rx ) = mpsc::channel::<SocketAddr>( 16 );
-  let registry = discovery::Registry::default();
-  let discovery = discovery::Builder::new( registry.clone() )
+
+  let discovery = discovery::Discovery::new()
     .address( SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), 0 ) )
     .notify( discovery_tx )
     .listen().await?;
@@ -90,14 +92,16 @@ async fn discovery_server_will_only_execute_callback_once_for_each_unique_device
 
   {
     let address = receive_device_or_panic( &mut discovery_rx ).await;
-    let registry = registry.read().await;
+
+    let registry = discovery.registry().read().await;
     let broadcast = registry.get( &address ).expect( "Device not found." );
     assert_eq!( *broadcast.device_info().mac_address(), intrinsics_1.mac_address );
   }
 
   {
     let address = receive_device_or_panic( &mut discovery_rx ).await;
-    let registry = registry.read().await;
+
+    let registry = discovery.registry().read().await;
     let broadcast = registry.get( &address ).expect( "Device not found." );
     assert_eq!( *broadcast.device_info().mac_address(), intrinsics_2.mac_address );
   }
@@ -107,7 +111,7 @@ async fn discovery_server_will_only_execute_callback_once_for_each_unique_device
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Test Helpers
 
 // Broadcasts `count` number of test device messages to a discovery `server`.
-async fn broadcast_device( server: &Discovery, intrinsics: &Intrinsics, state: &State, count: usize ) -> io::Result<()> {
+async fn broadcast_device( service: &discovery::Service, intrinsics: &Intrinsics, state: &State, count: usize ) -> io::Result<()> {
   let local_socket = UdpSocket::bind( SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), 0 ) ).await?;
   local_socket.set_broadcast( true )?;
 
@@ -115,7 +119,7 @@ async fn broadcast_device( server: &Discovery, intrinsics: &Intrinsics, state: &
   copy_into_etherdream_broadcast_bytes( &mut buf, &intrinsics, &state );
 
   for i in 0..count {
-    if let Err( err ) = local_socket.send_to( &buf, server.address() ).await {
+    if let Err( err ) = local_socket.send_to( &buf, service.address() ).await {
       panic!( "Failed to broadcast device message {i} of {count}: {err}" );
     }
   }

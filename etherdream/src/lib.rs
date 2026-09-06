@@ -21,8 +21,8 @@ pub use generator::Generator;
 ///   (B) When the Discovery instance is dropped
 ///
 /// Use `discovery::Builder` for further service customization.
-pub async fn discover( registry: discovery::Registry ) -> Result<discovery::Discovery,io::Error> {
-  discovery::Builder::new( registry ).listen().await
+pub async fn discover( registry: discovery::Registry ) -> Result<discovery::Service,io::Error> {
+  discovery::Discovery::with_registry( registry ).listen().await
 }
 
 /// Connects to an Etherdream network device using the provided `DeviceInfo`,
