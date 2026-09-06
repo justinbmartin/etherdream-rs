@@ -39,7 +39,7 @@ impl scene::Scene<State> for DeviceScene {
     let layout = Layout::vertical([ Constraint::Length( 3 ), Constraint::Fill( 1 ) ]);
     let [ header, body ] = body_area.layout( &layout );
     
-    if let Some( device ) = ctx.state().get_device() {
+    if let Some( device ) = ctx.state().get_current_device() {
 
       // Render the header
       Paragraph::new( format!( " Device: {} ", device.info().ip() ) ).render( header, buf );

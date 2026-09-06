@@ -48,7 +48,7 @@ fn main() -> Result<(),String> {
 
                 if let Ok( _ ) = discovery.listen().await {
                   while let Some( address ) = discovery_rx.recv().await {
-                    state.write().await.add_device_to_map( address ).await;
+                    state.write().await.register_device( address ).await;
                   }
                 }
               }).await;

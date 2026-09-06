@@ -16,19 +16,19 @@ const PLAYING: &str = " Playing ";
 const HIGHLIGHT_STYLE: Style = Style::new().bg( SLATE.c800 );
 
 pub struct ListScene {
-  device_map_version: usize,
   selected: Option<usize>,
   sorted_device_keys: Vec<usize>, // Scene cache of sorted device id's
-  table: TableState
+  table: TableState,
+  version: usize
 }
 
 impl ListScene {
   pub fn new() -> Self {
     Self{
-      device_map_version: 0,
       selected: None,
       sorted_device_keys: Vec::new(),
-      table: TableState::new().with_selected( Some( 0 ) )
+      table: TableState::new().with_selected( Some( 0 ) ),
+      version: 0
     }
   }
 }
@@ -37,7 +37,7 @@ impl scene::Scene<State> for ListScene {
   fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::Context<State> ) -> bool {
     match key.code {
       dir @ ( KeyCode::Up | KeyCode::Down ) => {
-        let devices_count = ctx.state().get_device_map().len();
+        let devices_count = ctx.state().get_devices().len();
 
         if devices_count > 0 {
           let selected = self.selected.unwrap_or( 0 );
@@ -62,17 +62,17 @@ impl scene::Scene<State> for ListScene {
 
   fn on_update( &mut self, ctx: &mut scene::Context<State> ) {
     let state = ctx.state();
-    let devices = state.get_device_map();
+    let devices = state.get_devices();
 
     // Refresh our local sorted device cache if the remote device map has changed
-    if devices.version() != self.device_map_version {
+    if devices.version() != self.version {
       self.sorted_device_keys = devices
         .iter()
         .map( |( &addr, _ )|{ addr } )
         .collect();
 
       self.sorted_device_keys.sort();
-      self.device_map_version = devices.version();
+      self.version = devices.version();
     }
   }
 
@@ -93,7 +93,7 @@ impl scene::Scene<State> for ListScene {
         .iter()
         .enumerate()
         .filter_map(|( i, id )|{
-          if let Some( device ) = state.get_device_map().get( *id ) {
+          if let Some( device ) = state.get_devices().get( *id ) {
             let selected = self.table.selected().filter(| si |{ *si == i }).is_some();
             let theme = if selected { HIGHLIGHT_STYLE } else { Style::new() };
 

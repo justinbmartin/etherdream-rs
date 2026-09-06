@@ -26,44 +26,49 @@ pub enum Action {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  State
 
 pub struct State {
-  // The currently selected device
-  device_id: Option<usize>,
-  // A map of all devices
-  device_map: DeviceMap,
-  //
+  // The currently selected device.
+  current_device_id: Option<usize>,
+  // Map of instantiated Etherdream devices.
+  devices: DeviceMap,
+  // The device registry shared with the discovery service.
   registry: discovery::Registry
 }
 
 impl State {
-  /// ...
+  /// Creates a new `State` instance.
   pub fn new( registry: discovery::Registry ) -> Self {
     Self{
-      device_id: None,
-      device_map: DeviceMap::default(),
+      current_device_id: None,
+      devices: DeviceMap::default(),
       registry
     }
   }
 
-  /// Get a read-only reference to the device map
-  pub fn get_device_map( &self ) -> &DeviceMap { &self.device_map }
-  
-  /// Add's a device to the device map
-  pub async fn add_device_to_map( &mut self, address: SocketAddr ) {
+  /// Returns an immutable reference to the discovery service's device registry.
+  pub fn get_registry( &self ) -> &discovery::Registry { &self.registry }
+
+  /// Returns an immutable reference to the `State`s registered devices.
+  pub fn get_devices( &self ) -> &DeviceMap { &self.devices }
+
+  /// Registers a device from the registry into the `DeviceMap` by `address`.
+  pub async fn register_device( &mut self, address: SocketAddr ) {
     if let Some( broadcast ) = self.registry.read().await.get( &address ) {
-      self.device_map.insert( *broadcast.device_info() )
+      self.devices.insert( *broadcast.device_info() )
     }
   }
   /// Set the currently selected device id
-  pub fn set_device( &mut self, device_id: Option<usize> ) { self.device_id = device_id }
+  pub fn set_current_device( &mut self, device_id: Option<usize> ) {
+    self.current_device_id = device_id
+  }
 
   /// Get an immutable reference to the currently selected device
-  pub fn get_device( &self ) -> Option<&Device> {
-    self.device_id.and_then(|d| self.device_map.get( d ) )
+  pub fn get_current_device( &self ) -> Option<&Device> {
+    self.current_device_id.and_then(|d| self.devices.get( d ) )
   }
 
   /// Get a mutable reference to the currently selected device
-  pub fn get_device_mut( &mut self ) -> Option<&mut Device> {
-    self.device_id.and_then(|d| self.device_map.get_mut( d ) )
+  pub fn get_current_device_mut( &mut self ) -> Option<&mut Device> {
+    self.current_device_id.and_then(|d| self.devices.get_mut( d ) )
   }
 }
 
@@ -73,7 +78,7 @@ impl scene::Actionable for State {
   async fn invoke( &mut self, action: Action ) -> scene::SceneEvent {
     match action {
       Action::Connect( _port ) => {
-        if let Some( device ) = self.get_device_mut() {
+        if let Some( device ) = self.get_current_device_mut() {
           let _ = device.connect().await;
           return scene::SceneEvent::None;
         }
@@ -81,11 +86,11 @@ impl scene::Actionable for State {
         scene::SceneEvent::Pop
       },
       Action::SelectDevice( device_id ) => {
-        self.set_device( Some( device_id ) );
+        self.set_current_device( Some( device_id ) );
         scene::SceneEvent::Switch( DEVICE_ID )
       },
       Action::DeselectDevice => {
-        self.set_device( None );
+        self.set_current_device( None );
         scene::SceneEvent::Switch( LIST_ID )
       }
     }
