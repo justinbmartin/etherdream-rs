@@ -1,9 +1,11 @@
 use std::collections::{ HashMap, hash_map::Iter };
+use std::net::SocketAddr;
+
+use etherdream::protocol;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Device
 
 pub struct Device {
-  _id: usize,
   info: etherdream::DeviceInfo,
   client: Option<etherdream::Client>,
   generator: Option<etherdream::Generator>
@@ -11,17 +13,16 @@ pub struct Device {
 
 impl Device {
   /// Called from `DeviceMap` to create a new `Device`.
-  fn new( id: usize, info: etherdream::DeviceInfo ) -> Self {
+  fn new( info: etherdream::DeviceInfo ) -> Self {
     Self{
       client: None,
-      _id: id,
       info,
       generator: None
     }
   }
 
-  /// Returns the id of the device
-  pub fn _id( &self ) -> usize { self._id }
+  /// ...
+  pub fn address( &self ) -> SocketAddr { SocketAddr::new( self.info.ip(), protocol::CLIENT_PORT ) }
 
   /// Returns true if the device is connected.
   pub fn is_connected( &self ) -> bool { self.client.is_some() || self.generator.is_some() }
@@ -68,24 +69,23 @@ impl Device {
 
 #[derive( Default )]
 pub struct DeviceMap {
-  inner: HashMap<usize,Device>,
+  inner: HashMap<SocketAddr,Device>,
   version: usize
 }
 
 impl DeviceMap{
   /// Returns an immutable reference to a device.
-  pub fn get( &self, id: usize ) -> Option<&Device> { self.inner.get( &id ) }
-  pub fn get_mut( &mut self, id: usize ) -> Option<&mut Device> { self.inner.get_mut( &id ) }
+  pub fn get( &self, address: &SocketAddr ) -> Option<&Device> { self.inner.get( address ) }
+  pub fn get_mut( &mut self, address: &SocketAddr ) -> Option<&mut Device> { self.inner.get_mut( address ) }
 
   /// Inserts a new device into the map, incrementing the map version.
-  pub fn insert( &mut self, info: etherdream::DeviceInfo ) {
-    let id = self.version;
-    self.inner.insert( id, Device::new( id, info ) );
+  pub fn insert( &mut self, address: SocketAddr, info: etherdream::DeviceInfo ) {
+    self.inner.insert( address, Device::new( info ) );
     self.version = self.version.saturating_add( 1 );
   }
 
   /// Returns an iterator of devices.
-  pub fn iter( &self ) -> Iter<'_, usize, Device> {
+  pub fn iter( &self ) -> Iter<'_, SocketAddr, Device> {
     self.inner.iter()
   }
 

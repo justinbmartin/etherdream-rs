@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::net::SocketAddr;
+
 use crossterm::event::{ KeyCode, KeyEvent };
 use ratatui::buffer::Buffer;
 use ratatui::layout::{ Constraint, Rect };
@@ -16,8 +19,8 @@ const PLAYING: &str = " Playing ";
 const HIGHLIGHT_STYLE: Style = Style::new().bg( SLATE.c800 );
 
 pub struct ListScene {
-  selected: Option<usize>,
-  sorted_device_keys: Vec<usize>, // Scene cache of sorted device id's
+  selected: usize,
+  sorted_devices: Vec<SocketAddr>,
   table: TableState,
   version: usize
 }
@@ -25,9 +28,9 @@ pub struct ListScene {
 impl ListScene {
   pub fn new() -> Self {
     Self{
-      selected: None,
-      sorted_device_keys: Vec::new(),
-      table: TableState::new().with_selected( Some( 0 ) ),
+      selected: 0,
+      sorted_devices: Vec::new(),
+      table: TableState::new(),
       version: 0
     }
   }
@@ -40,17 +43,15 @@ impl scene::Scene<State> for ListScene {
         let devices_count = ctx.state().get_devices().len();
 
         if devices_count > 0 {
-          let selected = self.selected.unwrap_or( 0 );
-          let i = if dir == KeyCode::Up { selected.saturating_sub( 1 ) } else { selected.saturating_add( 1 ) };
+          let i = if dir == KeyCode::Up { self.selected.saturating_sub( 1 ) } else { self.selected.saturating_add( 1 ) };
           self.table.select( Some( i % devices_count ) );
         }
 
         return true;
       }
       KeyCode::Enter => {
-        if let Some( device_id ) = self.table.selected().and_then(| i |{ self.sorted_device_keys.get( i ) }) {
+        if let Some( device_id ) = self.table.selected().and_then(| i |{ self.sorted_devices.get( i ) }) {
           ctx.invoke( Action::SelectDevice( *device_id ) );
-          self.selected = Some( *device_id );
           return true;
         }
       }
@@ -66,12 +67,18 @@ impl scene::Scene<State> for ListScene {
 
     // Refresh our local sorted device cache if the remote device map has changed
     if devices.version() != self.version {
-      self.sorted_device_keys = devices
-        .iter()
-        .map( |( &addr, _ )|{ addr } )
-        .collect();
+      let mut sorted_devices: Vec<SocketAddr> = devices.iter().map(|( &d, _ )| d ).collect();
+      sorted_devices.sort();
 
-      self.sorted_device_keys.sort();
+      let updated_index =
+        if let Some( addr ) = self.sorted_devices.get( self.selected ) && let Ok( idx ) = sorted_devices.binary_search( addr ) {
+          idx
+        } else {
+          self.selected
+        };
+
+      self.sorted_devices = sorted_devices;
+      self.selected = updated_index;
       self.version = devices.version();
     }
   }
@@ -81,7 +88,7 @@ impl scene::Scene<State> for ListScene {
     let block = Block::bordered().title( Line::raw( " Etherdream Devices " ).centered() );
 
     // If there are no devices, render a message saying as such
-    if self.sorted_device_keys.is_empty() {
+    if self.sorted_devices.is_empty() {
       Paragraph::new( "(no devices)" ).centered().block( block ).render( area, buf );
       return;
     }
@@ -89,11 +96,11 @@ impl scene::Scene<State> for ListScene {
     let rows: Vec<Row> = {
       let state = ctx.state();
 
-      self.sorted_device_keys
+      self.sorted_devices
         .iter()
         .enumerate()
         .filter_map(|( i, id )|{
-          if let Some( device ) = state.get_devices().get( *id ) {
+          if let Some( device ) = state.get_devices().get( id ) {
             let selected = self.table.selected().filter(| si |{ *si == i }).is_some();
             let theme = if selected { HIGHLIGHT_STYLE } else { Style::new() };
 

@@ -19,7 +19,7 @@ pub const LIST_ID: &str     = "list";
 #[derive( Debug )]
 pub enum Action {
   Connect( u16 ),
-  SelectDevice( usize ),
+  SelectDevice( SocketAddr ),
   DeselectDevice
 }
 
@@ -27,7 +27,7 @@ pub enum Action {
 
 pub struct State {
   // The currently selected device.
-  current_device_id: Option<usize>,
+  current_device_id: Option<SocketAddr>,
   // Map of instantiated Etherdream devices.
   devices: DeviceMap,
   // The device registry shared with the discovery service.
@@ -44,31 +44,28 @@ impl State {
     }
   }
 
-  /// Returns an immutable reference to the discovery service's device registry.
-  pub fn get_registry( &self ) -> &discovery::Registry { &self.registry }
-
   /// Returns an immutable reference to the `State`s registered devices.
   pub fn get_devices( &self ) -> &DeviceMap { &self.devices }
 
   /// Registers a device from the registry into the `DeviceMap` by `address`.
   pub async fn register_device( &mut self, address: SocketAddr ) {
     if let Some( broadcast ) = self.registry.read().await.get( &address ) {
-      self.devices.insert( *broadcast.device_info() )
+      self.devices.insert( address, *broadcast.device_info() )
     }
   }
   /// Set the currently selected device id
-  pub fn set_current_device( &mut self, device_id: Option<usize> ) {
+  pub fn set_current_device( &mut self, device_id: Option<SocketAddr> ) {
     self.current_device_id = device_id
   }
 
   /// Get an immutable reference to the currently selected device
   pub fn get_current_device( &self ) -> Option<&Device> {
-    self.current_device_id.and_then(|d| self.devices.get( d ) )
+    self.current_device_id.and_then(|d| self.devices.get( &d ) )
   }
 
   /// Get a mutable reference to the currently selected device
   pub fn get_current_device_mut( &mut self ) -> Option<&mut Device> {
-    self.current_device_id.and_then(|d| self.devices.get_mut( d ) )
+    self.current_device_id.and_then(|d| self.devices.get_mut( &d ) )
   }
 }
 
