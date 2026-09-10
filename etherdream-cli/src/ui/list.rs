@@ -62,7 +62,6 @@ impl scene::Scene<State> for ListScene {
     let state = ctx.state();
     let devices = state.get_devices();
 
-    // Update the table state if the discovered device registry has changed.
     if devices.version() != self.version {
       let mut addrs: Vec<SocketAddr> = devices.iter().map(|( &d, _ )| d ).collect();
       let mut updated_idx = None::<usize>;
@@ -94,34 +93,33 @@ impl scene::Scene<State> for ListScene {
     let body_area = super::common::layout( area, buf, "Use ↓↑ to move, <Enter> to select a device, 'q' to quit." );
     let block = Block::bordered().title( Line::raw( " Etherdream Devices " ).centered() );
 
-    // If there are no devices, render a message saying as such
-    if self.table.selected().is_none() {
-      Paragraph::new( "(no devices)" ).centered().block( block ).render( area, buf );
-      return;
-    }
-
+    // Do not render the table  there are no devices, render a message saying as such
     let rows: Vec<Row> = {
-      let state = ctx.state();
+      if self.table.selected().is_some() {
+        let state = ctx.state();
 
-      self.device_addrs
-        .iter()
-        .enumerate()
-        .filter_map(|( i, addr )|{
-          if let Some( device ) = state.get_devices().get( addr ) {
-            let selected = self.table.selected().filter(| si |{ *si == i }).is_some();
-            let theme = if selected { HIGHLIGHT_STYLE } else { Style::new() };
+        self.device_addrs
+          .iter()
+          .enumerate()
+          .filter_map(|( i, addr )|{
+            if let Some( device ) = state.get_devices().get( addr ) {
+              let selected = self.table.selected().filter(| si |{ *si == i }).is_some();
+              let theme = if selected { HIGHLIGHT_STYLE } else { Style::new() };
 
-            Some( Row::new([
-              Cell::new( device.info().ip().to_string() ),
-              Cell::new( "-" ),
-              Cell::new( device.info().mac_address().to_string() ),
-              render_device_status_cell( &device, selected )
-            ]).style( theme ) )
-          } else {
-            None
-          }
-        })
-        .collect()
+              Some( Row::new([
+                Cell::new( device.info().ip().to_string() ),
+                Cell::new( "-" ),
+                Cell::new( device.info().mac_address().to_string() ),
+                render_device_status_cell( &device, selected )
+              ]).style( theme ) )
+            } else {
+              None
+            }
+          })
+          .collect()
+      } else {
+        vec![ Row::new([ Cell::new( "(no devices)" ).column_span( 4 ) ]) ]
+      }
     };
 
     let constraints = [
