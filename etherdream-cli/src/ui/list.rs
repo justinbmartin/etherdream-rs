@@ -3,30 +3,30 @@ use std::net::SocketAddr;
 use crossterm::event::{ KeyCode, KeyEvent };
 use ratatui::buffer::Buffer;
 use ratatui::layout::{ Constraint, Rect };
-use ratatui::style::{ Color, palette::tailwind::SLATE, Style };
 use ratatui::text::Line;
-use ratatui::widgets::{ Block, Cell, Paragraph, Row, StatefulWidget, Table, TableState, Widget };
+use ratatui::widgets::{ Block, Cell, Padding, Row, StatefulWidget, Table, TableState };
 
-use crate::device;
 use crate::scene;
 use crate::ui::{ Action, State };
+use super::common;
 
-const CONNECTED: &str = " Connected ";
-const DISCONNECTED: &str = " Disconnected ";
-const PLAYING: &str = " Playing ";
-
-const HIGHLIGHT_STYLE: Style = Style::new().bg( SLATE.c800 );
+const CONNECTED: &str = "Connected";
+const DISCONNECTED: &str = "Disconnected";
+const PLAYING: &str = "Playing";
+const TABLE_HEADERS: &[&str] = &[ "IP", "PORT", "MAC", "STATUS" ];
 
 pub struct ListScene {
   device_addrs: Vec<SocketAddr>,
+  device_rows: Vec<Row<'static>>,
   table: TableState,
-  version: usize
+  version: usize,
 }
 
 impl ListScene {
   pub fn new() -> Self {
     Self{
       device_addrs: Vec::new(),
+      device_rows: Vec::with_capacity( 10 ),
       table: TableState::new(),
       version: 0
     }
@@ -90,37 +90,55 @@ impl scene::Scene<State> for ListScene {
   }
 
   fn on_draw( &mut self, area: Rect, buf: &mut Buffer, ctx: &scene::Context<State> ) {
-    let body_area = super::common::layout( area, buf, "Use ↓↑ to move, <Enter> to select a device, 'q' to quit." );
-    let block = Block::bordered().title( Line::raw( " Etherdream Devices " ).centered() );
+    let body_area = common::layout( area, buf, "Use ↓↑ to move, <Enter> to select a device, 'q' to quit." );
 
-    // Do not render the table  there are no devices, render a message saying as such
-    let rows: Vec<Row> = {
-      if self.table.selected().is_some() {
-        let state = ctx.state();
+    let block = Block::bordered()
+      .border_style( common::HIGHLIGHT_BORDER_STYLE )
+      .padding( Padding::new( 1, 1, 0, 0 ) )
+      .title(
+        Line::raw( format!( " Etherdream Devices [{}] ", self.device_addrs.len() ) )
+          .centered()
+          .style( common::HIGHLIGHT_TEXT_STYLE )
+      );
 
-        self.device_addrs
-          .iter()
-          .enumerate()
-          .filter_map(|( i, addr )|{
-            if let Some( device ) = state.get_devices().get( addr ) {
-              let selected = self.table.selected().filter(| si |{ *si == i }).is_some();
-              let theme = if selected { HIGHLIGHT_STYLE } else { Style::new() };
+    self.device_rows.clear();
 
-              Some( Row::new([
+    if let Some( selected_idx ) = self.table.selected() {
+      let state = ctx.state();
+
+      self.device_rows = self.device_addrs
+        .iter()
+        .enumerate()
+        .filter_map(|( i, addr )|{
+          if let Some( device ) = state.get_devices().get( addr ) {
+            let is_selected = selected_idx == i;
+            let theme = if is_selected { common::HIGHLIGHT_ROW_SELECTED_STYLE } else { common::HIGHLIGHT_TEXT_STYLE };
+
+            let status =
+              if device.is_connected() {
+                if let Some( generator ) = device.generator() && generator.is_running() {
+                  PLAYING
+                } else {
+                  CONNECTED
+                }
+              } else {
+                DISCONNECTED
+              };
+
+            Some(
+              Row::new([
                 Cell::new( device.info().ip().to_string() ),
                 Cell::new( "-" ),
                 Cell::new( device.info().mac_address().to_string() ),
-                render_device_status_cell( &device, selected )
-              ]).style( theme ) )
-            } else {
-              None
-            }
-          })
-          .collect()
-      } else {
-        vec![ Row::new([ Cell::new( "(no devices)" ).column_span( 4 ) ]) ]
-      }
-    };
+                Cell::new( status )
+              ]).style( theme )
+            )
+          } else {
+            None
+          }
+        })
+        .collect()
+    }
 
     let constraints = [
       Constraint::Min( 20 ),
@@ -128,25 +146,9 @@ impl scene::Scene<State> for ListScene {
       Constraint::Percentage( 25 ),
       Constraint::Fill( 1 ) ];
 
-    let table = Table::new( rows, constraints )
+    Table::new( self.device_rows.iter().cloned(), constraints )
       .block( block )
-      .header( Row::new( vec![ "Ip", "Port", "MAC", "Status" ] ).style( Style::new().bold() ) )
-      .highlight_spacing( ratatui::widgets::HighlightSpacing::Always )
-      .highlight_symbol( "> " );
-
-    StatefulWidget::render( table, body_area, buf, &mut self.table );
-  }
-}
-
-fn render_device_status_cell<'a>(device: &device::Device, selected: bool ) -> Cell<'a> {
-  if device.is_connected() {
-    if let Some( generator ) = device.generator() && generator.is_running() {
-      Cell::new( PLAYING ).style( Style::new().bg( Color::Green ) )
-    } else {
-      Cell::new( CONNECTED ).style( Style::new().bg( Color::Yellow ) )
-    }
-  } else {
-    let cell = Cell::new( DISCONNECTED );
-    if selected { cell.style( HIGHLIGHT_STYLE ) } else { cell }
+      .header( Row::new( TABLE_HEADERS.iter().cloned() ).style( common::TABLE_HEADER_STYLE ) )
+      .render( body_area, buf, &mut self.table );
   }
 }
