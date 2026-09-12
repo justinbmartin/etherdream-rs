@@ -3,9 +3,11 @@ use std::net::SocketAddr;
 use crossterm::event::{ KeyCode, KeyEvent };
 use ratatui::buffer::Buffer;
 use ratatui::layout::{ Constraint, Rect };
+use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui::widgets::{ Block, Cell, Padding, Row, StatefulWidget, Table, TableState };
 
+use crate::device::Device;
 use crate::scene;
 use crate::ui::{ Action, State };
 use super::common;
@@ -17,8 +19,9 @@ const TABLE_HEADERS: &[&str] = &[ "IP", "PORT", "MAC", "STATUS" ];
 
 pub struct ListScene {
   device_addrs: Vec<SocketAddr>,
-  device_rows: Vec<Row<'static>>,
   table: TableState,
+  table_rows: Vec<Row<'static>>,
+  table_row_style: Style,
   version: usize,
 }
 
@@ -26,8 +29,9 @@ impl ListScene {
   pub fn new() -> Self {
     Self{
       device_addrs: Vec::new(),
-      device_rows: Vec::with_capacity( 10 ),
       table: TableState::new(),
+      table_rows: Vec::with_capacity( 10 ),
+      table_row_style: Style::new(),
       version: 0
     }
   }
@@ -101,37 +105,25 @@ impl scene::Scene<State> for ListScene {
           .style( common::HIGHLIGHT_TEXT_STYLE )
       );
 
-    self.device_rows.clear();
+    self.table_rows.clear();
 
     if let Some( selected_idx ) = self.table.selected() {
       let state = ctx.state();
 
-      self.device_rows = self.device_addrs
+      self.table_rows = self.device_addrs
         .iter()
         .enumerate()
         .filter_map(|( i, addr )|{
           if let Some( device ) = state.get_devices().get( addr ) {
-            let is_selected = selected_idx == i;
-            let theme = if is_selected { common::HIGHLIGHT_ROW_SELECTED_STYLE } else { common::HIGHLIGHT_TEXT_STYLE };
-
-            let status =
-              if device.is_connected() {
-                if let Some( generator ) = device.generator() && generator.is_running() {
-                  PLAYING
-                } else {
-                  CONNECTED
-                }
-              } else {
-                DISCONNECTED
-              };
+            self.table_row_style = if selected_idx == i { common::HIGHLIGHT_ROW_SELECTED_STYLE } else { common::HIGHLIGHT_TEXT_STYLE };
 
             Some(
               Row::new([
                 Cell::new( device.info().ip().to_string() ),
                 Cell::new( "-" ),
                 Cell::new( device.info().mac_address().to_string() ),
-                Cell::new( status )
-              ]).style( theme )
+                Cell::new( device_status( &device ) )
+              ]).style( self.table_row_style )
             )
           } else {
             None
@@ -140,15 +132,27 @@ impl scene::Scene<State> for ListScene {
         .collect()
     }
 
-    let constraints = [
+    const CONSTRAINTS: [Constraint; 4] = [
       Constraint::Min( 20 ),
       Constraint::Percentage( 25 ),
       Constraint::Percentage( 25 ),
       Constraint::Fill( 1 ) ];
 
-    Table::new( self.device_rows.iter().cloned(), constraints )
+    Table::new( self.table_rows.iter().cloned(), CONSTRAINTS )
       .block( block )
       .header( Row::new( TABLE_HEADERS.iter().cloned() ).style( common::TABLE_HEADER_STYLE ) )
       .render( body_area, buf, &mut self.table );
+  }
+}
+
+fn device_status( device: &Device ) -> &'static str {
+  if device.is_connected() {
+    if let Some( generator ) = device.generator() && generator.is_running() {
+      PLAYING
+    } else {
+      CONNECTED
+    }
+  } else {
+    DISCONNECTED
   }
 }
