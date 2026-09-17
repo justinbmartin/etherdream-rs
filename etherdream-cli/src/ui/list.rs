@@ -15,7 +15,7 @@ use super::common;
 const CONNECTED: &str = "Connected";
 const DISCONNECTED: &str = "Disconnected";
 const PLAYING: &str = "Playing";
-const TABLE_HEADERS: &[&str] = &[ "IP", "PORT", "MAC", "STATUS" ];
+const TABLE_HEADERS: &[&str] = &[ "IP", "MAC", "STATUS" ];
 
 pub struct ListScene {
   device_addrs: Vec<SocketAddr>,
@@ -51,8 +51,8 @@ impl scene::Scene<State> for ListScene {
         return true;
       }
       KeyCode::Enter => {
-        if let Some( device_id ) = self.table.selected().and_then(| i |{ self.device_addrs.get( i ) }) {
-          ctx.invoke( Action::SelectDevice( *device_id ) );
+        if let Some( addr ) = self.table.selected().and_then(| i |{ self.device_addrs.get( i ) }) {
+          ctx.invoke( Action::SelectDevice( *addr ) );
           return true;
         }
       }
@@ -120,7 +120,6 @@ impl scene::Scene<State> for ListScene {
             Some(
               Row::new([
                 Cell::new( device.info().ip().to_string() ),
-                Cell::new( "-" ),
                 Cell::new( device.info().mac_address().to_string() ),
                 Cell::new( device_status( &device ) )
               ]).style( self.table_row_style )
@@ -132,10 +131,9 @@ impl scene::Scene<State> for ListScene {
         .collect()
     }
 
-    const CONSTRAINTS: [Constraint; 4] = [
+    const CONSTRAINTS: [Constraint; 3] = [
       Constraint::Min( 20 ),
-      Constraint::Percentage( 25 ),
-      Constraint::Percentage( 25 ),
+      Constraint::Min( 30 ),
       Constraint::Fill( 1 ) ];
 
     Table::new( self.table_rows.iter().cloned(), CONSTRAINTS )

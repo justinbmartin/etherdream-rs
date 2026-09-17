@@ -2,13 +2,14 @@ use crossterm::event::{ KeyCode, KeyEvent };
 use ratatui::buffer::Buffer;
 use ratatui::layout::{ Constraint, Layout, Rect };
 use ratatui::style::{ Color, palette::tailwind::SLATE, Style };
-//use ratatui::text::Span;
-use ratatui::widgets::{ Block, /* Cell, */ Padding, Paragraph, Row, Widget, Table, /* TableState */ };
+use ratatui::text::Line;
+use ratatui::widgets::{ Block, Borders, /* Cell, */ Padding, Paragraph, Row, Widget, Table, /* TableState */ };
 use ratatui_textarea::TextArea;
 
 use crate::device::Device;
 use crate::scene;
 use crate::ui::{ Action, State };
+use super::common;
 
 const HIGHLIGHT_STYLE: Style = Style::new().bg( SLATE.c800 );
 const TABLE_KEY_WIDTH: u16 = 25;
@@ -34,8 +35,30 @@ impl scene::Scene<State> for DeviceScene {
   }
 
   fn on_draw( &mut self, area: Rect, buf: &mut Buffer, ctx: &scene::Context<State> ) {
-    let body_area = super::common::layout( area, buf, "Use 'c' to connect, 'q' to go back." );
+    let body_area = common::layout( area, buf, "Use 'c' to connect, 'q' to go back." );
 
+    if let Some( device ) = ctx.state().get_current_device() {
+
+      let layout = Layout::horizontal([ Constraint::Length( 60 ), Constraint::Fill( 1 ) ]);
+      let [ info_area, connect_area ] = layout.areas( area );
+
+      //
+      let a_block = Block::bordered()
+        .border_style( common::HIGHLIGHT_BORDER_STYLE )
+        .padding( Padding::new( 1, 1, 0, 0 ) );
+
+      render_info( device, a_block.inner( info_area ), buf );
+      a_block.render( info_area, buf );
+
+      //
+      let _b_block = Block::bordered()
+        .border_style( common::HIGHLIGHT_BORDER_STYLE )
+        .padding( Padding::new( 1, 1, 0, 0 ) )
+        .render( connect_area, buf );
+    }
+    // else: something went wrong...
+
+    /*
     let layout = Layout::vertical([ Constraint::Length( 3 ), Constraint::Fill( 1 ) ]);
     let [ header, body ] = body_area.layout( &layout );
     
@@ -63,19 +86,20 @@ impl scene::Scene<State> for DeviceScene {
     } else {
       Paragraph::new( " No Device " ).render( header, buf );
     }
+    */
   }
 }
 
 // UI to render the Etherdream device intrinsic and run-time properties
 fn render_info( device: &Device, area: Rect, buf: &mut Buffer ) {
   let [ intrinsics_area, state_area ] = area.layout( &Layout::vertical([
-    Constraint::Length( 10 ), Constraint::Fill( 1 ),
+    Constraint::Length( 8 ), Constraint::Fill( 1 ),
   ]) );
 
   // Render intrinsics
-  let intrinsics_block = Block::bordered()
-    .title( " Intrinsics " )
-    .padding( Padding::uniform( 1 ) );
+  let intrinsics_block = Block::new()
+    .style( common::HIGHLIGHT_BORDER_STYLE )
+    .title( Line::styled( "INTRINSICS:", common::HIGHLIGHT_TEXT_STYLE ) );
 
   let intrinsic_rows = [
     Row::new([ "IP address:".to_owned(), device.info().ip().to_string() ]),
@@ -91,7 +115,10 @@ fn render_info( device: &Device, area: Rect, buf: &mut Buffer ) {
     .render( intrinsics_area, buf );
 
   // Render state
-  let state_block = Block::bordered().title( " State " ).padding( Padding::horizontal( 1 ) );
+  let state_block = Block::new()
+    .style( common::HIGHLIGHT_BORDER_STYLE )
+    .title( Line::styled( "STATE:", common::HIGHLIGHT_TEXT_STYLE ) );
+
   let mut rows = Vec::with_capacity( 50 );
   rows.push( Row::new([ "Connected:", if device.is_connected() { "Yes" } else { "No" } ]) );
 
