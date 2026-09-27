@@ -1,17 +1,14 @@
 use crossterm::event::{ KeyCode, KeyEvent };
 use ratatui::buffer::Buffer;
 use ratatui::layout::{ Alignment, Constraint, Layout, Rect };
-use ratatui::style::{ Color, palette::tailwind::SLATE, Style };
 use ratatui::text::Line;
-use ratatui::widgets::{ Block, Borders, /* Cell, */ Padding, Paragraph, Row, Widget, Table, /* TableState */ };
-use ratatui_textarea::TextArea;
+use ratatui::widgets::{ Block, Cell, Padding, Paragraph, Row, StatefulWidget, Table, TableState, Widget };
 
 use crate::device::Device;
 use crate::scene;
 use crate::ui::{ Action, State };
 use super::common;
 
-const HIGHLIGHT_STYLE: Style = Style::new().bg( SLATE.c800 );
 const TABLE_KEY_WIDTH: u16 = 23;
 
 const FOOTER_CONNECTED_MSG: &str = "Use 'd' to disconnect, 'Esc' to go back.";
@@ -63,15 +60,19 @@ impl scene::Scene<State> for DeviceScene {
         .border_style( common::HIGHLIGHT_BORDER_STYLE )
         .padding( Padding::new( 1, 1, 0, 0 ) );
 
-      if device.is_connected() {
-        //
-      } else {
-        let inner_area = action_block.inner( right_area );
-        let center_y = inner_area.y + ( inner_area.height / 2 );
-        let text_area = Rect::new( inner_area.x, center_y, inner_area.width, 1 );
-        let line = Line::styled( " Press 'c' to connect. ", common::HIGHLIGHT_ROW_SELECTED_STYLE ).alignment( Alignment::Center );
-        Paragraph::new( line ).render( text_area, buf );
-      }
+      let action_block =
+        if device.is_connected() {
+          let action_block = action_block.title( Line::raw( " Generators " ).centered().style( common::HIGHLIGHT_TEXT_STYLE ) );
+          render_generator_pane( action_block.inner( right_area ), buf );
+          action_block
+        } else {
+          let inner_area = action_block.inner( right_area );
+          let center_y = inner_area.y + ( inner_area.height / 2 );
+          let text_area = Rect::new( inner_area.x, center_y, inner_area.width, 1 );
+          let line = Line::styled( " Press 'c' to connect. ", common::HIGHLIGHT_ROW_SELECTED_STYLE ).alignment( Alignment::Center );
+          Paragraph::new( line ).render( text_area, buf );
+          action_block
+        };
 
       action_block.render( right_area, buf );
     }
@@ -96,9 +97,10 @@ fn render_info( device: &Device, area: Rect, buf: &mut Buffer ) {
     Row::new([ "Max points per second:".to_owned(), device.info().max_points_per_second().to_string() ])
   ];
 
-  Table::new( intrinsic_rows, [ Constraint::Length( TABLE_KEY_WIDTH ), Constraint::Fill( 1 ) ])
-    .block( intrinsics_block )
-    .render( intrinsics_area, buf );
+  let table = Table::new( intrinsic_rows, [ Constraint::Length( TABLE_KEY_WIDTH ), Constraint::Fill( 1 ) ])
+    .block( intrinsics_block );
+
+  Widget::render( table, intrinsics_area, buf );
 
   // Render state
   let state_block = Block::new()
@@ -122,82 +124,27 @@ fn render_info( device: &Device, area: Rect, buf: &mut Buffer ) {
   }
   */
 
-  Table::new( rows, [ Constraint::Length( TABLE_KEY_WIDTH ), Constraint::Fill( 1 ) ])
-    .block( state_block )
-    .render( state_area, buf );
+  let table = Table::new( rows, [ Constraint::Length( TABLE_KEY_WIDTH ), Constraint::Fill( 1 ) ])
+    .block( state_block );
+
+  Widget::render( table, state_area, buf )
 }
 
+fn render_generator_pane( area: Rect, buf: &mut Buffer ) {
+  let table_rows = vec![ Row::new([ Cell::new( "Demo" ), Cell::new( "" ) ]).style( common::HIGHLIGHT_ROW_SELECTED_STYLE ) ];
+
+  const TABLE_HEADERS: &[&str] = &[ "NAME", "STATUS" ];
+
+  const CONSTRAINTS: [Constraint; 2] = [ Constraint::Min( 30 ), Constraint::Fill( 1 ) ];
+
+  let table = Table::new( table_rows, CONSTRAINTS )
+    .header( Row::new( TABLE_HEADERS.iter().cloned() ).style( common::TABLE_HEADER_STYLE ) );
+
+  let mut state = TableState::new().with_selected( Some( 0 ) );
+  StatefulWidget::render( table, area, buf, &mut state );
+}
 
 /*
-mod connect {
-  use std::sync::{ Arc, Mutex };
-
-  use crossterm::event::{ KeyCode, KeyEvent };
-
-  use crate::app;
-  use crate::scene;
-
-  pub struct State {
-    pub connecting: Option<bool>,
-  }
-
-  pub async fn on_key_down( key: KeyEvent, _device_map: Arc<Mutex<crate::device::DeviceMap>> ) -> bool {
-    if key.code == KeyCode::Char( 'c' ) {
-
-      //state.connecting = Some( true );
-      return true;
-    }
-
-    false
-  }
-
-  pub async fn on_update() -> scene::Event<app::Event> {
-    scene::Event::NoChange
-  }
-
-  pub fn on_render( area: Rect, buf: &mut Buffer ) {
-    let centered_area = area.centered_horizontally( Constraint::Length( 50 ) );
-
-    let [ port_area, connect_area, _ ] = centered_area.layout( &Layout::vertical([
-      Constraint::Length( 3 ),
-      Constraint::Length( 3 ),
-      Constraint::Fill( 1 )
-    ]));
-
-    //
-    let button_highlight_style = Style::default().fg( Color::Green );
-
-    // Port input
-    let style = if self.input_selected == 0 { button_highlight_style } else { Style::default() };
-    let port_block = Block::bordered().title( " Port " ).border_style( style );
-    self.port_input.set_block( port_block );
-
-    Widget::render( &self.port_input, port_area, buf );
-
-    // Connect button
-    let style = if self.input_selected == INPUT_CONNECT_BUTTON { button_highlight_style } else { Style::default() };
-    let connect_block = Block::bordered().border_style( style );
-
-    Paragraph::new( Span::styled( "<C>onnect", Style::default().bold() ) )
-      .centered()
-      .block( connect_block )
-      .render( connect_area, buf );
-  }
-}
-
-pub fn make_connect_scene_definition( device_map: Arc<Mutex<crate::device::DeviceMap>> ) -> scene::SceneDefinition<app::Event> {
-  scene::SceneDefinition{
-    on_key_down: Some(
-      Box::new( move | e: KeyEvent |{
-        let dm = device_map.clone(); // think...
-        Box::pin( connect::on_key_down( e, dm ) )
-      })
-    ),
-    on_update: Some( Box::new( move ||{ Box::pin( connect::on_update() ) }) ),
-    on_render: Box::new( | _area, _buf |{} )
-  }
-}
-
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Generate List Scene
 
 struct GeneratorListScene {
