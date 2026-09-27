@@ -18,9 +18,10 @@ pub const LIST_ID: &str     = "list";
 
 #[derive( Debug )]
 pub enum Action {
-  Connect( u16 ),
-  SelectDevice( SocketAddr ),
-  DeselectDevice
+  Connect,
+  DeselectDevice,
+  Disconnect,
+  SelectDevice( SocketAddr )
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  State
@@ -74,21 +75,27 @@ impl scene::Actionable for State {
 
   async fn invoke( &mut self, action: Action ) -> scene::SceneEvent {
     match action {
-      Action::Connect( _port ) => {
+      Action::Connect => {
         if let Some( device ) = self.get_current_device_mut() {
           let _ = device.connect().await;
-          return scene::SceneEvent::None;
         }
-
-        scene::SceneEvent::Pop
-      },
-      Action::SelectDevice( device_id ) => {
-        self.set_current_device( Some( device_id ) );
-        scene::SceneEvent::Switch( DEVICE_ID )
-      },
+        
+        scene::SceneEvent::None
+      }
       Action::DeselectDevice => {
         self.set_current_device( None );
         scene::SceneEvent::Switch( LIST_ID )
+      }
+      Action::Disconnect => {
+        if let Some( device ) = self.get_current_device_mut() {
+          let _ = device.disconnect().await;
+        }
+
+        scene::SceneEvent::None
+      }
+      Action::SelectDevice( device_id ) => {
+        self.set_current_device( Some( device_id ) );
+        scene::SceneEvent::Switch( DEVICE_ID )
       }
     }
   }

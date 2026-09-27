@@ -46,7 +46,7 @@ impl<'a> scene::Scene<State> for ConnectScene<'a> {
       },
       KeyCode::Enter => {
         if self.input_selected == INPUT_CONNECT_BUTTON  {
-          ctx.invoke( Action::Connect( self.port_input.lines()[0].parse::<u16>().unwrap() ) );
+          ctx.invoke( Action::Connect );
           true
         } else {
           false

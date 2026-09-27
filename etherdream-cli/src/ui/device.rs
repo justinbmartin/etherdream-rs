@@ -1,6 +1,6 @@
 use crossterm::event::{ KeyCode, KeyEvent };
 use ratatui::buffer::Buffer;
-use ratatui::layout::{ Constraint, Layout, Rect };
+use ratatui::layout::{ Alignment, Constraint, Layout, Rect };
 use ratatui::style::{ Color, palette::tailwind::SLATE, Style };
 use ratatui::text::Line;
 use ratatui::widgets::{ Block, Borders, /* Cell, */ Padding, Paragraph, Row, Widget, Table, /* TableState */ };
@@ -12,7 +12,10 @@ use crate::ui::{ Action, State };
 use super::common;
 
 const HIGHLIGHT_STYLE: Style = Style::new().bg( SLATE.c800 );
-const TABLE_KEY_WIDTH: u16 = 25;
+const TABLE_KEY_WIDTH: u16 = 23;
+
+const FOOTER_CONNECTED_MSG: &str = "Use 'd' to disconnect, 'Esc' to go back.";
+const FOOTER_DISCONNECTED_MSG: &str = "Use 'Esc' to go back.";
 
 #[derive( Default )]
 pub struct DeviceScene;
@@ -20,12 +23,16 @@ pub struct DeviceScene;
 impl scene::Scene<State> for DeviceScene {
   fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::Context<State> ) -> bool {
     match key.code {
-      KeyCode::Char( 'q' ) => {
-        ctx.invoke( Action::DeselectDevice );
+      KeyCode::Char( 'c' ) => {
+        ctx.invoke( Action::Connect );
         true
       }
-      KeyCode::Char( 'c' ) => {
-        ctx.invoke( Action::Connect( 7765 ) );
+      KeyCode::Char( 'd' ) => {
+        ctx.invoke( Action::Disconnect );
+        true
+      }
+      KeyCode::Char( 'q' ) => {
+        ctx.invoke( Action::DeselectDevice );
         true
       }
       _ => {
@@ -35,58 +42,39 @@ impl scene::Scene<State> for DeviceScene {
   }
 
   fn on_draw( &mut self, area: Rect, buf: &mut Buffer, ctx: &scene::Context<State> ) {
-    let body_area = common::layout( area, buf, "Use 'c' to connect, 'q' to go back." );
-
     if let Some( device ) = ctx.state().get_current_device() {
+      let footer_msg = if device.is_connected() { FOOTER_CONNECTED_MSG } else { FOOTER_DISCONNECTED_MSG };
+      let body_area = common::layout( area, buf, footer_msg );
 
-      let layout = Layout::horizontal([ Constraint::Length( 60 ), Constraint::Fill( 1 ) ]);
-      let [ info_area, connect_area ] = layout.areas( area );
+      let layout = Layout::horizontal([ Constraint::Length( 52 ), Constraint::Fill( 1 ) ]);
+      let [ left_area, right_area ] = layout.areas( body_area );
 
-      //
-      let a_block = Block::bordered()
+      // Render left pane
+      let properties_block = Block::bordered()
+        .border_style( common::HIGHLIGHT_BORDER_STYLE )
+        .title( Line::styled( " Properties ", common::HIGHLIGHT_TEXT_STYLE ) )
+        .padding( Padding::uniform( 1 ) );
+
+      render_info( device, properties_block.inner( left_area ), buf );
+      properties_block.render( left_area, buf );
+
+      // Render right pane
+      let action_block = Block::bordered()
         .border_style( common::HIGHLIGHT_BORDER_STYLE )
         .padding( Padding::new( 1, 1, 0, 0 ) );
 
-      render_info( device, a_block.inner( info_area ), buf );
-      a_block.render( info_area, buf );
+      if device.is_connected() {
+        //
+      } else {
+        let inner_area = action_block.inner( right_area );
+        let center_y = inner_area.y + ( inner_area.height / 2 );
+        let text_area = Rect::new( inner_area.x, center_y, inner_area.width, 1 );
+        let line = Line::styled( " Press 'c' to connect. ", common::HIGHLIGHT_ROW_SELECTED_STYLE ).alignment( Alignment::Center );
+        Paragraph::new( line ).render( text_area, buf );
+      }
 
-      //
-      let _b_block = Block::bordered()
-        .border_style( common::HIGHLIGHT_BORDER_STYLE )
-        .padding( Padding::new( 1, 1, 0, 0 ) )
-        .render( connect_area, buf );
+      action_block.render( right_area, buf );
     }
-    // else: something went wrong...
-
-    /*
-    let layout = Layout::vertical([ Constraint::Length( 3 ), Constraint::Fill( 1 ) ]);
-    let [ header, body ] = body_area.layout( &layout );
-    
-    if let Some( device ) = ctx.state().get_current_device() {
-
-      // Render the header
-      Paragraph::new( format!( " Device: {} ", device.info().ip() ) ).render( header, buf );
-
-      //
-      let [ test_area, info_area ] = body.layout( &Layout::horizontal([
-        Constraint::Fill( 1 ),
-        Constraint::Length( 60 )
-      ]) );
-
-      // Render the test pane
-      let test_block = Block::bordered();
-      //let test_inner_area = test_block.inner( test_area );
-      test_block.render( test_area, buf );
-
-      //
-      //self.scenes.render( test_inner_area, buf );
-
-      // Render the info pane
-      render_info( &device, info_area, buf );
-    } else {
-      Paragraph::new( " No Device " ).render( header, buf );
-    }
-    */
   }
 }
 
@@ -97,9 +85,7 @@ fn render_info( device: &Device, area: Rect, buf: &mut Buffer ) {
   ]) );
 
   // Render intrinsics
-  let intrinsics_block = Block::new()
-    .style( common::HIGHLIGHT_BORDER_STYLE )
-    .title( Line::styled( "INTRINSICS:", common::HIGHLIGHT_TEXT_STYLE ) );
+  let intrinsics_block = Block::new().style( common::HIGHLIGHT_BORDER_STYLE );
 
   let intrinsic_rows = [
     Row::new([ "IP address:".to_owned(), device.info().ip().to_string() ]),

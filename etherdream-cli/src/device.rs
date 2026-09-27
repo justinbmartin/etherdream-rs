@@ -44,6 +44,8 @@ impl Device {
   pub async fn disconnect( &mut self ) {
     if let Some( generator ) = self.generator.take() && let Ok( client ) = generator.into_client().await {
       client.disconnect().await
+    } else if let Some( client ) = self.client.take() {
+      client.disconnect().await
     }
   }
 
