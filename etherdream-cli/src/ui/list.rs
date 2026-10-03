@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 
 use crossterm::event::{ KeyCode, KeyEvent };
 use ratatui::buffer::Buffer;
-use ratatui::layout::{ Constraint, Layout, Rect };
+use ratatui::layout::{ Alignment, Constraint, Layout, Rect };
 use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui::widgets::{ Block, Cell, Padding, Paragraph, Row, StatefulWidget, Table, TableState, Widget };
@@ -105,35 +105,47 @@ impl scene::Scene<State> for ListScene {
     let layout = Layout::vertical([ Constraint::Fill( 1 ), Constraint::Length( 1 ) ]);
     let [ body_area, footer_area ] = area.layout( &layout );
 
-    let layout = Layout::horizontal([ Constraint::Fill( 1 ), Constraint::Length( 60 ) ]);
-    let [ left_area, right_area ] = layout.areas( body_area );
+    if self.device_addrs.is_empty() {
+      let block = Block::bordered().border_style( common::HIGHLIGHT_BORDER_STYLE );
+      let inner_area = block.inner( body_area );
+      let center_y = inner_area.y + ( inner_area.height / 2 );
+      let text_area = Rect::new( inner_area.x, center_y, inner_area.width, 1 );
+      let line = Line::styled( "Listening for devices...", common::INFO_TEXT_STYLE ).alignment( Alignment::Center );
 
-    self.draw_list( left_area, buf, ctx );
+      block.render( body_area, buf );
+      Paragraph::new( line ).render( text_area, buf );
+      Paragraph::new( "Use 'q' to quit." ).style( common::INFO_TEXT_STYLE ).centered().render( footer_area, buf );
+    } else {
+      let layout = Layout::horizontal([ Constraint::Fill( 1 ), Constraint::Length( 60 ) ]);
+      let [ left_area, right_area ] = layout.areas( body_area );
 
-    let footer_msg =
-      if let Some( idx ) = self.table.selected() && let Some( addr ) = self.device_addrs.get( idx ) && let Some( device ) = ctx.state().devices.get( addr ) {
-        common::draw_device_panel( device, right_area, buf );
+      self.draw_list( left_area, buf, ctx );
 
-        if device.is_connected() {
-          "Use ↓↑ to change device, 'd' to disconnect, 'q' to quit."
+      let footer_msg =
+        if let Some( idx ) = self.table.selected() && let Some( addr ) = self.device_addrs.get( idx ) && let Some( device ) = ctx.state().devices.get( addr ) {
+          common::draw_device_panel( device, right_area, buf );
+
+          if device.is_connected() {
+            "Use ↓↑ to change device, 'd' to disconnect, 'q' to quit."
+          } else {
+            "Use ↓↑ to change device, 'c' to connect, 'q' to quit."
+          }
         } else {
+          let block = Block::bordered()
+            .border_style( common::HIGHLIGHT_BORDER_STYLE )
+            .padding( Padding::new( 1, 1, 0, 0 ) )
+            .title(
+              Line::raw( "N/A" )
+                .centered()
+                .style( common::HIGHLIGHT_TEXT_STYLE )
+            );
+
+          Widget::render( block, area, buf );
           "Use ↓↑ to change device, 'c' to connect, 'q' to quit."
-        }
-      } else {
-        let block = Block::bordered()
-          .border_style( common::HIGHLIGHT_BORDER_STYLE )
-          .padding( Padding::new( 1, 1, 0, 0 ) )
-          .title(
-            Line::raw( "N/A" )
-              .centered()
-              .style( common::HIGHLIGHT_TEXT_STYLE )
-          );
+        };
 
-        Widget::render( block, area, buf );
-        "Use ↓↑ to change device, 'c' to connect, 'q' to quit."
-      };
-
-    Paragraph::new( footer_msg ).style( common::INFO_TEXT_STYLE ).centered().render( footer_area, buf );
+      Paragraph::new( footer_msg ).style( common::INFO_TEXT_STYLE ).centered().render( footer_area, buf );
+    }
   }
 }
 
