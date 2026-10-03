@@ -8,13 +8,11 @@ use crate::device::{ Device, DeviceMap };
 use crate::scene;
 
 mod common;
-mod connect;
 mod list;
-mod device;
+mod generator;
 
-pub const CONNECT_ID: &str  = "connect";
-pub const DEVICE_ID: &str   = "device";
-pub const LIST_ID: &str     = "list";
+pub const GENERATOR_ID: &str  = "generator";
+pub const LIST_ID: &str       = "list";
 
 #[derive( Debug )]
 pub enum Action {
@@ -51,7 +49,11 @@ impl State {
   /// Registers a device from the registry into the `DeviceMap` by `address`.
   pub async fn register_device( &mut self, address: SocketAddr ) {
     if let Some( broadcast ) = self.registry.read().await.get( &address ) {
-      self.devices.insert( address, *broadcast.device_info() )
+      self.devices.insert( address, *broadcast.device_info() );
+
+      if self.devices.len() == 1 {
+        self.current_device_id = Some( address );
+      }
     }
   }
   /// Set the currently selected device id
@@ -79,7 +81,7 @@ impl scene::Actionable for State {
         if let Some( device ) = self.get_current_device_mut() {
           let _ = device.connect().await;
         }
-        
+
         scene::SceneEvent::None
       }
       Action::DeselectDevice => {
@@ -95,7 +97,7 @@ impl scene::Actionable for State {
       }
       Action::SelectDevice( device_id ) => {
         self.set_current_device( Some( device_id ) );
-        scene::SceneEvent::Switch( DEVICE_ID )
+        scene::SceneEvent::Switch( GENERATOR_ID )
       }
     }
   }
@@ -107,8 +109,6 @@ pub fn build_scenes( state: Arc<RwLock<State>> ) -> Result<( scene::Foreground<S
   let mut builder = scene::Builder::new( state );
 
   builder.add_scene( LIST_ID, Box::new( list::ListScene::new() ) );
-  builder.add_scene( DEVICE_ID, Box::new( device::DeviceScene::default() ) );
-  builder.add_scene( CONNECT_ID, Box::new( connect::ConnectScene::new() ) );
-
+  builder.add_scene( GENERATOR_ID, Box::new( generator::GeneratorScene::default() ) );
   builder.build()
 }

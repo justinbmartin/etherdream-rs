@@ -15,19 +15,11 @@ const FOOTER_CONNECTED_MSG: &str = "Use 'd' to disconnect, 'Esc' to go back.";
 const FOOTER_DISCONNECTED_MSG: &str = "Use 'Esc' to go back.";
 
 #[derive( Default )]
-pub struct DeviceScene;
+pub struct GeneratorScene;
 
-impl scene::Scene<State> for DeviceScene {
+impl scene::Scene<State> for GeneratorScene {
   fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::Context<State> ) -> bool {
     match key.code {
-      KeyCode::Char( 'c' ) => {
-        ctx.invoke( Action::Connect );
-        true
-      }
-      KeyCode::Char( 'd' ) => {
-        ctx.invoke( Action::Disconnect );
-        true
-      }
       KeyCode::Char( 'q' ) => {
         ctx.invoke( Action::DeselectDevice );
         true
@@ -43,22 +35,16 @@ impl scene::Scene<State> for DeviceScene {
       let footer_msg = if device.is_connected() { FOOTER_CONNECTED_MSG } else { FOOTER_DISCONNECTED_MSG };
       let body_area = common::layout( area, buf, footer_msg );
 
-      let layout = Layout::horizontal([ Constraint::Length( 52 ), Constraint::Fill( 1 ) ]);
+      let layout = Layout::horizontal([ Constraint::Length( 54 ), Constraint::Fill( 1 ) ]);
       let [ left_area, right_area ] = layout.areas( body_area );
 
       // Render left pane
-      let properties_block = Block::bordered()
-        .border_style( common::HIGHLIGHT_BORDER_STYLE )
-        .title( Line::styled( " Properties ", common::HIGHLIGHT_TEXT_STYLE ) )
-        .padding( Padding::uniform( 1 ) );
-
+      let properties_block = common::make_block( Some( " Device(...) " ) );
       render_info( device, properties_block.inner( left_area ), buf );
       properties_block.render( left_area, buf );
 
       // Render right pane
-      let action_block = Block::bordered()
-        .border_style( common::HIGHLIGHT_BORDER_STYLE )
-        .padding( Padding::new( 1, 1, 0, 0 ) );
+      let action_block = common::make_block( None );
 
       let action_block =
         if device.is_connected() {
@@ -82,7 +68,7 @@ impl scene::Scene<State> for DeviceScene {
 // UI to render the Etherdream device intrinsic and run-time properties
 fn render_info( device: &Device, area: Rect, buf: &mut Buffer ) {
   let [ intrinsics_area, state_area ] = area.layout( &Layout::vertical([
-    Constraint::Length( 8 ), Constraint::Fill( 1 ),
+    Constraint::Length( 7 ), Constraint::Fill( 1 ),
   ]) );
 
   // Render intrinsics
@@ -110,19 +96,14 @@ fn render_info( device: &Device, area: Rect, buf: &mut Buffer ) {
   let mut rows = Vec::with_capacity( 50 );
   rows.push( Row::new([ "Connected:", if device.is_connected() { "Yes" } else { "No" } ]) );
 
-  /*
-  if let Some( generator ) = device.generator() {
-    generator.clone_state_into( state );
+  if device.is_connected() {
+    let mut state = etherdream::State::default();
+    device.state( &mut state );
 
-    rows.extend([
-      Row::new([ "Generator:", "Demo" ]),
-      Row::new([ "Points buffered:".to_owned(), state.points_buffered().to_string() ]),
-      Row::new([ "Points per second:".to_owned(), state.points_per_second().to_string() ])
-    ]);
-  } else {
-    rows.push( Row::new([ "Generator:", "None" ]) );
+    rows.push( Row::new([ "Points Buffered:".to_owned(), state.points_buffered().to_string() ]) );
+    rows.push( Row::new([ "Points Per Second:".to_owned(), state.points_per_second().to_string() ]) );
+    rows.push( Row::new([ "Points Lifetime:".to_owned(), state.points_lifetime().to_string() ]) );
   }
-  */
 
   let table = Table::new( rows, [ Constraint::Length( TABLE_KEY_WIDTH ), Constraint::Fill( 1 ) ])
     .block( state_block );

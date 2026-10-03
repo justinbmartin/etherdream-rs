@@ -2,10 +2,10 @@ use std::net::SocketAddr;
 
 use crossterm::event::{ KeyCode, KeyEvent };
 use ratatui::buffer::Buffer;
-use ratatui::layout::{ Constraint, Rect };
+use ratatui::layout::{ Constraint, Layout, Rect };
 use ratatui::style::Style;
 use ratatui::text::Line;
-use ratatui::widgets::{ Block, Cell, Padding, Row, StatefulWidget, Table, TableState };
+use ratatui::widgets::{ Block, Cell, Padding, Paragraph, Row, StatefulWidget, Table, TableState, Widget };
 
 use crate::device::Device;
 use crate::scene;
@@ -40,6 +40,14 @@ impl ListScene {
 impl scene::Scene<State> for ListScene {
   fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::Context<State> ) -> bool {
     match key.code {
+      KeyCode::Char( 'c' ) => {
+        ctx.invoke( Action::Connect );
+        return true
+      }
+      KeyCode::Char( 'd' ) => {
+        ctx.invoke( Action::Disconnect );
+        return true
+      }
       dir @ ( KeyCode::Up | KeyCode::Down ) => {
         let devices_count = ctx.state().get_devices().len();
 
@@ -94,7 +102,45 @@ impl scene::Scene<State> for ListScene {
   }
 
   fn on_draw( &mut self, area: Rect, buf: &mut Buffer, ctx: &scene::Context<State> ) {
-    let body_area = common::layout( area, buf, "Use ↓↑ to move, <Enter> to select a device, 'q' to quit." );
+    let layout = Layout::vertical([ Constraint::Fill( 1 ), Constraint::Length( 1 ) ]);
+    let [ body_area, footer_area ] = area.layout( &layout );
+
+    let layout = Layout::horizontal([ Constraint::Fill( 1 ), Constraint::Length( 60 ) ]);
+    let [ left_area, right_area ] = layout.areas( body_area );
+
+    self.draw_list( left_area, buf, ctx );
+
+    let footer_msg =
+      if let Some( device ) = ctx.state().get_current_device() {
+        common::draw_device_panel( device, right_area, buf, ctx );
+
+        if device.is_connected() {
+          "Use ↓↑ to change device, 'd' to disconnect, 'q' to quit."
+        } else {
+          "Use ↓↑ to change device, 'c' to connect, 'q' to quit."
+        }
+      } else {
+        let block = Block::bordered()
+          .border_style( common::HIGHLIGHT_BORDER_STYLE )
+          .padding( Padding::new( 1, 1, 0, 0 ) )
+          .title(
+            Line::raw( "N/A" )
+              .centered()
+              .style( common::HIGHLIGHT_TEXT_STYLE )
+          );
+
+        Widget::render( block, area, buf );
+
+        "Use ↓↑ to change device, 'c' to connect, 'q' to quit."
+      };
+
+    Paragraph::new( footer_msg ).style( common::INFO_TEXT_STYLE ).centered().render( footer_area, buf );
+  }
+}
+
+impl ListScene {
+  fn draw_list( &mut self, area: Rect, buf: &mut Buffer, ctx: &scene::Context<State> ) {
+    self.table_rows.clear();
 
     let block = Block::bordered()
       .border_style( common::HIGHLIGHT_BORDER_STYLE )
@@ -104,8 +150,6 @@ impl scene::Scene<State> for ListScene {
           .centered()
           .style( common::HIGHLIGHT_TEXT_STYLE )
       );
-
-    self.table_rows.clear();
 
     if let Some( selected_idx ) = self.table.selected() {
       let state = ctx.state();
@@ -132,14 +176,15 @@ impl scene::Scene<State> for ListScene {
     }
 
     const CONSTRAINTS: [Constraint; 3] = [
-      Constraint::Min( 20 ),
-      Constraint::Min( 30 ),
+      Constraint::Length( 18 ),
+      Constraint::Length( 25 ),
       Constraint::Fill( 1 ) ];
 
-    Table::new( self.table_rows.iter().cloned(), CONSTRAINTS )
+    let table = Table::new( self.table_rows.iter().cloned(), CONSTRAINTS )
       .block( block )
-      .header( Row::new( TABLE_HEADERS.iter().cloned() ).style( common::TABLE_HEADER_STYLE ) )
-      .render( body_area, buf, &mut self.table );
+      .header( Row::new( TABLE_HEADERS.iter().cloned() ).style( common::TABLE_HEADER_STYLE ) );
+
+    StatefulWidget::render( table, area, buf, &mut self.table );
   }
 }
 

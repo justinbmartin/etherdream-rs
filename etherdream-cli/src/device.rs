@@ -27,6 +27,17 @@ impl Device {
   /// Returns true if the device is connected.
   pub fn is_connected( &self ) -> bool { self.client.is_some() || self.generator.is_some() }
 
+  /// ...
+  pub fn state( &self, mut state: &mut etherdream::State ) {
+    if let Some( client ) = self.client.as_ref() {
+      client.clone_state_into( &mut state );
+    } else if let Some( _generator ) = self.generator.as_ref() {
+
+    } else {
+
+    }
+  }
+
   //
   pub async fn connect( &mut self ) -> Result<(), etherdream::client::Error> {
     if self.generator.is_some() { return Ok( () ); }
@@ -81,10 +92,14 @@ impl DeviceMap{
   pub fn get_mut( &mut self, address: &SocketAddr ) -> Option<&mut Device> { self.inner.get_mut( address ) }
 
   /// Inserts a new device into the map, incrementing the map version.
-  pub fn insert( &mut self, address: SocketAddr, info: etherdream::DeviceInfo ) {
-    self.inner.insert( address, Device::new( info ) );
+  pub fn insert( &mut self, address: SocketAddr, info: etherdream::DeviceInfo ) -> Option<Device> {
+    let r = self.inner.insert( address, Device::new( info ) );
     self.version = self.version.saturating_add( 1 );
+    r
   }
+
+  /// ...
+  pub fn is_empty( &self ) -> bool { self.inner.is_empty() }
 
   /// Returns an iterator of devices.
   pub fn iter( &self ) -> Iter<'_, SocketAddr, Device> {

@@ -1,3 +1,3 @@
-mod demo;
+mod cube;
 
-pub(crate) use demo::Demo;
+pub(crate) use cube::Cube;
