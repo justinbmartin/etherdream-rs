@@ -111,7 +111,7 @@ impl scene::Scene<State> for ListScene {
     self.draw_list( left_area, buf, ctx );
 
     let footer_msg =
-      if let Some( device ) = ctx.state().get_current_device() {
+      if let Some( idx ) = self.table.selected() && let Some( addr ) = self.device_addrs.get( idx ) && let Some( device ) = ctx.state().devices.get( addr ) {
         common::draw_device_panel( device, right_area, buf );
 
         if device.is_connected() {
@@ -130,7 +130,6 @@ impl scene::Scene<State> for ListScene {
           );
 
         Widget::render( block, area, buf );
-
         "Use ↓↑ to change device, 'c' to connect, 'q' to quit."
       };
 

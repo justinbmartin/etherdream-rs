@@ -50,10 +50,6 @@ impl State {
   pub async fn register_device( &mut self, address: SocketAddr ) {
     if let Some( broadcast ) = self.registry.read().await.get( &address ) {
       self.devices.insert( address, *broadcast.device_info() );
-
-      if self.devices.len() == 1 {
-        self.current_device_id = Some( address );
-      }
     }
   }
   /// Set the currently selected device id
