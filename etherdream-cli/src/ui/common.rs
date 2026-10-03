@@ -35,6 +35,10 @@ pub fn make_block( title: Option<&'_ str> ) -> Block<'_> {
   }
 }
 
+pub fn draw_footer( msg: &str, area: Rect, buf: &mut Buffer ) {
+  Paragraph::new( msg ).style( INFO_TEXT_STYLE ).centered().render( area, buf );
+}
+
 pub fn draw_device_panel( device: &Device, area: Rect, buf: &mut Buffer ) -> bool {
   let block = Block::bordered()
     .border_style( HIGHLIGHT_BORDER_STYLE )
