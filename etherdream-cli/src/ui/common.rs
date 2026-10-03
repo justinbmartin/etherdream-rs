@@ -35,7 +35,7 @@ pub fn make_block( title: Option<&'_ str> ) -> Block<'_> {
   }
 }
 
-pub fn draw_device_panel( device: &Device, area: Rect, buf: &mut Buffer, ctx: &scene::Context<State> ) -> bool {
+pub fn draw_device_panel( device: &Device, area: Rect, buf: &mut Buffer ) -> bool {
   let block = Block::bordered()
     .border_style( HIGHLIGHT_BORDER_STYLE )
     .padding( Padding::new( 1, 1, 0, 0 ) )

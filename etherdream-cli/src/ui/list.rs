@@ -112,7 +112,7 @@ impl scene::Scene<State> for ListScene {
 
     let footer_msg =
       if let Some( device ) = ctx.state().get_current_device() {
-        common::draw_device_panel( device, right_area, buf, ctx );
+        common::draw_device_panel( device, right_area, buf );
 
         if device.is_connected() {
           "Use ↓↑ to change device, 'd' to disconnect, 'q' to quit."

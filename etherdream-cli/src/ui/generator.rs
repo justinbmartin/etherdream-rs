@@ -20,6 +20,10 @@ pub struct GeneratorScene;
 impl scene::Scene<State> for GeneratorScene {
   fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::Context<State> ) -> bool {
     match key.code {
+      KeyCode::Char( 'c' ) => {
+        ctx.invoke( Action::Connect );
+        true
+      }
       KeyCode::Char( 'q' ) => {
         ctx.invoke( Action::DeselectDevice );
         true
@@ -39,9 +43,11 @@ impl scene::Scene<State> for GeneratorScene {
       let [ left_area, right_area ] = layout.areas( body_area );
 
       // Render left pane
-      let properties_block = common::make_block( Some( " Device(...) " ) );
-      render_info( device, properties_block.inner( left_area ), buf );
-      properties_block.render( left_area, buf );
+      if let Some( device ) = ctx.state().get_current_device() {
+        common::draw_device_panel( device, left_area, buf );
+      } else {
+        // this should not happen...
+      }
 
       // Render right pane
       let action_block = common::make_block( None );
@@ -63,52 +69,6 @@ impl scene::Scene<State> for GeneratorScene {
       action_block.render( right_area, buf );
     }
   }
-}
-
-// UI to render the Etherdream device intrinsic and run-time properties
-fn render_info( device: &Device, area: Rect, buf: &mut Buffer ) {
-  let [ intrinsics_area, state_area ] = area.layout( &Layout::vertical([
-    Constraint::Length( 7 ), Constraint::Fill( 1 ),
-  ]) );
-
-  // Render intrinsics
-  let intrinsics_block = Block::new().style( common::HIGHLIGHT_BORDER_STYLE );
-
-  let intrinsic_rows = [
-    Row::new([ "IP address:".to_owned(), device.info().ip().to_string() ]),
-    Row::new([ "MAC address:".to_owned(), device.info().mac_address().to_string() ]),
-    Row::new([ "Hardware version:".to_owned(), device.info().version().hardware.to_string() ]),
-    Row::new([ "Software version:".to_owned(), device.info().version().software.to_string() ]),
-    Row::new([ "Point buffer capacity:".to_owned(), device.info().buffer_capacity().to_string() ]),
-    Row::new([ "Max points per second:".to_owned(), device.info().max_points_per_second().to_string() ])
-  ];
-
-  let table = Table::new( intrinsic_rows, [ Constraint::Length( TABLE_KEY_WIDTH ), Constraint::Fill( 1 ) ])
-    .block( intrinsics_block );
-
-  Widget::render( table, intrinsics_area, buf );
-
-  // Render state
-  let state_block = Block::new()
-    .style( common::HIGHLIGHT_BORDER_STYLE )
-    .title( Line::styled( "STATE:", common::HIGHLIGHT_TEXT_STYLE ) );
-
-  let mut rows = Vec::with_capacity( 50 );
-  rows.push( Row::new([ "Connected:", if device.is_connected() { "Yes" } else { "No" } ]) );
-
-  if device.is_connected() {
-    let mut state = etherdream::State::default();
-    device.state( &mut state );
-
-    rows.push( Row::new([ "Points Buffered:".to_owned(), state.points_buffered().to_string() ]) );
-    rows.push( Row::new([ "Points Per Second:".to_owned(), state.points_per_second().to_string() ]) );
-    rows.push( Row::new([ "Points Lifetime:".to_owned(), state.points_lifetime().to_string() ]) );
-  }
-
-  let table = Table::new( rows, [ Constraint::Length( TABLE_KEY_WIDTH ), Constraint::Fill( 1 ) ])
-    .block( state_block );
-
-  Widget::render( table, state_area, buf )
 }
 
 fn render_generator_pane( area: Rect, buf: &mut Buffer ) {
