@@ -2,10 +2,10 @@ use std::net::SocketAddr;
 
 use crossterm::event::{ KeyCode, KeyEvent };
 use ratatui::buffer::Buffer;
-use ratatui::layout::{ Alignment, Constraint, Layout, Rect };
+use ratatui::layout::{ Constraint, Layout, Rect };
 use ratatui::style::Style;
 use ratatui::text::Line;
-use ratatui::widgets::{ Block, Cell, Padding, Paragraph, Row, StatefulWidget, Table, TableState, Widget };
+use ratatui::widgets::{ Block, Cell, Padding, Row, StatefulWidget, Table, TableState, Widget };
 
 use crate::device::Device;
 use crate::scene;
@@ -53,7 +53,7 @@ impl scene::Scene<State> for ListScene {
         return true;
       }
       KeyCode::Enter => {
-        if let Some( addr ) = self.table.selected().and_then(| i |{ self.device_addrs.get( i ) }) {
+        if let Some( addr ) = self.selected_addr() {
           ctx.invoke( Action::SelectDevice( *addr ) );
           return true;
         }
@@ -99,7 +99,7 @@ impl scene::Scene<State> for ListScene {
     let layout = Layout::vertical([ Constraint::Fill( 1 ), Constraint::Length( 1 ) ]);
     let [ body_area, footer_area ] = area.layout( &layout );
 
-    let devices_block = Block::bordered()
+    let block = Block::bordered()
       .border_style( common::HIGHLIGHT_BORDER_STYLE )
       .padding( Padding::new( 1, 1, 0, 0 ) )
       .title(
@@ -108,23 +108,20 @@ impl scene::Scene<State> for ListScene {
           .style( common::HIGHLIGHT_TEXT_STYLE )
       );
 
-    if let Some( addr ) = self.table.selected().and_then( |idx| self.device_addrs.get( idx ) ) && let Some( device ) = ctx.state().devices.get( addr ) {
+    if let Some( addr ) = self.selected_addr() && let Some( device ) = ctx.state().devices.get( addr ) {
       let layout = Layout::horizontal([ Constraint::Fill( 1 ), Constraint::Length( 60 ) ]);
       let [ left_area, right_area ] = layout.areas( body_area );
+      let inner_area = block.inner( left_area );
 
-      self.draw_list( devices_block.inner( left_area ), buf, ctx );
+      Widget::render( block, left_area, buf );
+      self.draw_list( inner_area, buf, ctx );
       common::draw_device_panel( device, right_area, buf );
-
-      Widget::render( devices_block, left_area, buf );
       common::draw_footer( FOOTER_MSG, footer_area, buf );
     } else {
-      let inner_area = devices_block.inner( body_area );
-      let center_y = inner_area.y + ( inner_area.height / 2 );
-      let text_area = Rect::new( inner_area.x, center_y, inner_area.width, 1 );
-      let line = Line::styled( "Listening for devices...", common::INFO_TEXT_STYLE ).alignment( Alignment::Center );
-      
-      Widget::render( devices_block, body_area, buf );
-      Paragraph::new( line ).render( text_area, buf );
+      let inner_area = block.inner( body_area );
+
+      Widget::render( block, body_area, buf );
+      common::draw_centered_line( "Listening for devices...", common::INFO_TEXT_STYLE.italic(), inner_area, buf );
       common::draw_footer( "Use 'q' to quit.", footer_area, buf );
     }
   }
@@ -167,6 +164,10 @@ impl ListScene {
       .header( Row::new( TABLE_HEADERS.iter().cloned() ).style( common::TABLE_HEADER_STYLE ) );
 
     StatefulWidget::render( table, area, buf, &mut self.table );
+  }
+
+  fn selected_addr( &self ) -> Option<&SocketAddr> {
+    self.table.selected().and_then(| i |{ self.device_addrs.get( i ) })
   }
 }
 

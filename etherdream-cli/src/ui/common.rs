@@ -1,5 +1,5 @@
 use ratatui::buffer::Buffer;
-use ratatui::layout::{ Constraint, Layout, Rect };
+use ratatui::layout::{ Alignment, Constraint, Layout, Rect };
 use ratatui::style::{ Color, Style };
 use ratatui::text::Line;
 use ratatui::widgets::{ Block, Padding, Paragraph, Row, Table, Widget };
@@ -95,4 +95,12 @@ pub fn draw_device_panel( device: &Device, area: Rect, buf: &mut Buffer ) -> boo
     Widget::render( state_table, state_area, buf );
 
     device.is_connected()
+}
+
+pub fn draw_centered_line( msg: &str, style: Style, area: Rect, buf: &mut Buffer ) {
+  let line = Line::styled( msg, style ).alignment( Alignment::Center );
+
+  let center_y = area.y + ( area.height / 2 );
+  let centered_area = Rect::new( area.x, center_y, area.width, 1 );
+  Paragraph::new( line ).render( centered_area, buf );
 }
