@@ -3,7 +3,6 @@ use std::net::SocketAddr;
 use crossterm::event::{ KeyCode, KeyEvent };
 use ratatui::buffer::Buffer;
 use ratatui::layout::{ Constraint, Layout, Rect };
-use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui::widgets::{ Block, Cell, Padding, Row, StatefulWidget, Table, TableState, Widget };
 
@@ -12,18 +11,9 @@ use crate::scene;
 use crate::ui::{ Action, State };
 use super::common;
 
-const CONNECTED: &str = "Connected";
-const DISCONNECTED: &str = "Disconnected";
-const PLAYING: &str = "Playing";
-const TABLE_HEADERS: &[&str] = &[ "IP", "MAC", "STATUS" ];
-
-const FOOTER_MSG: &str = "Use ↓↑ to move, '<Enter>' to select a device, 'q' to quit.";
-
 pub struct ListScene {
   device_addrs: Vec<SocketAddr>,
   table: TableState,
-  table_rows: Vec<Row<'static>>,
-  table_row_style: Style,
   version: usize,
 }
 
@@ -32,8 +22,6 @@ impl ListScene {
     Self{
       device_addrs: Vec::new(),
       table: TableState::new(),
-      table_rows: Vec::with_capacity( 10 ),
-      table_row_style: Style::new(),
       version: 0
     }
   }
@@ -42,14 +30,8 @@ impl ListScene {
 impl scene::Scene<State> for ListScene {
   fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::Context<State> ) -> bool {
     match key.code {
-      dir @ ( KeyCode::Up | KeyCode::Down ) => {
-        let devices_count = ctx.state().get_devices().len();
-
-        if devices_count > 0 && let Some( selected_idx ) = self.table.selected() {
-          let i = if dir == KeyCode::Up { selected_idx.saturating_sub( 1 ) } else { selected_idx.saturating_add( 1 ) };
-          self.table.select( Some( i % devices_count ) );
-        }
-
+      KeyCode::Down => {
+        self.table.select_next();
         return true;
       }
       KeyCode::Enter => {
@@ -57,6 +39,10 @@ impl scene::Scene<State> for ListScene {
           ctx.invoke( Action::SelectDevice( *addr ) );
           return true;
         }
+      }
+      KeyCode::Up => {
+        self.table.select_previous();
+        return true;
       }
       _ => {}
     }
@@ -66,7 +52,7 @@ impl scene::Scene<State> for ListScene {
 
   fn on_update( &mut self, ctx: &mut scene::Context<State> ) {
     let state = ctx.state();
-    let devices = state.get_devices();
+    let devices = state.devices();
 
     if devices.version() != self.version {
       let mut addrs: Vec<SocketAddr> = devices.iter().map(|( &d, _ )| d ).collect();
@@ -116,7 +102,7 @@ impl scene::Scene<State> for ListScene {
       Widget::render( block, left_area, buf );
       self.draw_list( inner_area, buf, ctx );
       common::draw_device_panel( device, right_area, buf );
-      common::draw_footer( FOOTER_MSG, footer_area, buf );
+      common::draw_footer( "Use ↓↑ to move, '<Enter>' to select a device, 'q' to quit.", footer_area, buf );
     } else {
       let inner_area = block.inner( body_area );
 
@@ -129,30 +115,24 @@ impl scene::Scene<State> for ListScene {
 
 impl ListScene {
   fn draw_list( &mut self, area: Rect, buf: &mut Buffer, ctx: &scene::Context<State> ) {
-    self.table_rows.clear();
+    let mut rows = Vec::with_capacity( self.device_addrs.len() );
 
     if let Some( selected_idx ) = self.table.selected() {
       let state = ctx.state();
 
-      self.table_rows = self.device_addrs
-        .iter()
-        .enumerate()
-        .filter_map(|( i, addr )|{
-          if let Some( device ) = state.get_devices().get( addr ) {
-            self.table_row_style = if selected_idx == i { common::HIGHLIGHT_ROW_SELECTED_STYLE } else { common::HIGHLIGHT_TEXT_STYLE };
+      for ( i, addr ) in self.device_addrs.iter().enumerate() {
+        if let Some( device ) = state.devices().get( addr ) {
+          let style = if selected_idx == i { common::HIGHLIGHT_ROW_SELECTED_STYLE } else { common::HIGHLIGHT_TEXT_STYLE };
 
-            Some(
-              Row::new([
-                Cell::new( device.info().ip().to_string() ),
-                Cell::new( device.info().mac_address().to_string() ),
-                Cell::new( device_status( &device ) )
-              ]).style( self.table_row_style )
-            )
-          } else {
-            None
-          }
-        })
-        .collect()
+          rows.push(
+            Row::new([
+              Cell::new( device.info().ip().to_string() ),
+              Cell::new( device.info().mac_address().to_string() ),
+              Cell::new( device_status( &device ) )
+            ]).style( style )
+          );
+        }
+      }
     }
 
     const CONSTRAINTS: [Constraint; 3] = [
@@ -160,8 +140,8 @@ impl ListScene {
       Constraint::Length( 25 ),
       Constraint::Fill( 1 ) ];
 
-    let table = Table::new( self.table_rows.iter().cloned(), CONSTRAINTS )
-      .header( Row::new( TABLE_HEADERS.iter().cloned() ).style( common::TABLE_HEADER_STYLE ) );
+    let table = Table::new( rows, CONSTRAINTS )
+      .header( Row::new([ "IP", "MAC", "STATUS" ]).style( common::TABLE_HEADER_STYLE ) );
 
     StatefulWidget::render( table, area, buf, &mut self.table );
   }
@@ -174,11 +154,11 @@ impl ListScene {
 fn device_status( device: &Device ) -> &'static str {
   if device.is_connected() {
     if let Some( generator ) = device.generator() && generator.is_running() {
-      PLAYING
+      "PLAYING"
     } else {
-      CONNECTED
+      "CONNECTED"
     }
   } else {
-    DISCONNECTED
+    "DISCONNECTED"
   }
 }

@@ -44,7 +44,7 @@ impl State {
   }
 
   /// Returns an immutable reference to the `State`s registered devices.
-  pub fn get_devices( &self ) -> &DeviceMap { &self.devices }
+  pub fn devices( &self ) -> &DeviceMap { &self.devices }
 
   /// Registers a device from the registry into the `DeviceMap` by `address`.
   pub async fn register_device( &mut self, address: SocketAddr ) {
