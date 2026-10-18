@@ -9,7 +9,7 @@ use crate::scene;
 
 mod common;
 mod list;
-mod generator;
+mod device;
 
 pub const GENERATOR_ID: &str  = "generator";
 pub const LIST_ID: &str       = "list";
@@ -19,7 +19,8 @@ pub enum Action {
   Connect,
   DeselectDevice,
   Disconnect,
-  SelectDevice( SocketAddr )
+  SelectDevice( SocketAddr ),
+  Play( &'static str )
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  State
@@ -91,6 +92,9 @@ impl scene::Actionable for State {
 
         scene::SceneEvent::None
       }
+      Action::Play( _generator ) => {
+        scene::SceneEvent::None
+      }
       Action::SelectDevice( device_id ) => {
         self.set_current_device( Some( device_id ) );
         scene::SceneEvent::Switch( GENERATOR_ID )
@@ -105,6 +109,6 @@ pub fn build_scenes( state: Arc<RwLock<State>> ) -> Result<( scene::Foreground<S
   let mut builder = scene::Builder::new( state );
 
   builder.add_scene( LIST_ID, Box::new( list::ListScene::new() ) );
-  builder.add_scene( GENERATOR_ID, Box::new( generator::GeneratorScene::default() ) );
+  builder.add_scene( GENERATOR_ID, Box::new( device::DeviceScene::new() ) );
   builder.build()
 }

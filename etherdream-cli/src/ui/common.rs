@@ -5,8 +5,6 @@ use ratatui::text::Line;
 use ratatui::widgets::{ Block, Padding, Paragraph, Row, Table, Widget };
 
 use crate::device::Device;
-use crate::scene;
-use crate::ui::State;
 
 pub const INFO_TEXT_STYLE: Style = Style::new().fg( Color::Rgb( 150, 150, 150 ) );
 pub const HIGHLIGHT_COLOR: Color = Color::Rgb( 232, 195, 0 );
