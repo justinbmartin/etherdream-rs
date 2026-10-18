@@ -1,9 +1,10 @@
 use crossterm::event::{ KeyCode, KeyEvent };
 use ratatui::buffer::Buffer;
-use ratatui::layout::Rect;
+use ratatui::layout::{ Constraint, Layout, Rect };
 
 use crate::scene;
 use crate::ui::{ Action, State };
+use super::common;
 
 pub struct GeneratorScene;
 
@@ -30,8 +31,21 @@ impl scene::Scene<State> for GeneratorScene {
     // ...
   }
 
-  fn on_draw( &mut self, _area: Rect, _buf: &mut Buffer, _state: &scene::Context<State> ) {
-    // ...
+  fn on_draw( &mut self, area: Rect, buf: &mut Buffer, ctx: &scene::Context<State> ) {
+    let body_area = common::layout( area, buf, "Use 'Esc' to go back" );
+
+    if let Some( device ) = ctx.state().get_current_device() {
+      let layout = Layout::horizontal([ Constraint::Length( 54 ), Constraint::Fill( 1 ) ]);
+      let [ left_area, _right_area ] = layout.areas( body_area );
+
+      // Render left pane
+      common::draw_device_panel( device, left_area, buf );
+
+      // Render right pane
+      // ...
+    } else {
+      // something went wrong...
+    }
   }
 }
 
