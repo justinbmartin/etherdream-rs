@@ -85,6 +85,16 @@ impl<'a,T: Actionable + Send + 'static> Builder<T> {
     true
   }
 
+  /// Sets the default scene. The scene for `id` must already be defined.
+  pub fn set_default_scene( &mut self, id: &'static str ) -> bool {
+    if self.scenes.contains_key( id ) {
+      self.current = Some( id );
+      true
+    } else {
+      false
+    }
+  }
+
   /// Builds the scene definitions, returning back a foreground and background
   /// handler. TODO: elaborate...
   pub fn build( self ) -> Result<( Foreground<T>, Background<T> ),BuilderError> {

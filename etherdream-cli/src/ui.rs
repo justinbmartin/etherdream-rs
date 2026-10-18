@@ -8,16 +8,19 @@ use crate::device::{ Device, DeviceMap };
 use crate::scene;
 
 mod common;
-mod list;
 mod device;
+mod generator;
+mod list;
 
+pub const DEVICE_ID: &str     = "device";
 pub const GENERATOR_ID: &str  = "generator";
 pub const LIST_ID: &str       = "list";
 
 #[derive( Debug )]
 pub enum Action {
+  Back,
+  ConfigureGenerator( &'static str ),
   Connect,
-  DeselectDevice,
   Disconnect,
   SelectDevice( SocketAddr ),
   Play( &'static str )
@@ -74,16 +77,18 @@ impl scene::Actionable for State {
 
   async fn invoke( &mut self, action: Action ) -> scene::SceneEvent {
     match action {
+      Action::Back => {
+        scene::SceneEvent::Pop
+      }
+      Action::ConfigureGenerator( _generator ) => {
+        scene::SceneEvent::Push( GENERATOR_ID )
+      }
       Action::Connect => {
         if let Some( device ) = self.get_current_device_mut() {
           let _ = device.connect().await;
         }
 
         scene::SceneEvent::None
-      }
-      Action::DeselectDevice => {
-        self.set_current_device( None );
-        scene::SceneEvent::Switch( LIST_ID )
       }
       Action::Disconnect => {
         if let Some( device ) = self.get_current_device_mut() {
@@ -97,7 +102,7 @@ impl scene::Actionable for State {
       }
       Action::SelectDevice( device_id ) => {
         self.set_current_device( Some( device_id ) );
-        scene::SceneEvent::Switch( GENERATOR_ID )
+        scene::SceneEvent::Push( DEVICE_ID )
       }
     }
   }
@@ -108,7 +113,10 @@ impl scene::Actionable for State {
 pub fn build_scenes( state: Arc<RwLock<State>> ) -> Result<( scene::Foreground<State>, scene::Background<State> ),scene::BuilderError> {
   let mut builder = scene::Builder::new( state );
 
+  builder.add_scene( DEVICE_ID, Box::new( device::DeviceScene::new() ) );
+  builder.add_scene( GENERATOR_ID, Box::new( generator::GeneratorScene::new() ) );
   builder.add_scene( LIST_ID, Box::new( list::ListScene::new() ) );
-  builder.add_scene( GENERATOR_ID, Box::new( device::DeviceScene::new() ) );
+
+  builder.set_default_scene( LIST_ID );
   builder.build()
 }

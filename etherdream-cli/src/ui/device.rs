@@ -39,7 +39,11 @@ impl scene::Scene<State> for DeviceScene {
         true
       }
       KeyCode::Char( 'q' ) => {
-        ctx.invoke( Action::DeselectDevice );
+        ctx.invoke( Action::Back );
+        true
+      }
+      KeyCode::Enter => {
+        ctx.invoke( Action::ConfigureGenerator( "" ) );
         true
       }
       _ => {
