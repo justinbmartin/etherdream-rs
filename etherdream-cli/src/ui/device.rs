@@ -11,14 +11,14 @@ const CONNECT_MSG: &str = "Press 'c' to connect.";
 const FOOTER_CONNECTED_MSG: &str = "Use 'p' to play, 'd' to disconnect, 'Esc' to go back.";
 const FOOTER_DISCONNECTED_MSG: &str = "Use 'Esc' to go back.";
 
-pub struct DeviceScene{
-  generators: TableState
+pub struct DeviceScene {
+  generators_table_state: TableState
 }
 
 impl DeviceScene {
   pub fn new() -> Self {
     Self{
-      generators: TableState::new().with_selected( Some( 0 ) )
+      generators_table_state: TableState::new().with_selected( Some( 0 ) )
     }
   }
 }
@@ -40,10 +40,6 @@ impl scene::Scene<State> for DeviceScene {
       }
       KeyCode::Char( 'q' ) => {
         ctx.invoke( Action::Back );
-        true
-      }
-      KeyCode::Enter => {
-        ctx.invoke( Action::ConfigureGenerator( "" ) );
         true
       }
       _ => {
@@ -69,7 +65,7 @@ impl scene::Scene<State> for DeviceScene {
         let inner_area = block.inner( right_area );
 
         Widget::render( block, right_area, buf );
-        render_generator_pane( &mut self.generators, inner_area, buf );
+        render_generator_pane( &mut self.generators_table_state, inner_area, buf );
       } else {
         let block = common::make_block( None );
         let inner_area = block.inner( right_area );

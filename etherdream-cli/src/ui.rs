@@ -5,21 +5,19 @@ use etherdream::discovery;
 use tokio::sync::RwLock;
 
 use crate::device::{ Device, DeviceMap };
+use crate::executors;
 use crate::scene;
 
 mod common;
 mod device;
-mod generator;
 mod list;
 
 pub const DEVICE_ID: &str     = "device";
-pub const GENERATOR_ID: &str  = "generator";
 pub const LIST_ID: &str       = "list";
 
 #[derive( Debug )]
 pub enum Action {
   Back,
-  ConfigureGenerator( &'static str ),
   Connect,
   Disconnect,
   SelectDevice( SocketAddr ),
@@ -80,9 +78,6 @@ impl scene::Actionable for State {
       Action::Back => {
         scene::SceneEvent::Pop
       }
-      Action::ConfigureGenerator( _generator ) => {
-        scene::SceneEvent::Push( GENERATOR_ID )
-      }
       Action::Connect => {
         if let Some( device ) = self.get_current_device_mut() {
           let _ = device.connect().await;
@@ -97,7 +92,13 @@ impl scene::Actionable for State {
 
         scene::SceneEvent::None
       }
-      Action::Play( _generator ) => {
+      Action::Play( generator ) => {
+        if let Some( client ) = self.get_current_device_mut() {
+          if let Some( builder ) = executors::EXECUTORS.get( generator ) {
+            client.generate( builder() ).await;
+          }
+        }
+
         scene::SceneEvent::None
       }
       Action::SelectDevice( device_id ) => {
@@ -114,7 +115,6 @@ pub fn build_scenes( state: Arc<RwLock<State>> ) -> Result<( scene::Foreground<S
   let mut builder = scene::Builder::new( state );
 
   builder.add_scene( DEVICE_ID, Box::new( device::DeviceScene::new() ) );
-  builder.add_scene( GENERATOR_ID, Box::new( generator::GeneratorScene::new() ) );
   builder.add_scene( LIST_ID, Box::new( list::ListScene::new() ) );
 
   builder.set_default_scene( LIST_ID );

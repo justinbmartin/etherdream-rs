@@ -31,7 +31,7 @@ const SHAPE: [na::Point3<f64>; 12] = [
   na::point!(  0.0 - W,  0.0 + W,  0.0 )
 ];
 
-pub(crate) struct Cube {
+pub(crate) struct Windmill {
   // The last point, via index, that was published for the shape, persisted
   // across `execute` invocations.
   offset: usize,
@@ -40,11 +40,11 @@ pub(crate) struct Cube {
   time: f64
 }
 
-impl Cube {
+impl Windmill {
   pub(crate) fn new() -> Self { Self{ offset: 0, time: 0.0 } }
 }
 
-impl generator::Executable for Cube {
+impl generator::Executable for Windmill {
   fn on_start( &mut self, _: generator::OnStartContext ) -> generator::Config {
     generator::Config::new( 1_000 )
   }
