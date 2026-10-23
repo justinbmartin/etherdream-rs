@@ -3,8 +3,7 @@ use std::net::SocketAddr;
 use crossterm::event::{ KeyCode, KeyEvent };
 use ratatui::buffer::Buffer;
 use ratatui::layout::{ Constraint, Layout, Rect };
-use ratatui::text::Line;
-use ratatui::widgets::{ Block, Cell, Padding, Row, StatefulWidget, Table, TableState, Widget };
+use ratatui::widgets::{ Cell, Row, StatefulWidget, Table, TableState, Widget };
 
 use crate::device::Device;
 use crate::scene;
@@ -31,23 +30,23 @@ impl scene::Scene<State> for ListScene {
   fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::Context<State> ) -> bool {
     match key.code {
       KeyCode::Down => {
-        self.table.select_next();
-        return true;
+        let next_idx = ( self.table.selected().unwrap_or( 0 ) + 1 ).checked_rem( self.device_addrs.len() );
+        self.table.select( next_idx );
+        true
       }
       KeyCode::Enter => {
         if let Some( addr ) = self.selected_addr() {
           ctx.invoke( Action::SelectDevice( *addr ) );
-          return true;
         }
+
+        true
       }
       KeyCode::Up => {
         self.table.select_previous();
-        return true;
+        true
       }
-      _ => {}
+      _ => false
     }
-
-    false
   }
 
   fn on_update( &mut self, ctx: &mut scene::Context<State> ) {
@@ -61,13 +60,13 @@ impl scene::Scene<State> for ListScene {
       if ! addrs.is_empty() {
         addrs.sort();
 
-        if let Some( previous_idx ) = self.table.selected() {
-          if let Some( addr ) = self.device_addrs.get( previous_idx ) && let Ok( idx ) = addrs.binary_search( addr ) {
+        if let Some( idx ) = self.table.selected() {
+          if let Some( addr ) = self.device_addrs.get( idx ) && let Ok( idx ) = addrs.binary_search( addr ) {
             // The device index may have changed. Update the device index to reflect any new position.
             updated_idx = Some( idx );
           } else {
             // The previously selected device no longer exists.
-            updated_idx = Some( previous_idx.min( addrs.len() ) );
+            updated_idx = Some( idx.min( addrs.len() ) );
           }
         } else {
           // This is the first time the table has been populated.
@@ -85,15 +84,9 @@ impl scene::Scene<State> for ListScene {
     let layout = Layout::vertical([ Constraint::Fill( 1 ), Constraint::Length( 1 ) ]);
     let [ body_area, footer_area ] = area.layout( &layout );
 
-    let block = Block::bordered()
-      .border_style( common::HIGHLIGHT_BORDER_STYLE )
-      .padding( Padding::new( 1, 1, 0, 0 ) )
-      .title(
-        Line::raw( format!( " Etherdream Devices [{}] ", self.device_addrs.len() ) )
-          .centered()
-          .style( common::HIGHLIGHT_TEXT_STYLE )
-      );
-
+    let title = format!( " Etherdream Devices [{}] ", self.device_addrs.len() );
+    let block = common::make_block( Some( &title ) );
+    
     if let Some( addr ) = self.selected_addr() && let Some( device ) = ctx.state().devices.get( addr ) {
       let layout = Layout::horizontal([ Constraint::Fill( 1 ), Constraint::Length( 60 ) ]);
       let [ left_area, right_area ] = layout.areas( body_area );

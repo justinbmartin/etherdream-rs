@@ -20,8 +20,8 @@ pub enum Action {
   Back,
   Connect,
   Disconnect,
-  SelectDevice( SocketAddr ),
-  Play( &'static str )
+  Play( &'static str ),
+  SelectDevice( SocketAddr )
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  State

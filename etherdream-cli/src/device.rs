@@ -1,4 +1,5 @@
-use std::collections::{ HashMap, hash_map::Iter };
+use std::collections::HashMap;
+use std::collections::hash_map::{ Keys, Iter };
 use std::net::SocketAddr;
 
 use etherdream::protocol;
