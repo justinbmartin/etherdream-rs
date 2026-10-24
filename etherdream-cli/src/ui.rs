@@ -94,8 +94,8 @@ impl scene::Actionable for State {
       }
       Action::Play( generator ) => {
         if let Some( client ) = self.get_current_device_mut() {
-          if let Some( builder ) = executors::EXECUTORS.get( generator ) {
-            client.generate( builder() ).await;
+          if let Some( executor ) = executors::EXECUTORS.get( generator ) {
+            client.generate( ( executor.create_fn )() ).await;
           }
         }
 
