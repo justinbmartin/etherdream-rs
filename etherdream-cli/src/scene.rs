@@ -21,7 +21,7 @@ pub enum SceneEvent {
   Push( &'static str ),
   /// Clears the stack, calling `Scene::on_exit` for each scene. Pushes into
   /// the new scene.
-  Switch( &'static str )
+  _Switch( &'static str )
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Actionable
@@ -188,7 +188,7 @@ impl<T: Actionable + Send + 'static> Foreground<T> {
           }
         }
       }
-      SceneEvent::Switch( next_scene_id ) => {
+      SceneEvent::_Switch( next_scene_id ) => {
         if self.scenes.contains_key( next_scene_id ) {
           // Call `Scene::on_exit` for each scene in the stack, in reverse
           for scene_id in self.stack.iter().rev() {

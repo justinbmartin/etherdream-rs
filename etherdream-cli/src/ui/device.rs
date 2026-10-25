@@ -121,10 +121,12 @@ pub fn draw_device_panel( device: &Device, area: Rect, buf: &mut Buffer ) -> boo
   let mut rows = Vec::with_capacity( 50 );
   rows.push( Row::new([ "Connected:", if device.is_connected() { "Yes" } else { "No" } ]) );
 
+
   if device.is_connected() {
     let mut state = etherdream::State::default();
     device.state( &mut state );
 
+    rows.push( Row::new([ "Playing:", if state.is_playing() { "Yes" } else { "No" } ]) );
     rows.push( Row::new([ "Points Buffered:".to_owned(), state.points_buffered().to_string() ]) );
     rows.push( Row::new([ "Points Per Second:".to_owned(), state.points_per_second().to_string() ]) );
     rows.push( Row::new([ "Points Lifetime:".to_owned(), state.points_lifetime().to_string() ]) );

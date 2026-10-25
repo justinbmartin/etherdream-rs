@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::collections::hash_map::{ Keys, Iter };
+use std::collections::hash_map::Iter;
 use std::net::SocketAddr;
 
 use etherdream::protocol;
@@ -32,10 +32,10 @@ impl Device {
   pub fn state( &self, mut state: &mut etherdream::State ) {
     if let Some( client ) = self.client.as_ref() {
       client.clone_state_into( &mut state );
-    } else if let Some( _generator ) = self.generator.as_ref() {
-
+    } else if let Some( generator ) = self.generator.as_ref() {
+      generator.clone_state_into( &mut state );
     } else {
-
+      // uh-oh...
     }
   }
 
@@ -65,13 +65,15 @@ impl Device {
   pub fn generator( &self ) -> Option<&etherdream::Generator> { self.generator.as_ref() }
 
   /// Creates and starts a generator from `executable`.
-  pub async fn generate( &mut self, executable: Box<dyn etherdream::generator::Executable> ) {
+  pub async fn generate( &mut self, executable: Box<dyn etherdream::generator::Executable> ) -> bool {
     if let Some( client ) = self.client.take() {
       let mut generator = etherdream::make_generator( client, executable );
       generator.start().await;
-
       self.generator = Some( generator );
+      return true;
     }
+
+    false
   }
 
   pub fn info( &self ) -> &etherdream::DeviceInfo {
@@ -99,17 +101,9 @@ impl DeviceMap{
     r
   }
 
-  /// ...
-  pub fn is_empty( &self ) -> bool { self.inner.is_empty() }
-
   /// Returns an iterator of devices.
   pub fn iter( &self ) -> Iter<'_, SocketAddr, Device> {
     self.inner.iter()
-  }
-
-  /// Returns the number of devices in the map.
-  pub fn len( &self ) -> usize {
-    self.inner.len()
   }
 
   /// Returns the current version of the map.

@@ -12,7 +12,7 @@ pub struct Executor {
   pub name: String
 }
 
-pub static EXECUTORS: LazyLock<HashMap<&str, Executor>> = LazyLock::new(|| {
+pub static EXECUTORS: LazyLock<HashMap<&'static str, Executor>> = LazyLock::new(|| {
   let mut executors: HashMap<&str, Executor> = HashMap::new();
 
   executors.insert( WINDMILL_ID, Executor{
