@@ -17,7 +17,7 @@ pub static EXECUTORS: LazyLock<HashMap<&str, Executor>> = LazyLock::new(|| {
 
   executors.insert( WINDMILL_ID, Executor{
     create_fn: ||{ Box::new( windmill::Windmill::new() ) },
-    name: String::from( WINDMILL_ID )
+    name: String::from( "Windmill" )
   });
 
   executors

@@ -86,22 +86,16 @@ impl scene::Scene<State> for ListScene {
 
     let title = format!( " Etherdream Devices [{}] ", self.device_addrs.len() );
     let block = common::make_block( Some( &title ) );
-    
-    if let Some( addr ) = self.selected_addr() && let Some( device ) = ctx.state().devices.get( addr ) {
-      let layout = Layout::horizontal([ Constraint::Fill( 1 ), Constraint::Length( 60 ) ]);
-      let [ left_area, right_area ] = layout.areas( body_area );
-      let inner_area = block.inner( left_area );
+    let inner_area = block.inner( body_area );
 
-      Widget::render( block, left_area, buf );
-      self.draw_list( inner_area, buf, ctx );
-      common::draw_device_panel( device, right_area, buf );
-      common::draw_footer( "Use ↓↑ to move, '<Enter>' to select a device, 'q' to quit.", footer_area, buf );
-    } else {
-      let inner_area = block.inner( body_area );
-
+    if self.device_addrs.is_empty() {
       Widget::render( block, body_area, buf );
       common::draw_centered_line( "Listening for devices...", common::INFO_TEXT_STYLE.italic(), inner_area, buf );
       common::draw_footer( "Use 'q' to quit.", footer_area, buf );
+    } else {
+      Widget::render( block, body_area, buf );
+      self.draw_list( inner_area, buf, ctx );
+      common::draw_footer( "Use ↓↑ to move, '<Enter>' to select a device, 'q' to quit.", footer_area, buf );
     }
   }
 }
@@ -129,8 +123,8 @@ impl ListScene {
     }
 
     const CONSTRAINTS: [Constraint; 3] = [
-      Constraint::Length( 18 ),
-      Constraint::Length( 25 ),
+      Constraint::Length( 20 ),
+      Constraint::Length( 35 ),
       Constraint::Fill( 1 ) ];
 
     let table = Table::new( rows, CONSTRAINTS )
