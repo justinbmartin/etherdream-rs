@@ -21,7 +21,8 @@ pub enum Action {
   Connect,
   Disconnect,
   Play( &'static str ),
-  SelectDevice( SocketAddr )
+  SelectDevice( SocketAddr ),
+  Stop
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  State
@@ -92,10 +93,14 @@ impl scene::Actionable for State {
 
         scene::SceneEvent::None
       }
-      Action::Play( generator ) => {
+      Action::Play( executor_id ) => {
         if let Some( device ) = self.get_current_device_mut() {
-          if let Some( executor ) = executors::EXECUTORS.get( generator ) {
-            device.generate( ( executor.create_fn )() ).await;
+          if let Some( generator )= device.generator_mut() {
+            generator.start().await;
+          } else {
+            if let Some( executor ) = executors::EXECUTORS.get( executor_id ) {
+              device.generate( executor ).await;
+            }
           }
         }
 
@@ -104,6 +109,13 @@ impl scene::Actionable for State {
       Action::SelectDevice( device_id ) => {
         self.set_current_device( Some( device_id ) );
         scene::SceneEvent::Push( DEVICE_ID )
+      }
+      Action::Stop => {
+        if let Some( device ) = self.get_current_device_mut() && let Some( generator ) = device.generator_mut() {
+          let _ = generator.stop().await;
+        }
+
+        scene::SceneEvent::None
       }
     }
   }

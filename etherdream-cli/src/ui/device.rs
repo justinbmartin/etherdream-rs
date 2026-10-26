@@ -10,7 +10,7 @@ use crate::scene;
 use crate::ui::{ Action, State };
 use super::common;
 
-const FOOTER_CONNECTED_MSG: &str = "Use 'p' to play, 'd' to disconnect, 'Esc' to go back.";
+const FOOTER_CONNECTED_MSG: &str = "Use '<Enter>' to play a generator, 'd' to disconnect, 'Esc' to go back.";
 const FOOTER_DISCONNECTED_MSG: &str = "Use 'c' to connect, 'Esc' to go back.";
 
 pub struct DeviceScene {
@@ -36,12 +36,26 @@ impl scene::Scene<State> for DeviceScene {
         ctx.invoke( Action::Disconnect );
         true
       }
-      KeyCode::Char( 'p' ) => {
+      KeyCode::Char( 'q' ) => {
+        ctx.invoke( Action::Back );
+        true
+      }
+      KeyCode::Char( 's' ) => {
+        ctx.invoke( Action::Stop );
+        true
+      }
+      KeyCode::Down => {
+        let next_idx = ( self.generators.selected().unwrap_or( 0 ) + 1 ).min( executors::EXECUTORS.len().saturating_sub( 1 ) );
+        self.generators.select( Some( next_idx ) );
+        true
+      }
+      KeyCode::Enter => {
         ctx.invoke( Action::Play( executors::WINDMILL_ID ) );
         true
       }
-      KeyCode::Char( 'q' ) => {
-        ctx.invoke( Action::Back );
+      KeyCode::Up => {
+        let next_idx = self.generators.selected().unwrap_or( 0 ).saturating_sub( 1 );
+        self.generators.select( Some( next_idx ) );
         true
       }
       _ => {
@@ -145,9 +159,11 @@ pub fn draw_device_panel( device: &Device, area: Rect, buf: &mut Buffer ) -> boo
 fn draw_generators_table( state: &mut TableState, area: Rect, buf: &mut Buffer ) {
   const CONSTRAINTS: [Constraint; 2] = [ Constraint::Min( 30 ), Constraint::Fill( 1 ) ];
   let mut rows = Vec::with_capacity( executors::EXECUTORS.len() );
+  let selected_idx = state.selected().unwrap_or( 0 );
 
-  for ( _, executor ) in executors::EXECUTORS.iter() {
-    rows.push( Row::new([ Cell::new( executor.name.clone() ), Cell::new( "" ) ]).style( common::HIGHLIGHT_ROW_SELECTED_STYLE ) );
+  for ( i, ( _, executor ) ) in executors::EXECUTORS.iter().enumerate() {
+    let style = if selected_idx == i { common::HIGHLIGHT_ROW_SELECTED_STYLE } else { common::HIGHLIGHT_TEXT_STYLE };
+    rows.push( Row::new([ Cell::new( executor.name.clone() ), Cell::new( "" ) ]).style( style ) );
   }
 
   let table = Table::new( rows, CONSTRAINTS )

@@ -1,8 +1,9 @@
 use std::f64::consts::TAU;
 
+use etherdream::generator;
 use nalgebra as na;
 
-use etherdream::generator;
+use super::common;
 
 const QUEUE_RATE: usize = 1_000;
 const ROTATIONS_PER_SECOND: f64 = 0.25;
@@ -68,11 +69,11 @@ impl generator::Executable for Windmill {
         let mapped_z = ( p.z + 1.0 ) * 0.5;
 
         ctx.push_point(
-          ilda_position( p.x ),
-          ilda_position( p.y ),
-          ilda_color( 1.0 - mapped_z ),
+          common::ilda_position( p.x ),
+          common::ilda_position( p.y ),
+          common::ilda_color( 1.0 - mapped_z ),
           0,
-          ilda_color( mapped_z )
+          common::ilda_color( mapped_z )
         );
 
         // Break out of execution if there is no longer any point-data capacity
@@ -87,14 +88,4 @@ impl generator::Executable for Windmill {
       self.time += SHAPE.len() as f64 / QUEUE_RATE as f64;
     }
   }
-}
-
-#[inline(always)]
-fn ilda_position( amount: f64 ) -> i16 {
-  ( na::clamp( amount, -1.0, 1.0 ) * i16::MAX as f64 ).round() as i16
-}
-
-#[inline(always)]
-fn ilda_color( amount: f64 ) -> u16 {
-  ( na::clamp( amount, 0.0, 1.0 ) * u16::MAX as f64 ).round() as u16
 }
