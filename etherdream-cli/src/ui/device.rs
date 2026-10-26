@@ -5,7 +5,7 @@ use ratatui::text::Line;
 use ratatui::widgets::{ Block, Cell, Padding, Row, StatefulWidget, Table, TableState, Widget };
 
 use crate::device::Device;
-use crate::executors;
+use crate::generators;
 use crate::scene;
 use crate::ui::{ Action, State };
 use super::common;
@@ -45,11 +45,11 @@ impl scene::Scene<State> for DeviceScene {
         true
       }
       KeyCode::Enter => {
-        ctx.invoke( Action::Play( executors::WINDMILL_ID ) );
+        ctx.invoke( Action::Play( generators::WINDMILL_ID ) );
         true
       }
       key @ ( KeyCode::Down | KeyCode::Up ) => {
-        common::on_key_down_for_table_state(&key, &mut self.generators, executors::EXECUTORS.len() )
+        common::on_key_down_for_table_state(&key, &mut self.generators, generators::GENERATORS.len() )
       }
       _ => {
         false
@@ -70,7 +70,7 @@ impl scene::Scene<State> for DeviceScene {
 
       // Render right pane
       if device.is_connected() {
-        let title = format!(" Generators [{}] ", executors::EXECUTORS.len() );
+        let title = format!(" Generators [{}] ", generators::GENERATORS.len() );
         let block = common::make_block( Some( &title ) );
         let inner_area = block.inner( right_area );
 
@@ -151,12 +151,12 @@ pub fn draw_device_panel( device: &Device, area: Rect, buf: &mut Buffer ) -> boo
 
 fn draw_generators_table( state: &mut TableState, area: Rect, buf: &mut Buffer ) {
   const CONSTRAINTS: [Constraint; 2] = [ Constraint::Min( 30 ), Constraint::Fill( 1 ) ];
-  let mut rows = Vec::with_capacity( executors::EXECUTORS.len() );
+  let mut rows = Vec::with_capacity( generators::GENERATORS.len() );
   let selected_idx = state.selected().unwrap_or( 0 );
 
-  for ( i, ( _, executor ) ) in executors::EXECUTORS.iter().enumerate() {
+  for ( i, ( _, generator ) ) in generators::GENERATORS.iter().enumerate() {
     let style = if selected_idx == i { common::HIGHLIGHT_ROW_SELECTED_STYLE } else { common::HIGHLIGHT_TEXT_STYLE };
-    rows.push( Row::new([ Cell::new( executor.name.clone() ), Cell::new( "" ) ]).style( style ) );
+    rows.push( Row::new([ Cell::new( generator.name.clone() ), Cell::new( "" ) ]).style( style ) );
   }
 
   let table = Table::new( rows, CONSTRAINTS )

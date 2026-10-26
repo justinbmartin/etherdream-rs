@@ -9,7 +9,7 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 mod device;
-mod executors;
+mod generators;
 mod scene;
 mod ui;
 
