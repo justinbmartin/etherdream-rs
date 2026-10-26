@@ -68,7 +68,7 @@ impl Device {
   pub fn generator_mut( &mut self ) -> Option<&mut etherdream::Generator> { self.generator.as_mut() }
 
   /// Creates and starts a generator from `executable`.
-  pub async fn generate( &mut self, executor: &executors::Executor ) -> bool {
+  pub async fn generate(&mut self, executor: &executors::Executor ) -> bool {
     if let Some( client ) = self.client.take() {
       let mut generator = etherdream::make_generator( client, ( executor.create_fn )() );
       generator.start().await;

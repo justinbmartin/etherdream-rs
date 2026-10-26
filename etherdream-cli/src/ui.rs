@@ -12,8 +12,8 @@ mod common;
 mod device;
 mod list;
 
-pub const DEVICE_ID: &str     = "device";
-pub const LIST_ID: &str       = "list";
+pub const DEVICE_ID: &str = "device";
+pub const LIST_ID: &str = "list";
 
 #[derive( Debug )]
 pub enum Action {

@@ -44,19 +44,12 @@ impl scene::Scene<State> for DeviceScene {
         ctx.invoke( Action::Stop );
         true
       }
-      KeyCode::Down => {
-        let next_idx = ( self.generators.selected().unwrap_or( 0 ) + 1 ).min( executors::EXECUTORS.len().saturating_sub( 1 ) );
-        self.generators.select( Some( next_idx ) );
-        true
-      }
       KeyCode::Enter => {
         ctx.invoke( Action::Play( executors::WINDMILL_ID ) );
         true
       }
-      KeyCode::Up => {
-        let next_idx = self.generators.selected().unwrap_or( 0 ).saturating_sub( 1 );
-        self.generators.select( Some( next_idx ) );
-        true
+      key @ ( KeyCode::Down | KeyCode::Up ) => {
+        common::on_key_down_for_table_state(&key, &mut self.generators, executors::EXECUTORS.len() )
       }
       _ => {
         false
@@ -77,7 +70,7 @@ impl scene::Scene<State> for DeviceScene {
 
       // Render right pane
       if device.is_connected() {
-        let title = format!( " Generators [{}] ", executors::EXECUTORS.len() );
+        let title = format!(" Generators [{}] ", executors::EXECUTORS.len() );
         let block = common::make_block( Some( &title ) );
         let inner_area = block.inner( right_area );
 

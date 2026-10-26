@@ -1,8 +1,9 @@
+use crossterm::event::KeyCode;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{ Alignment, Constraint, Layout, Rect };
 use ratatui::style::{ Color, Style };
 use ratatui::text::Line;
-use ratatui::widgets::{ Block, Padding, Paragraph, Widget };
+use ratatui::widgets::{ Block, Padding, Paragraph, TableState, Widget };
 
 pub const INFO_TEXT_STYLE: Style = Style::new().fg( Color::Rgb( 150, 150, 150 ) );
 pub const HIGHLIGHT_COLOR: Color = Color::Rgb( 232, 195, 0 );
@@ -41,4 +42,20 @@ pub fn draw_centered_line( msg: &str, style: Style, area: Rect, buf: &mut Buffer
   let center_y = area.y + ( area.height / 2 );
   let centered_area = Rect::new( area.x, center_y, area.width, 1 );
   Paragraph::new( line ).render( centered_area, buf );
+}
+
+pub fn on_key_down_for_table_state( key: &KeyCode, state: &mut TableState, count: usize ) -> bool {
+  match key {
+    KeyCode::Down => {
+      let next_idx = ( state.selected().unwrap_or( 0 ) + 1 ).min( count.saturating_sub( 1 ) );
+      state.select( Some( next_idx ) );
+      true
+    }
+    KeyCode::Up => {
+      let next_idx = state.selected().unwrap_or( 0 ).saturating_sub( 1 );
+      state.select( Some( next_idx ) );
+      true
+    }
+    _ => false
+  }
 }

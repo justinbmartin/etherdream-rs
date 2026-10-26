@@ -29,11 +29,6 @@ impl ListScene {
 impl scene::Scene<State> for ListScene {
   fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::Context<State> ) -> bool {
     match key.code {
-      KeyCode::Down => {
-        let next_idx = ( self.table.selected().unwrap_or( 0 ) + 1 ).checked_rem( self.device_addrs.len() );
-        self.table.select( next_idx );
-        true
-      }
       KeyCode::Enter => {
         if let Some( addr ) = self.selected_addr() {
           ctx.invoke( Action::SelectDevice( *addr ) );
@@ -41,9 +36,8 @@ impl scene::Scene<State> for ListScene {
 
         true
       }
-      KeyCode::Up => {
-        self.table.select_previous();
-        true
+      key @ ( KeyCode::Down | KeyCode::Up ) => {
+        common::on_key_down_for_table_state( &key, &mut self.table, self.device_addrs.len() )
       }
       _ => false
     }
