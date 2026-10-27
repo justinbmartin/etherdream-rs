@@ -4,14 +4,14 @@ use std::net::SocketAddr;
 
 use etherdream::protocol;
 
-use crate::generators;
+use crate::executors::Executor;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Device
 
 pub struct Device {
   info: etherdream::DeviceInfo,
   client: Option<etherdream::Client>,
-  generator: Option<etherdream::Generator>
+  generator: Option<( String, etherdream::Generator )>
 }
 
 impl Device {
@@ -34,7 +34,7 @@ impl Device {
   pub fn state( &self, mut state: &mut etherdream::State ) {
     if let Some( client ) = self.client.as_ref() {
       client.clone_state_into( &mut state );
-    } else if let Some( generator ) = self.generator.as_ref() {
+    } else if let Some( generator ) = self.generator() {
       generator.clone_state_into( &mut state );
     } else {
       // uh-oh...
@@ -56,7 +56,7 @@ impl Device {
 
   //
   pub async fn disconnect( &mut self ) {
-    if let Some( generator ) = self.generator.take() && let Ok( client ) = generator.into_client().await {
+    if let Some( ( _, generator ) ) = self.generator.take() && let Ok( client ) = generator.into_client().await {
       client.disconnect().await
     } else if let Some( client ) = self.client.take() {
       client.disconnect().await
@@ -64,15 +64,15 @@ impl Device {
   }
 
   /// Returns a reference to the active device generator, if one is set.
-  pub fn generator( &self ) -> Option<&etherdream::Generator> { self.generator.as_ref() }
-  pub fn generator_mut( &mut self ) -> Option<&mut etherdream::Generator> { self.generator.as_mut() }
+  pub fn generator( &self ) -> Option<&etherdream::Generator> { self.generator.as_ref().map(|( _, g )| g ) }
+  pub fn generator_mut( &mut self ) -> Option<&mut etherdream::Generator> { self.generator.as_mut().map(|( _, g )| g ) }
 
   /// Creates and starts a generator from `executable`.
-  pub async fn generate(&mut self, generator: &generators::Generator ) -> bool {
+  pub async fn generate(&mut self, executor: &Executor ) -> bool {
     if let Some( client ) = self.client.take() {
-      let mut generator = etherdream::make_generator( client, ( generator.create_executor_fn )() );
+      let mut generator = etherdream::make_generator( client, executor.create() );
       generator.start().await;
-      self.generator = Some( generator );
+      self.generator = Some( ( String::from( executor.id() ), generator ) );
       return true;
     }
 
