@@ -148,7 +148,7 @@ impl<T: Actionable + Send + 'static> Foreground<T> {
     while let Some( event ) = self.events_rx.blocking_recv() {
       match event {
         Event::Key( key ) => {
-          if let Some( scene ) = self.stack.last().and_then(| current | self.scenes.get_mut( current ) ) {
+          if let Some( scene ) = current_scene_from_stack_mut( &mut self.scenes, &self.stack ) {
             if ! scene.on_key_down( key, &mut self.ctx ) {
               match key.code {
                 KeyCode::Char( 'q' ) | KeyCode::Esc => { break; },
@@ -158,7 +158,7 @@ impl<T: Actionable + Send + 'static> Foreground<T> {
           }
         },
         Event::Tick( _time ) => {
-          if let Some( scene ) = self.stack.last().and_then(| current | self.scenes.get_mut( current ) ) {
+          if let Some( scene ) = current_scene_from_stack_mut( &mut self.scenes, &self.stack ) {
             let _ = scene.on_update( &mut self.ctx );
             let _ = terminal.draw(| frame |{ scene.on_draw( frame.area(), frame.buffer_mut(), &self.ctx ); });
           }
@@ -185,8 +185,8 @@ impl<T: Actionable + Send + 'static> Foreground<T> {
         if let Some( scene ) = self.stack.pop().and_then(| current | self.scenes.get_mut( current ) ) {
           scene.on_exit( &self.ctx );
 
-          if let Some( parent_scene ) = self.stack.last().and_then(| parent_id | self.scenes.get_mut( parent_id ) ) {
-            parent_scene.on_enter( &self.ctx );
+          if let Some( next_scene ) = current_scene_from_stack_mut( &mut self.scenes, &self.stack ) {
+            next_scene.on_enter( &self.ctx );
           }
         }
       }
@@ -235,6 +235,14 @@ impl<T: Actionable + Send + 'static> Context<T> {
   pub fn invoke( &mut self, action: T::Action ) -> bool {
     self.action_tx.try_send( action ).is_ok()
   }
+}
+
+fn current_scene_from_stack_mut<'a,T>(
+  scenes: &'a mut HashMap<&'static str, Box<dyn Scene<T>>>,
+  stack: &Vec<&'static str>
+) -> Option<&'a mut Box<dyn Scene<T>>>
+{
+  stack.last().and_then(| id | scenes.get_mut( id ) )
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Background Handler
