@@ -5,8 +5,11 @@ use std::time::Duration;
 
 use crossterm::event::{ self, EventStream, KeyCode, KeyEvent, KeyEventKind };
 use futures::{ FutureExt, StreamExt };
-use ratatui::{ buffer::Buffer, layout::Rect };
-use tokio::{ sync::{ mpsc, RwLock, RwLockReadGuard }, task::JoinSet, time };
+use ratatui::buffer::Buffer;
+use ratatui::layout::Rect;
+use tokio::sync::{ mpsc, RwLock, RwLockReadGuard };
+use tokio::task::JoinSet;
+use tokio::time;
 use tokio_util::sync::CancellationToken;
 
 const DEFAULT_FPS: f32 = 30.0;
@@ -27,7 +30,7 @@ pub enum SceneEvent {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Actionable
 
 pub trait Actionable {
-  /// Actions that the user-defined scene Backend supports.
+  /// Actions that the scenes `Background` handler will support.
   type Action: 'static + Send + fmt::Debug;
 
   /// Sends an implementation-defined `Action` from the `Foreground<T>` to the
@@ -69,7 +72,7 @@ pub struct Builder<T: Actionable + Send + 'static> {
   state: Arc<RwLock<T>>
 }
 
-impl<'a,T: Actionable + Send + 'static> Builder<T> {
+impl<T: Actionable + Send + 'static> Builder<T> {
   pub fn new( state: Arc<RwLock<T>> ) -> Self {
     Self{
       current: None,
@@ -145,7 +148,7 @@ impl<T: Actionable + Send + 'static> Foreground<T> {
     while let Some( event ) = self.events_rx.blocking_recv() {
       match event {
         Event::Key( key ) => {
-          if let Some( scene ) = self.stack.last().and_then( |current| self.scenes.get_mut( current ) ) {
+          if let Some( scene ) = self.stack.last().and_then(| current | self.scenes.get_mut( current ) ) {
             if ! scene.on_key_down( key, &mut self.ctx ) {
               match key.code {
                 KeyCode::Char( 'q' ) | KeyCode::Esc => { break; },
@@ -155,7 +158,7 @@ impl<T: Actionable + Send + 'static> Foreground<T> {
           }
         },
         Event::Tick( _time ) => {
-          if let Some( scene ) = self.stack.last().and_then( |current| self.scenes.get_mut( current ) ) {
+          if let Some( scene ) = self.stack.last().and_then(| current | self.scenes.get_mut( current ) ) {
             let _ = scene.on_update( &mut self.ctx );
             let _ = terminal.draw(| frame |{ scene.on_draw( frame.area(), frame.buffer_mut(), &self.ctx ); });
           }
@@ -171,7 +174,7 @@ impl<T: Actionable + Send + 'static> Foreground<T> {
     match event {
       SceneEvent::Push( next_scene_id ) => {
         if let Some( current_id ) = self.stack.last() {
-          if let [Some( current_scene ), Some( next_scene )] = self.scenes.get_disjoint_mut([ *current_id, next_scene_id ]) {
+          if let [ Some( current_scene ), Some( next_scene ) ] = self.scenes.get_disjoint_mut([ *current_id, next_scene_id ]) {
             current_scene.on_exit( &self.ctx );
             self.stack.push( next_scene_id );
             next_scene.on_enter( &self.ctx );
@@ -179,26 +182,22 @@ impl<T: Actionable + Send + 'static> Foreground<T> {
         }
       },
       SceneEvent::Pop => {
-        if let Some( scene ) = self.stack.last().and_then( |current| self.scenes.get_mut( current ) ) {
+        if let Some( scene ) = self.stack.pop().and_then(| current | self.scenes.get_mut( current ) ) {
           scene.on_exit( &self.ctx );
-          self.stack.pop();
 
-          if let Some( parent_scene ) = self.stack.last().and_then( |parent_id| self.scenes.get_mut( parent_id ) ) {
+          if let Some( parent_scene ) = self.stack.last().and_then(| parent_id | self.scenes.get_mut( parent_id ) ) {
             parent_scene.on_enter( &self.ctx );
           }
         }
       }
       SceneEvent::_Switch( next_scene_id ) => {
         if self.scenes.contains_key( next_scene_id ) {
-          // Call `Scene::on_exit` for each scene in the stack, in reverse
-          for scene_id in self.stack.iter().rev() {
+          // Pop each scene on the stack, calling `Scene::on_exit` for each
+          while let Some( scene_id ) = self.stack.pop() {
             if let Some( scene ) = self.scenes.get_mut( scene_id ) {
               scene.on_exit( &self.ctx );
             }
           }
-
-          // Clear the stack
-          self.stack.clear();
 
           // Call `Scene::on_enter` for the new scene
           if let Some( next_scene ) = self.scenes.get_mut( next_scene_id ) {
@@ -238,9 +237,9 @@ impl<T: Actionable + Send + 'static> Context<T> {
   }
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - -  Background Action Handler
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Background Handler
 
-pub enum Event {
+enum Event {
   Key( KeyEvent ),
   Scene( SceneEvent ),
   Tick( f64 )
@@ -254,30 +253,25 @@ pub struct Background<T: Actionable + Send + 'static> {
 
 impl<T: Actionable + Send + Sync + 'static> Background<T> {
   pub async fn run( mut self ) {
-    let mut tasks = JoinSet::new();
-
-    // TODO
     let cancellation_token = CancellationToken::new();
+    let mut tasks = JoinSet::new();
 
     // Start task for tick on FPS
     tasks.spawn({
       let cancellation_token = cancellation_token.child_token();
-      let event_tx = self.events_tx.clone();
+      let events_tx = self.events_tx.clone();
 
       async move {
-        tokio::select!{
-          _ = cancellation_token.cancelled() => { println!( "cancellation token exit..." ) }
-          _ = async move {
-            let fps = Duration::from_secs_f32( 1.0 / DEFAULT_FPS );
-            let mut interval = time::interval( fps );
-            let start_time = time::Instant::now();
+        cancellation_token.run_until_cancelled( async move {
+          let fps = Duration::from_secs_f32( 1.0 / DEFAULT_FPS );
+          let mut interval = time::interval( fps );
+          let start_time = time::Instant::now();
 
-            loop {
-              let now = interval.tick().await;
-              let _ = event_tx.send( Event::Tick( ( start_time - now ).as_secs_f64() ) ).await;
-            }
-          } => { }
-        }
+          loop {
+            let now = interval.tick().await;
+            let _ = events_tx.send( Event::Tick( ( start_time - now ).as_secs_f64() ) ).await;
+          }
+        }).await;
       }
     });
 
@@ -285,46 +279,40 @@ impl<T: Actionable + Send + Sync + 'static> Background<T> {
     tasks.spawn({
       let actionable = self.actionable.clone();
       let cancellation_token = cancellation_token.child_token();
-      let event_tx = self.events_tx.clone();
+      let events_tx = self.events_tx.clone();
 
       async move {
-        tokio::select!{
-          _ = cancellation_token.cancelled() => { println!( "cancellation token exit..." ) }
-          _ = async move {
-            while let Some( action ) = self.action_rx.recv().await {
-              let event = actionable.write().await.invoke( action ).await;
-              let _ = event_tx.send( Event::Scene( event ) ).await;
-            }
-          } => { }
-        }
+        cancellation_token.run_until_cancelled( async move {
+          while let Some( action ) = self.action_rx.recv().await {
+            let event = actionable.write().await.invoke( action ).await;
+            let _ = events_tx.send( Event::Scene( event ) ).await;
+          }
+        }).await;
       }
     });
 
     // Start task to capture key events
     tasks.spawn({
       let cancellation_token = cancellation_token.child_token();
-      let event_tx = self.events_tx.clone();
+      let events_tx = self.events_tx.clone();
 
       async move {
-        tokio::select!{
-          _ = cancellation_token.cancelled() => { println!( "cancellation token exit..." ) }
-          _ = async move {
-            let mut crossterm_events = EventStream::new();
+        cancellation_token.run_until_cancelled( async move {
+          let mut crossterm_events = EventStream::new();
 
-            loop {
-              if let Some( Ok( crossterm_event ) ) = crossterm_events.next().fuse().await {
-                match crossterm_event {
-                  event::Event::Key( key ) => {
-                    if key.kind == KeyEventKind::Press {
-                      let _ = event_tx.send( Event::Key( key ) ).await;
-                    }
+          loop {
+            if let Some( Ok( crossterm_event ) ) = crossterm_events.next().fuse().await {
+              match crossterm_event {
+                event::Event::Key( key ) => {
+                  if key.kind == KeyEventKind::Press {
+                    let _ = events_tx.send( Event::Key( key ) ).await;
                   }
-                  _ => { /* no-op */ }
                 }
+                _ => { /* no-op */ }
               }
             }
-          } => { }
-        }
+          }
+        }).await;
       }
     });
     
