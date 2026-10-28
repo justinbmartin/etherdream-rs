@@ -20,15 +20,13 @@ fn main() -> Result<(),String> {
     .build()
     .map_err( |e| format!( "Failed to build Tokio run-time: {}", e ) )?;
 
-  //
+  let cancellation_token = CancellationToken::new();
   let ( discovery_tx, mut discovery_rx ) = mpsc::channel::<SocketAddr>( 16 );
   let registry = discovery::Registry::default();
-
-  let cancellation_token = CancellationToken::new();
   let state = Arc::new( RwLock::new( ui::State::new( registry.clone() ) ) );
   let ( fg, bg ) = ui::build_scenes( state.clone() ).map_err( |e| format!( "Failed to build scenes: {}", e ) )?;
 
-  let rt_thread =
+  let thread =
     std::thread::spawn({
       let cancellation_token = cancellation_token.child_token();
 
@@ -43,10 +41,9 @@ fn main() -> Result<(),String> {
 
             async move {
               cancellation_token.run_until_cancelled( async move {
-                let discovery = discovery::Discovery::with_registry( registry )
-                  .notify( discovery_tx );
+                let server = discovery::Discovery::with_registry( registry ).notify( discovery_tx );
 
-                if let Ok( _ ) = discovery.listen().await {
+                if let Ok( _ ) = server.listen().await {
                   while let Some( address ) = discovery_rx.recv().await {
                     state.write().await.register_device( address ).await;
                   }
@@ -72,7 +69,7 @@ fn main() -> Result<(),String> {
 
   // Shutdown the background processes
   cancellation_token.cancel();
-  let _ = rt_thread.join();
+  let _ = thread.join();
 
   Ok( () )
 }

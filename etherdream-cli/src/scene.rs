@@ -17,7 +17,7 @@ pub enum SceneEvent {
   None,
   /// Pops the current scene from the stack.
   Pop,
-  /// Pushes a new scene on to the stack. Useful for modals.
+  /// Pushes a new scene on to the stack.
   Push( &'static str ),
   /// Clears the stack, calling `Scene::on_exit` for each scene. Pushes into
   /// the new scene.
@@ -96,7 +96,7 @@ impl<'a,T: Actionable + Send + 'static> Builder<T> {
   }
 
   /// Builds the scene definitions, returning back a foreground and background
-  /// handler. TODO: elaborate...
+  /// handler.
   pub fn build( self ) -> Result<( Foreground<T>, Background<T> ),BuilderError> {
     if let Some( current ) = self.current {
       let ( action_tx, action_rx ) = mpsc::channel::<T::Action>( 16 );
