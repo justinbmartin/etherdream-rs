@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fmt;
+use std::hash;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -30,14 +31,14 @@ pub enum SceneEvent<T> {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
 pub trait SceneController {
-  /// Actions that the scenes `Background` handler will support.
-  type Action: 'static + Send + fmt::Debug;
+  /// Actions that individual scene handlers can emit to the controller.
+  type Action: fmt::Debug + Send;
 
-  /// Scene Ids that this controller will support.
-  type SceneId: 'static + Send + fmt::Debug + Eq + std::hash::Hash + Copy;
+  /// Identifiers for all defined scenes.
+  type SceneId: Copy + fmt::Debug + Eq + hash::Hash + Send;
 
-  /// Sends an implementation-defined `Action` from the `Foreground<T>` to the
-  /// asynchronous `Background<T>` handler. Must return a `SceneEvent`.
+  /// Sends an implementation-defined `Action` from the `Foreground` to the
+  /// asynchronous `Background` handler. Must return a `SceneEvent`.
   fn invoke( &mut self, action: Self::Action ) -> impl Future<Output=SceneEvent<Self::SceneId>> + Send;
 }
 
@@ -66,60 +67,45 @@ pub trait Scene<T: SceneController + Send + 'static> {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Builder
 
 pub struct Builder<T: SceneController + Send + 'static> {
-  current: Option<T::SceneId>,
+  current: T::SceneId,
   scenes: HashMap<T::SceneId, Box<dyn Scene<T>>>,
   state: Arc<RwLock<T>>
 }
 
 impl<T: SceneController + Send + 'static> Builder<T> {
-  pub fn new( state: Arc<RwLock<T>> ) -> Self {
+  pub fn new( state: Arc<RwLock<T>>, id: T::SceneId, scene: Box<dyn Scene<T>> ) -> Self {
     Self{
-      current: None,
-      scenes: HashMap::new(),
+      current: id,
+      scenes: HashMap::from([( id, scene )]),
       state
     }
   }
 
   /// Adds a scene to the builder definition.
-  pub fn add_scene( &mut self, id: T::SceneId, scene: Box<dyn Scene<T>> ) -> bool {
+  pub fn add_scene( mut self, id: T::SceneId, scene: Box<dyn Scene<T>> ) -> Self {
     self.scenes.insert( id, scene );
-    if self.current.is_none() { self.current = Some( id ) }
-    true
-  }
-
-  /// Sets the default scene. The scene for `id` must already be defined.
-  pub fn set_default_scene( &mut self, id: T::SceneId ) -> bool {
-    if self.scenes.contains_key( &id ) {
-      self.current = Some( id );
-      true
-    } else {
-      false
-    }
+    self
   }
 
   /// Builds the scene definitions, returning back a foreground and background
   /// handler.
   pub fn build( self ) -> ( Foreground<T>, Background<T> ) {
-    if let Some( current ) = self.current {
-      let ( action_tx, action_rx ) = mpsc::channel::<T::Action>( 16 );
-      let ( events_tx, events_rx ) = mpsc::channel::<Event<T::SceneId>>( 1024 );
+    let ( action_tx, action_rx ) = mpsc::channel::<T::Action>( 16 );
+    let ( events_tx, events_rx ) = mpsc::channel::<Event<T::SceneId>>( 1024 );
 
-      (
-        Foreground{
-          ctx: Context{ action_tx, state: self.state.clone() },
-          events_rx,
-          scenes: self.scenes,
-          stack: vec![ current ]
-        },
-        Background{
-          action_rx,
-          actionable: self.state,
-          events_tx
-        }
-      )
-    } else {
-      panic!( "..." )
-    }
+    (
+      Foreground{
+        ctx: Context{ action_tx, state: self.state.clone() },
+        events_rx,
+        scenes: self.scenes,
+        stack: vec![ self.current ]
+      },
+      Background{
+        action_rx,
+        actionable: self.state,
+        events_tx
+      }
+    )
   }
 }
 

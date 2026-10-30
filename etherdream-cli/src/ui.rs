@@ -128,11 +128,7 @@ impl scene::SceneController for State {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene Definitions
 
 pub fn build_scenes( state: Arc<RwLock<State>> ) -> ( scene::Foreground<State>, scene::Background<State> ) {
-  let mut builder = scene::Builder::new( state );
-
-  builder.add_scene( SceneId::ViewDevice, Box::new( device::DeviceScene::new() ) );
-  builder.add_scene( SceneId::ListDevices, Box::new( list::ListScene::new() ) );
-
-  builder.set_default_scene( SceneId::ListDevices );
-  builder.build()
+  scene::Builder::new( state, SceneId::ListDevices, Box::new( list::ListScene::new() ) )
+    .add_scene( SceneId::ViewDevice, Box::new( device::DeviceScene::new() ) )
+    .build()
 }
