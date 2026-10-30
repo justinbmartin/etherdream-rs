@@ -99,7 +99,7 @@ impl scene::SceneController for State {
       Action::Play( track_id ) => {
         if let Some( device ) = self.get_current_device_mut() {
           if let Some( sequencer )= device.sequencer_mut(){
-            sequencer.play( track_id ).await;
+            sequencer.play( track_id );
           }
         }
 
@@ -111,7 +111,7 @@ impl scene::SceneController for State {
       }
       Action::Stop => {
         if let Some( device ) = self.get_current_device_mut() && let Some( sequencer ) = device.sequencer_mut() {
-          sequencer.stop().await;
+          sequencer.stop();
         }
 
         scene::SceneEvent::None

@@ -49,7 +49,7 @@ impl scene::Scene<State> for DeviceScene {
         true
       }
       key @ ( KeyCode::Down | KeyCode::Up ) => {
-        common::on_key_down_for_table_state(&key, &mut self.tracks, tracks::TRACK_MAP.len() )
+        common::on_key_down_for_table_state(&key, &mut self.tracks, tracks::DEFINITIONS.len() )
       }
       _ => {
         false
@@ -70,7 +70,7 @@ impl scene::Scene<State> for DeviceScene {
 
       // Render right pane
       if device.is_connected() {
-        let title = format!(" Tracks [{}] ", tracks::TRACK_MAP.len() );
+        let title = format!(" Tracks [{}] ", tracks::DEFINITIONS.len() );
         let block = common::make_block( Some( &title ) );
         let inner_area = block.inner( right_area );
 
@@ -151,12 +151,12 @@ pub fn draw_device_panel( device: &Device, area: Rect, buf: &mut Buffer ) -> boo
 
 fn draw_generators_table( state: &mut TableState, area: Rect, buf: &mut Buffer ) {
   const CONSTRAINTS: [Constraint; 2] = [ Constraint::Min( 30 ), Constraint::Fill( 1 ) ];
-  let mut rows = Vec::with_capacity( tracks::TRACK_MAP.len() );
+  let mut rows = Vec::with_capacity( tracks::DEFINITIONS.len() );
   let selected_idx = state.selected().unwrap_or( 0 );
 
-  for ( i, ( _, definition ) ) in tracks::TRACK_MAP.iter().enumerate() {
+  for ( i, ( _, definition ) ) in tracks::DEFINITIONS.iter().enumerate() {
     let style = if selected_idx == i { common::HIGHLIGHT_ROW_SELECTED_STYLE } else { common::HIGHLIGHT_TEXT_STYLE };
-    rows.push( Row::new([ Cell::new( definition.name() ), Cell::new( "" ) ]).style( style ) );
+    rows.push( Row::new([ Cell::new( definition.name.clone() ), Cell::new( "" ) ]).style( style ) );
   }
 
   let table = Table::new( rows, CONSTRAINTS )

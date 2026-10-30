@@ -26,13 +26,9 @@ impl Device {
   pub fn is_connected( &self ) -> bool { self.sequencer.is_some() }
 
   /// ...
-  pub fn state( &self, mut state: &mut etherdream::State ) {
-    if let Some( client ) = self.client.as_ref() {
-      client.clone_state_into( &mut state );
-    } else if let Some( generator ) = self.generator() {
-      generator.clone_state_into( &mut state );
-    } else {
-      // uh-oh...
+  pub fn state( &self, state: &mut etherdream::State ) {
+    if let Some( sequencer ) = self.sequencer.as_ref() {
+      sequencer.clone_into_state( state );
     }
   }
 
