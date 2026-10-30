@@ -87,12 +87,12 @@ impl Device {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Device Map
 
 #[derive( Default )]
-pub struct DeviceMap {
+pub struct VersionedDeviceMap {
   inner: HashMap<SocketAddr,Device>,
   version: usize
 }
 
-impl DeviceMap{
+impl VersionedDeviceMap {
   /// Returns an immutable reference to a device.
   pub fn get( &self, address: &SocketAddr ) -> Option<&Device> { self.inner.get( address ) }
   pub fn get_mut( &mut self, address: &SocketAddr ) -> Option<&mut Device> { self.inner.get_mut( address ) }

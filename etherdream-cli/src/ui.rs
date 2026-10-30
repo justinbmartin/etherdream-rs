@@ -4,7 +4,7 @@ use std::sync::Arc;
 use etherdream::discovery;
 use tokio::sync::RwLock;
 
-use crate::device::{ Device, DeviceMap };
+use crate::device::{ Device, VersionedDeviceMap };
 use crate::executors;
 use crate::scene;
 
@@ -34,7 +34,7 @@ pub struct State {
   // The currently selected device.
   current_device_id: Option<SocketAddr>,
   // Map of instantiated Etherdream devices.
-  devices: DeviceMap,
+  devices: VersionedDeviceMap,
   // The device registry shared with the discovery service.
   registry: discovery::Registry
 }
@@ -44,13 +44,13 @@ impl State {
   pub fn new( registry: discovery::Registry ) -> Self {
     Self{
       current_device_id: None,
-      devices: DeviceMap::default(),
+      devices: VersionedDeviceMap::default(),
       registry
     }
   }
 
   /// Returns an immutable reference to the `State`s registered devices.
-  pub fn devices( &self ) -> &DeviceMap { &self.devices }
+  pub fn devices( &self ) -> &VersionedDeviceMap { &self.devices }
 
   /// Registers a device from the registry into the `DeviceMap` by `address`.
   pub async fn register_device( &mut self, address: SocketAddr ) {

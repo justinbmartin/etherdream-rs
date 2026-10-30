@@ -48,14 +48,14 @@ impl scene::Scene<State> for ListScene {
     let devices = state.devices();
 
     if devices.version() != self.version {
-      let mut addrs: Vec<SocketAddr> = devices.iter().map(|( &d, _ )| d ).collect();
+      let mut addrs: Vec<SocketAddr> = devices.iter().map(|( &addr, _ )| addr ).collect();
       let mut updated_idx = None::<usize>;
 
       if ! addrs.is_empty() {
         addrs.sort();
 
         if let Some( idx ) = self.table.selected() {
-          if let Some( addr ) = self.device_addrs.get( idx ) && let Ok( idx ) = addrs.binary_search( addr ) {
+          if let Some( addr ) = self.device_addrs.get( idx ) && let Ok( idx ) = addrs.binary_search( &addr ) {
             // The device index may have changed. Update the device index to reflect any new position.
             updated_idx = Some( idx );
           } else {
