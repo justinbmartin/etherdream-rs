@@ -9,8 +9,9 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 mod device;
-mod executors;
+mod sequencer;
 mod scene;
+mod tracks;
 mod ui;
 
 fn main() -> Result<(),String> {

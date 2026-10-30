@@ -5,7 +5,7 @@ use etherdream::discovery;
 use tokio::sync::RwLock;
 
 use crate::device::{ Device, VersionedDeviceMap };
-use crate::executors;
+use crate::sequencer;
 use crate::scene;
 
 mod common;
@@ -102,7 +102,7 @@ impl scene::SceneController for State {
           if let Some( generator )= device.generator_mut(){
             generator.start().await;
           } else {
-            if let Some( generator ) = executors::EXECUTORS.get( executor_id ) {
+            if let Some( generator ) = executors::EXECUTOR_DEFINITIONS.get( executor_id ) {
               device.generate( generator ).await;
             }
           }

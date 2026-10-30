@@ -3,12 +3,11 @@ use etherdream::generator;
 use super::common;
 
 #[derive( Default )]
-pub(crate) struct Beam;
+pub struct Beam;
 
-impl generator::Executable for Beam {
-  fn on_start( &mut self, _: generator::OnStartContext ) -> generator::Config {
-    generator::Config::new( 1_000 )
-  }
+impl super::Track for Beam {
+  fn id( &self ) -> &str { "beam" }
+  fn name( &self ) -> &str { "Beam" }
 
   fn execute( &mut self, ctx: &mut generator::ExecutionContext ) {
     let color = common::ilda_color( 1.0 );
