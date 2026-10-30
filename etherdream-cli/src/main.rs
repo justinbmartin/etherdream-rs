@@ -24,7 +24,7 @@ fn main() -> Result<(),String> {
   let ( discovery_tx, mut discovery_rx ) = mpsc::channel::<SocketAddr>( 16 );
   let registry = discovery::Registry::default();
   let state = Arc::new( RwLock::new( ui::State::new( registry.clone() ) ) );
-  let ( fg, bg ) = ui::build_scenes( state.clone() ).map_err( |e| format!( "Failed to build scenes: {}", e ) )?;
+  let ( fg, bg ) = ui::build_scenes( state.clone() );
 
   let thread =
     std::thread::spawn({

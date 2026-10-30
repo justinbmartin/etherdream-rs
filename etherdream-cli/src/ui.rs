@@ -12,9 +12,6 @@ mod common;
 mod device;
 mod list;
 
-pub const DEVICE_ID: &str = "device";
-pub const LIST_ID: &str = "list";
-
 #[derive( Debug )]
 pub enum Action {
   Back,
@@ -25,7 +22,7 @@ pub enum Action {
   Stop
 }
 
-#[derive( Debug )]
+#[derive( Clone, Copy, Debug, Eq, Hash, PartialEq )]
 pub enum SceneId {
   ListDevices,
   ViewDevice
@@ -79,8 +76,9 @@ impl State {
 
 impl scene::SceneController for State {
   type Action = Action;
+  type SceneId = SceneId;
 
-  async fn invoke( &mut self, action: Action ) -> scene::SceneEvent {
+  async fn invoke( &mut self, action: Action ) -> scene::SceneEvent<Self::SceneId> {
     match action {
       Action::Back => {
         scene::SceneEvent::Pop
@@ -114,7 +112,7 @@ impl scene::SceneController for State {
       }
       Action::SelectDevice( device_id ) => {
         self.set_current_device( Some( device_id ) );
-        scene::SceneEvent::Push( DEVICE_ID )
+        scene::SceneEvent::Push( SceneId::ViewDevice )
       }
       Action::Stop => {
         if let Some( device ) = self.get_current_device_mut() && let Some( generator ) = device.generator_mut() {
@@ -129,12 +127,12 @@ impl scene::SceneController for State {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene Definitions
 
-pub fn build_scenes( state: Arc<RwLock<State>> ) -> Result<( scene::Foreground<State>, scene::Background<State> ),scene::BuilderError> {
+pub fn build_scenes( state: Arc<RwLock<State>> ) -> ( scene::Foreground<State>, scene::Background<State> ) {
   let mut builder = scene::Builder::new( state );
 
-  builder.add_scene( DEVICE_ID, Box::new( device::DeviceScene::new() ) );
-  builder.add_scene( LIST_ID, Box::new( list::ListScene::new() ) );
+  builder.add_scene( SceneId::ViewDevice, Box::new( device::DeviceScene::new() ) );
+  builder.add_scene( SceneId::ListDevices, Box::new( list::ListScene::new() ) );
 
-  builder.set_default_scene( LIST_ID );
+  builder.set_default_scene( SceneId::ListDevices );
   builder.build()
 }

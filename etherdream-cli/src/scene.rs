@@ -15,16 +15,16 @@ use tokio_util::sync::CancellationToken;
 const DEFAULT_FPS: f32 = 30.0;
 
 #[derive( Debug )]
-pub enum SceneEvent {
+pub enum SceneEvent<T> {
   /// No action.
   None,
   /// Pops the current scene from the stack.
   Pop,
   /// Pushes a new scene on to the stack.
-  Push( &'static str ),
+  Push( T ),
   /// Clears the stack, calling `Scene::on_exit` for each scene. Pushes into
   /// the new scene.
-  _Switch( &'static str )
+  _Switch( T )
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
@@ -33,9 +33,12 @@ pub trait SceneController {
   /// Actions that the scenes `Background` handler will support.
   type Action: 'static + Send + fmt::Debug;
 
+  /// Scene Ids that this controller will support.
+  type SceneId: 'static + Send + fmt::Debug + Eq + std::hash::Hash + Copy;
+
   /// Sends an implementation-defined `Action` from the `Foreground<T>` to the
   /// asynchronous `Background<T>` handler. Must return a `SceneEvent`.
-  fn invoke( &mut self, action: Self::Action ) -> impl Future<Output=SceneEvent> + Send;
+  fn invoke( &mut self, action: Self::Action ) -> impl Future<Output=SceneEvent<Self::SceneId>> + Send;
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene
@@ -62,13 +65,9 @@ pub trait Scene<T: SceneController + Send + 'static> {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Builder
 
-pub enum BuilderError {
-  SceneRequired
-}
-
 pub struct Builder<T: SceneController + Send + 'static> {
-  current: Option<&'static str>,
-  scenes: HashMap<&'static str, Box<dyn Scene<T>>>,
+  current: Option<T::SceneId>,
+  scenes: HashMap<T::SceneId, Box<dyn Scene<T>>>,
   state: Arc<RwLock<T>>
 }
 
@@ -82,15 +81,15 @@ impl<T: SceneController + Send + 'static> Builder<T> {
   }
 
   /// Adds a scene to the builder definition.
-  pub fn add_scene( &mut self, id: &'static str, scene: Box<dyn Scene<T>> ) -> bool {
+  pub fn add_scene( &mut self, id: T::SceneId, scene: Box<dyn Scene<T>> ) -> bool {
     self.scenes.insert( id, scene );
     if self.current.is_none() { self.current = Some( id ) }
     true
   }
 
   /// Sets the default scene. The scene for `id` must already be defined.
-  pub fn set_default_scene( &mut self, id: &'static str ) -> bool {
-    if self.scenes.contains_key( id ) {
+  pub fn set_default_scene( &mut self, id: T::SceneId ) -> bool {
+    if self.scenes.contains_key( &id ) {
       self.current = Some( id );
       true
     } else {
@@ -100,12 +99,12 @@ impl<T: SceneController + Send + 'static> Builder<T> {
 
   /// Builds the scene definitions, returning back a foreground and background
   /// handler.
-  pub fn build( self ) -> Result<( Foreground<T>, Background<T> ),BuilderError> {
+  pub fn build( self ) -> ( Foreground<T>, Background<T> ) {
     if let Some( current ) = self.current {
       let ( action_tx, action_rx ) = mpsc::channel::<T::Action>( 16 );
-      let ( events_tx, events_rx ) = mpsc::channel::<Event>( 1024 );
+      let ( events_tx, events_rx ) = mpsc::channel::<Event<T::SceneId>>( 1024 );
 
-      Ok( (
+      (
         Foreground{
           ctx: Context{ action_tx, state: self.state.clone() },
           events_rx,
@@ -117,17 +116,9 @@ impl<T: SceneController + Send + 'static> Builder<T> {
           actionable: self.state,
           events_tx
         }
-      ) )
+      )
     } else {
-      Err( BuilderError::SceneRequired )
-    }
-  }
-}
-
-impl fmt::Display for BuilderError {
-  fn fmt( &self, f: &mut fmt::Formatter<'_> ) -> fmt::Result {
-    match self {
-      BuilderError::SceneRequired => write!( f, "At least one scene is required." )
+      panic!( "..." )
     }
   }
 }
@@ -136,9 +127,9 @@ impl fmt::Display for BuilderError {
 
 pub struct Foreground<T: SceneController + Send + 'static> {
   ctx: Context<T>,
-  events_rx: mpsc::Receiver<Event>,
-  scenes: HashMap<&'static str, Box<dyn Scene<T>>>,
-  stack: Vec<&'static str>
+  events_rx: mpsc::Receiver<Event<T::SceneId>>,
+  scenes: HashMap<T::SceneId, Box<dyn Scene<T>>>,
+  stack: Vec<T::SceneId>
 }
 
 impl<T: SceneController + Send + 'static> Foreground<T> {
@@ -170,11 +161,11 @@ impl<T: SceneController + Send + 'static> Foreground<T> {
     }
   }
 
-  fn on_event( &mut self, event: SceneEvent ) {
+  fn on_event( &mut self, event: SceneEvent<T::SceneId> ) {
     match event {
       SceneEvent::Push( next_scene_id ) => {
         if let Some( current_id ) = self.stack.last() {
-          if let [ Some( current_scene ), Some( next_scene ) ] = self.scenes.get_disjoint_mut([ *current_id, next_scene_id ]) {
+          if let [ Some( current_scene ), Some( next_scene ) ] = self.scenes.get_disjoint_mut([ current_id, &next_scene_id ]) {
             current_scene.on_exit( &self.ctx );
             self.stack.push( next_scene_id );
             next_scene.on_enter( &self.ctx );
@@ -182,7 +173,7 @@ impl<T: SceneController + Send + 'static> Foreground<T> {
         }
       },
       SceneEvent::Pop => {
-        if let Some( scene ) = self.stack.pop().and_then(| current | self.scenes.get_mut( current ) ) {
+        if let Some( scene ) = self.stack.pop().and_then(| current_id | self.scenes.get_mut( &current_id ) ) {
           scene.on_exit( &self.ctx );
 
           if let Some( next_scene ) = current_scene_from_stack_mut( &mut self.scenes, &self.stack ) {
@@ -191,16 +182,16 @@ impl<T: SceneController + Send + 'static> Foreground<T> {
         }
       }
       SceneEvent::_Switch( next_scene_id ) => {
-        if self.scenes.contains_key( next_scene_id ) {
+        if self.scenes.contains_key( &next_scene_id ) {
           // Pop each scene on the stack, calling `Scene::on_exit` for each
           while let Some( scene_id ) = self.stack.pop() {
-            if let Some( scene ) = self.scenes.get_mut( scene_id ) {
+            if let Some( scene ) = self.scenes.get_mut( &scene_id ) {
               scene.on_exit( &self.ctx );
             }
           }
 
           // Call `Scene::on_enter` for the new scene
-          if let Some( next_scene ) = self.scenes.get_mut( next_scene_id ) {
+          if let Some( next_scene ) = self.scenes.get_mut( &next_scene_id ) {
             self.stack.push( next_scene_id );
             next_scene.on_enter( &self.ctx );
           }
@@ -237,9 +228,9 @@ impl<T: SceneController + Send + 'static> Context<T> {
   }
 }
 
-fn current_scene_from_stack_mut<'a,T>(
-  scenes: &'a mut HashMap<&'static str, Box<dyn Scene<T>>>,
-  stack: &Vec<&'static str>
+fn current_scene_from_stack_mut<'a,T: SceneController>(
+  scenes: &'a mut HashMap<T::SceneId, Box<dyn Scene<T>>>,
+  stack: &Vec<T::SceneId>
 ) -> Option<&'a mut Box<dyn Scene<T>>>
 {
   stack.last().and_then(| id | scenes.get_mut( id ) )
@@ -247,16 +238,16 @@ fn current_scene_from_stack_mut<'a,T>(
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Background Handler
 
-enum Event {
+enum Event<T> {
   Key( KeyEvent ),
-  Scene( SceneEvent ),
+  Scene( SceneEvent<T> ),
   Tick( f64 )
 }
 
 pub struct Background<T: SceneController + Send + 'static> {
   actionable: Arc<RwLock<T>>,
   action_rx: mpsc::Receiver<T::Action>,
-  events_tx: mpsc::Sender<Event>
+  events_tx: mpsc::Sender<Event<T::SceneId>>
 }
 
 impl<T: SceneController + Send + Sync + 'static> Background<T> {
