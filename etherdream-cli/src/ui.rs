@@ -25,6 +25,12 @@ pub enum Action {
   Stop
 }
 
+#[derive( Debug )]
+pub enum SceneId {
+  ListDevices,
+  ViewDevice
+}
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  State
 
 pub struct State {
@@ -71,7 +77,7 @@ impl State {
   }
 }
 
-impl scene::Actionable for State {
+impl scene::SceneController for State {
   type Action = Action;
 
   async fn invoke( &mut self, action: Action ) -> scene::SceneEvent {

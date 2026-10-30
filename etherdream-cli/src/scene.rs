@@ -27,9 +27,9 @@ pub enum SceneEvent {
   _Switch( &'static str )
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Actionable
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Scene Controller
 
-pub trait Actionable {
+pub trait SceneController {
   /// Actions that the scenes `Background` handler will support.
   type Action: 'static + Send + fmt::Debug;
 
@@ -40,7 +40,7 @@ pub trait Actionable {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene
 
-pub trait Scene<T: Actionable + Send + 'static> {
+pub trait Scene<T: SceneController + Send + 'static> {
   /// Called once, before any update or draw, when the scene is entered.
   fn on_enter( &mut self, _ctx: &Context<T> ) { }
 
@@ -66,13 +66,13 @@ pub enum BuilderError {
   SceneRequired
 }
 
-pub struct Builder<T: Actionable + Send + 'static> {
+pub struct Builder<T: SceneController + Send + 'static> {
   current: Option<&'static str>,
   scenes: HashMap<&'static str, Box<dyn Scene<T>>>,
   state: Arc<RwLock<T>>
 }
 
-impl<T: Actionable + Send + 'static> Builder<T> {
+impl<T: SceneController + Send + 'static> Builder<T> {
   pub fn new( state: Arc<RwLock<T>> ) -> Self {
     Self{
       current: None,
@@ -134,14 +134,14 @@ impl fmt::Display for BuilderError {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - -  Foreground UI Handler
 
-pub struct Foreground<T: Actionable + Send + 'static> {
+pub struct Foreground<T: SceneController + Send + 'static> {
   ctx: Context<T>,
   events_rx: mpsc::Receiver<Event>,
   scenes: HashMap<&'static str, Box<dyn Scene<T>>>,
   stack: Vec<&'static str>
 }
 
-impl<T: Actionable + Send + 'static> Foreground<T> {
+impl<T: SceneController + Send + 'static> Foreground<T> {
   pub fn run( mut self ) {
     let mut terminal = ratatui::init();
 
@@ -213,20 +213,20 @@ impl<T: Actionable + Send + 'static> Foreground<T> {
   }
 }
 
-impl<T: Actionable + Send + 'static> Drop for Foreground<T> {
+impl<T: SceneController + Send + 'static> Drop for Foreground<T> {
   // Restores the original terminal state when `Foreground<T>` is dropped.
   fn drop( &mut self ) { ratatui::restore(); }
 }
 
 /// Passed as an argument to all `Scene` trait functions, providing access to
 /// internal scene attribute's and capabilities.
-pub struct Context<T: Actionable + Send + 'static>
+pub struct Context<T: SceneController + Send + 'static>
 {
   action_tx: mpsc::Sender<T::Action>,
   state: Arc<RwLock<T>>
 }
 
-impl<T: Actionable + Send + 'static> Context<T> {
+impl<T: SceneController + Send + 'static> Context<T> {
   /// Returns a read-only guard to the `Actionable` state.
   pub fn state( &'_ self ) -> RwLockReadGuard<'_,T> { self.state.blocking_read() }
 
@@ -253,13 +253,13 @@ enum Event {
   Tick( f64 )
 }
 
-pub struct Background<T: Actionable + Send + 'static> {
+pub struct Background<T: SceneController + Send + 'static> {
   actionable: Arc<RwLock<T>>,
   action_rx: mpsc::Receiver<T::Action>,
   events_tx: mpsc::Sender<Event>
 }
 
-impl<T: Actionable + Send + Sync + 'static> Background<T> {
+impl<T: SceneController + Send + Sync + 'static> Background<T> {
   pub async fn run( mut self ) {
     let cancellation_token = CancellationToken::new();
     let mut tasks = JoinSet::new();
