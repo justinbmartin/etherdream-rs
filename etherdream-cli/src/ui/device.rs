@@ -6,6 +6,7 @@ use ratatui::widgets::{ Block, Cell, Padding, Row, StatefulWidget, Table, TableS
 
 use crate::device::Device;
 use crate::scene;
+use crate::tracks;
 use crate::ui::{ Action, State };
 use super::common;
 
@@ -13,13 +14,13 @@ const FOOTER_CONNECTED_MSG: &str = "Use '<Enter>' to play a generator, 'd' to di
 const FOOTER_DISCONNECTED_MSG: &str = "Use 'c' to connect, 'Esc' to go back.";
 
 pub struct DeviceScene {
-  generators: TableState
+  tracks: TableState
 }
 
 impl DeviceScene {
   pub fn new() -> Self {
     Self{
-      generators: TableState::new().with_selected( Some( 0 ) )
+      tracks: TableState::new().with_selected( Some( 0 ) )
     }
   }
 }
@@ -44,11 +45,11 @@ impl scene::Scene<State> for DeviceScene {
         true
       }
       KeyCode::Enter => {
-        ctx.invoke( Action::Play( executors::WINDMILL_ID ) );
+        ctx.invoke( Action::Play( "beam" ) );
         true
       }
       key @ ( KeyCode::Down | KeyCode::Up ) => {
-        common::on_key_down_for_table_state(&key, &mut self.generators, executors::EXECUTOR_DEFINITIONS.len() )
+        common::on_key_down_for_table_state(&key, &mut self.tracks, tracks::TRACK_MAP.len() )
       }
       _ => {
         false
@@ -69,12 +70,12 @@ impl scene::Scene<State> for DeviceScene {
 
       // Render right pane
       if device.is_connected() {
-        let title = format!(" Generators [{}] ", executors::EXECUTOR_DEFINITIONS.len() );
+        let title = format!(" Tracks [{}] ", tracks::TRACK_MAP.len() );
         let block = common::make_block( Some( &title ) );
         let inner_area = block.inner( right_area );
 
         Widget::render( block, right_area, buf );
-        draw_generators_table( &mut self.generators, inner_area, buf );
+        draw_generators_table( &mut self.tracks, inner_area, buf );
       } else {
         let block = common::make_block( None );
         let inner_area = block.inner( right_area );
@@ -150,10 +151,10 @@ pub fn draw_device_panel( device: &Device, area: Rect, buf: &mut Buffer ) -> boo
 
 fn draw_generators_table( state: &mut TableState, area: Rect, buf: &mut Buffer ) {
   const CONSTRAINTS: [Constraint; 2] = [ Constraint::Min( 30 ), Constraint::Fill( 1 ) ];
-  let mut rows = Vec::with_capacity( executors::EXECUTOR_DEFINITIONS.len() );
+  let mut rows = Vec::with_capacity( tracks::TRACK_MAP.len() );
   let selected_idx = state.selected().unwrap_or( 0 );
 
-  for ( i, ( _, definition ) ) in executors::EXECUTOR_DEFINITIONS.iter().enumerate() {
+  for ( i, ( _, definition ) ) in tracks::TRACK_MAP.iter().enumerate() {
     let style = if selected_idx == i { common::HIGHLIGHT_ROW_SELECTED_STYLE } else { common::HIGHLIGHT_TEXT_STYLE };
     rows.push( Row::new([ Cell::new( definition.name() ), Cell::new( "" ) ]).style( style ) );
   }

@@ -3,6 +3,7 @@ use std::f64::consts::TAU;
 use etherdream::generator;
 use nalgebra as na;
 
+use crate::sequencer;
 use super::common;
 
 const QUEUE_RATE: usize = 1_000;
@@ -45,10 +46,7 @@ impl Windmill {
   pub fn new() -> Self { Self{ offset: 0, time: 0.0 } }
 }
 
-impl super::Track for Windmill {
-  fn id( &self ) -> &str { "windmill" }
-  fn name( &self ) -> &str { "Windmill" }
-
+impl sequencer::Track for Windmill {
   fn execute( &mut self, ctx: &mut generator::ExecutionContext ) {
     let axis = na::Unit::new_normalize( na::Vector3::new( 0.75, 0.75, 0.1 ) );
     let mut m: na::Matrix4<f64>;

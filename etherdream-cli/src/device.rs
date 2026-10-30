@@ -51,7 +51,7 @@ impl Device {
 
   //
   pub async fn disconnect( &mut self ) {
-    if let Some( sequencer ) = self.sequencer.take() && let Ok( client ) = sequencer.shutdown() {
+    if let Some( sequencer ) = self.sequencer.take() && let Ok( client ) = sequencer.shutdown().await {
       client.disconnect().await
     }
   }

@@ -10,7 +10,7 @@ use crate::tracks;
 
 struct State {
   current: Option<&'static str>,
-  tracks: BTreeMap<&'static str, Box<dyn Track>>
+  tracks: BTreeMap<String, Box<dyn Track>>
 }
 
 impl generator::Executable for State {
@@ -26,12 +26,6 @@ impl generator::Executable for State {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Track
 
 pub trait Track: Send + Sync {
-  /// Returns the identifier for this track.
-  fn id( &self ) -> &str;
-
-  /// Returns the display name for this track.
-  fn name( &self ) -> &str;
-
   /// Called by the sequencer to generate point-data for this track.
   fn execute( &mut self, ctx: &mut generator::ExecutionContext );
 }
@@ -45,9 +39,11 @@ pub struct Sequencer {
 
 impl Sequencer {
   pub fn new( client: etherdream::Client ) -> Self {
-    let mut tracks: BTreeMap<&'static str, Box<dyn Track>> = BTreeMap::new();
-    tracks.insert( "beam", Box::new( tracks::Beam::default() ) );
-    tracks.insert( "windmill", Box::new( tracks::Windmill::new() ) );
+    let mut tracks: BTreeMap<String, Box<dyn Track>> = BTreeMap::new();
+
+    for ( _, definition ) in tracks::TRACK_MAP.iter() {
+      tracks.insert( definition.id, ( definition.create_fn )() );
+    }
 
     let state = Arc::new( RwLock::new( State{ current: None, tracks } ) );
 
@@ -55,7 +51,15 @@ impl Sequencer {
     Self{ generator, state }
   }
 
-  pub fn shutdown( self ) -> Result<etherdream::Client,generator::Error> {
-     self.generator.into_client()
+  pub async fn play( &self, track_id: &'static str ) {
+    self.state.write().await.current = Some( track_id );
+  }
+
+  pub async fn stop( &self ) {
+    self.state.write().await.current = None;
+  }
+
+  pub async fn shutdown( self ) -> Result<etherdream::Client,generator::Error> {
+     self.generator.into_client().await
   }
 }

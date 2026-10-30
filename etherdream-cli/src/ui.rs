@@ -5,7 +5,6 @@ use etherdream::discovery;
 use tokio::sync::RwLock;
 
 use crate::device::{ Device, VersionedDeviceMap };
-use crate::sequencer;
 use crate::scene;
 
 mod common;
@@ -97,14 +96,10 @@ impl scene::SceneController for State {
 
         scene::SceneEvent::None
       }
-      Action::Play( executor_id ) => {
+      Action::Play( track_id ) => {
         if let Some( device ) = self.get_current_device_mut() {
-          if let Some( generator )= device.generator_mut(){
-            generator.start().await;
-          } else {
-            if let Some( generator ) = executors::EXECUTOR_DEFINITIONS.get( executor_id ) {
-              device.generate( generator ).await;
-            }
+          if let Some( sequencer )= device.sequencer_mut(){
+            sequencer.play( track_id ).await;
           }
         }
 
@@ -115,8 +110,8 @@ impl scene::SceneController for State {
         scene::SceneEvent::Push( SceneId::ViewDevice )
       }
       Action::Stop => {
-        if let Some( device ) = self.get_current_device_mut() && let Some( generator ) = device.generator_mut() {
-          let _ = generator.stop().await;
+        if let Some( device ) = self.get_current_device_mut() && let Some( sequencer ) = device.sequencer_mut() {
+          sequencer.stop().await;
         }
 
         scene::SceneEvent::None
