@@ -128,14 +128,14 @@ impl Generator {
 
   /// Sends a ping to the connected device and awaits a response.
   #[inline]
-  pub async fn ping( &mut self ) -> Result<client::State,client::Error> {
+  pub async fn ping( &mut self ) -> Result<State,client::Error> {
     self.command_tx.send_and_wait( client::Command::Ping ).await
   }
 
   /// Clone's a copy of the client's run-time state into `state`.
   #[inline]
-  pub fn clone_state_into( &'_ self, state: &mut State ) {
-    self.client.clone_state_into( state )
+  pub fn state( &'_ self ) -> tokio::sync::watch::Ref<'_,State> {
+    self.client.state()
   }
   
   /// Starts the generator.
@@ -155,14 +155,14 @@ impl Generator {
           let config = executor.on_start( OnStartContext{ device_info: &device_info, capacity: point_tx.capacity() } );
           let low_watermark = ( point_tx.capacity() as f32 * config.low_watermark ) as usize;
           let mut ctx = ExecutionContext{ max_points: 0, point_count: 0, point_tx };
-          let mut local_state = State::default();
+          let mut local_state: State;
 
           loop {
             if shutdown_token.is_cancelled() {
               return ( ctx.point_tx, executor, None );
             }
 
-            state.clone_into( &mut local_state );
+            local_state = *state.read();
 
             if local_state.is_ready() && ctx.point_tx.len() <= low_watermark {
               // Copy the point publisher's remaining capacity into

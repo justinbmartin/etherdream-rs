@@ -134,7 +134,7 @@ impl ListScene {
 
 fn device_status( device: &Device ) -> &'static str {
   if let Some( sequencer ) = device.sequencer() {
-    if sequencer.is_running() {
+    if sequencer.is_playing() {
       "PLAYING"
     } else {
       "CONNECTED"

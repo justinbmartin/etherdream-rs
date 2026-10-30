@@ -61,9 +61,7 @@ impl Sequencer {
     Self{ generator, state }
   }
 
-  pub fn clone_into_state( &self, state: &mut etherdream::State ) {
-    self.generator.clone_state_into( state );
-  }
+  pub fn state( &self ) -> tokio::sync::watch::Ref<'_, etherdream::State> { self.generator.state() }
 
   pub fn play( &self, track_id: &'static str ) {
     if let Ok( mut state ) = self.state.write() {
@@ -72,7 +70,7 @@ impl Sequencer {
   }
 
   ///
-  pub fn is_running( &self ) -> bool {
+  pub fn is_playing( &self ) -> bool {
     if let Ok( state ) = self.state.read() {
       state.current.is_some()
     } else {

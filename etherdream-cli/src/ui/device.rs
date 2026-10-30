@@ -130,8 +130,7 @@ pub fn draw_device_panel( device: &Device, area: Rect, buf: &mut Buffer ) -> boo
 
 
   if device.is_connected() {
-    let mut state = etherdream::State::default();
-    device.state( &mut state );
+    let state = device.state().unwrap();
 
     rows.push( Row::new([ "Playing:", if state.is_playing() { "Yes" } else { "No" } ]) );
     rows.push( Row::new([ "Points Buffered:".to_owned(), state.points_buffered().to_string() ]) );

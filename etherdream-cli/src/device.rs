@@ -26,9 +26,11 @@ impl Device {
   pub fn is_connected( &self ) -> bool { self.sequencer.is_some() }
 
   /// ...
-  pub fn state( &self, state: &mut etherdream::State ) {
+  pub fn state( &self ) -> Option<tokio::sync::watch::Ref<'_,etherdream::State>> {
     if let Some( sequencer ) = self.sequencer.as_ref() {
-      sequencer.clone_into_state( state );
+      Some( sequencer.state() )
+    } else {
+      None
     }
   }
 
