@@ -40,7 +40,7 @@ pub trait Track: Send + Sync {
   fn execute( &mut self, ctx: &mut generator::ExecutionContext );
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Sequencer
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Device
 
 pub struct Device {
   info: etherdream::DeviceInfo,

@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use etherdream::discovery;
 use tokio::sync::{ mpsc, RwLock };
-use tokio::task::JoinSet;
+use tokio::task;
 use tokio_util::sync::CancellationToken;
 
 mod device;
@@ -30,8 +30,8 @@ fn main() -> Result<(),String> {
       let cancellation_token = cancellation_token.child_token();
 
       move ||{
-        let _: io::Result<()> = rt.block_on( async move {
-          let mut tasks = JoinSet::<Result<(),io::Error>>::new();
+        let _ = rt.block_on( async move {
+          let mut tasks = task::JoinSet::<io::Result<()>>::new();
 
           // Start an Etherdream discovery server
           tasks.spawn({
@@ -40,9 +40,9 @@ fn main() -> Result<(),String> {
             async move {
               tokio::select!{
                 _ = cancellation_token.cancelled() => Ok( () ),
-                result = async move {
+                _ = async move {
                   let registry = discovery::Registry::default();
-
+                  
                   let _ = discovery::Discovery::with_registry( registry.clone() )
                     .notify( discovery_tx )
                     .listen().await?;
@@ -53,8 +53,8 @@ fn main() -> Result<(),String> {
                     }
                   }
 
-                  Ok( () )
-                } => result
+                  Ok::<(), io::Error>( () )
+                } => Ok( () )
               }
             }
           });
@@ -72,7 +72,6 @@ fn main() -> Result<(),String> {
           });
 
           tasks.join_all().await;
-          Ok( () )
         });
       }
     });
