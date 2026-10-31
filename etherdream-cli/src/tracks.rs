@@ -1,6 +1,6 @@
 use std::sync::LazyLock;
 
-use crate::device::Track;
+use crate::sequencer;
 
 mod beam;
 mod common;
@@ -14,7 +14,7 @@ pub const WINDMILL_ID: &str = "windmill";
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Track Definition
 
 pub struct TrackDefinition {
-  pub create_fn: fn() -> Box<dyn Track>,
+  pub create_fn: fn() -> Box<dyn sequencer::Track>,
   pub id: String,
   pub name: String
 }
