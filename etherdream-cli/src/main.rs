@@ -42,8 +42,8 @@ fn main() -> Result<(),String> {
                 _ = cancellation_token.cancelled() => Ok( () ),
                 _ = async move {
                   let registry = discovery::Registry::default();
-                  
-                  let _ = discovery::Discovery::with_registry( registry.clone() )
+
+                  let _guard = discovery::Discovery::with_registry( registry.clone() )
                     .notify( discovery_tx )
                     .listen().await?;
 
@@ -71,7 +71,7 @@ fn main() -> Result<(),String> {
             }
           });
 
-          tasks.join_all().await;
+          let _ = tasks.join_all().await;
         });
       }
     });
