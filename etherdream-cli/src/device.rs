@@ -42,18 +42,18 @@ pub trait Track: Send + Sync {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Sequencer
 
-pub struct Sequencer {
+pub struct Device {
   info: etherdream::DeviceInfo,
   generator: Option<etherdream::Generator>,
   state: Arc<RwLock<State>>
 }
 
-impl Sequencer {
+impl Device {
   pub fn new( info: etherdream::DeviceInfo ) -> Self {
     // TODO: not sure this required...
     let mut tracks: BTreeMap<String, Box<dyn Track>> = BTreeMap::new();
 
-    for ( _, definition ) in tracks::DEFINITIONS.iter() {
+    for definition in tracks::DEFINITIONS.iter() {
       tracks.insert( definition.id.clone(), ( definition.create_fn )() );
     }
 

@@ -4,7 +4,7 @@ use ratatui::layout::{ Constraint, Layout, Rect };
 use ratatui::text::Line;
 use ratatui::widgets::{ Block, Cell, Padding, Row, StatefulWidget, Table, TableState, Widget };
 
-use crate::sequencer::Sequencer;
+use crate::device::Device;
 use crate::scene;
 use crate::tracks;
 use crate::ui::{ Action, State };
@@ -89,7 +89,7 @@ impl scene::Scene<State> for DeviceScene {
   }
 }
 
-pub fn draw_device_panel( device: &Sequencer, area: Rect, buf: &mut Buffer ) -> bool {
+pub fn draw_device_panel( device: &Device, area: Rect, buf: &mut Buffer ) -> bool {
   let block = Block::bordered()
     .border_style( common::HIGHLIGHT_BORDER_STYLE )
     .padding( Padding::new( 1, 1, 0, 0 ) )
@@ -153,7 +153,7 @@ fn draw_generators_table( state: &mut TableState, area: Rect, buf: &mut Buffer )
   let mut rows = Vec::with_capacity( tracks::DEFINITIONS.len() );
   let selected_idx = state.selected().unwrap_or( 0 );
 
-  for ( i, ( _, definition ) ) in tracks::DEFINITIONS.iter().enumerate() {
+  for ( i, definition ) in tracks::DEFINITIONS.iter().enumerate() {
     let style = if selected_idx == i { common::HIGHLIGHT_ROW_SELECTED_STYLE } else { common::HIGHLIGHT_TEXT_STYLE };
     rows.push( Row::new([ Cell::new( definition.name.clone() ), Cell::new( "" ) ]).style( style ) );
   }

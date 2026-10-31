@@ -5,8 +5,8 @@ use std::sync::Arc;
 use etherdream::{ self, protocol };
 use tokio::sync::RwLock;
 
-use crate::scene;
-use crate::sequencer::Sequencer;
+use crate::device::Device;
+use crate::scene::{ self, SceneController, SceneEvent };
 
 mod common;
 mod device;
@@ -34,7 +34,7 @@ pub struct State {
   // The currently selected device.
   current_device_id: Option<SocketAddr>,
   // Map of instantiated Etherdream devices.
-  devices: HashMap<SocketAddr,Sequencer>,
+  devices: HashMap<SocketAddr,Device>,
   //
   devices_version: usize
 }
@@ -50,14 +50,14 @@ impl State {
   }
 
   /// Returns an immutable reference to the `State`s registered devices.
-  pub fn devices( &self ) -> &HashMap<SocketAddr,Sequencer> { &self.devices }
+  pub fn devices( &self ) -> &HashMap<SocketAddr,Device> { &self.devices }
 
   ///
   pub fn devices_version( &self ) -> usize { self.devices_version }
 
   /// Registers a device from the registry into the `DeviceMap` by `address`.
   pub async fn register_device( &mut self, info: etherdream::DeviceInfo ) {
-    self.devices.insert( SocketAddr::new( info.ip(), protocol::CLIENT_PORT ), Sequencer::new( info ) );
+    self.devices.insert( SocketAddr::new( info.ip(), protocol::CLIENT_PORT ), Device::new( info ) );
     self.devices_version = self.devices_version.saturating_add( 1 );
   }
   /// Set the currently selected device id
@@ -66,56 +66,56 @@ impl State {
   }
 
   /// Get an immutable reference to the currently selected device
-  pub fn get_current_device( &self ) -> Option<&Sequencer> {
+  pub fn get_current_device( &self ) -> Option<&Device> {
     self.current_device_id.and_then(|d| self.devices.get( &d ) )
   }
 
   /// Get a mutable reference to the currently selected device
-  pub fn get_current_device_mut( &mut self ) -> Option<&mut Sequencer> {
+  pub fn get_current_device_mut( &mut self ) -> Option<&mut Device> {
     self.current_device_id.and_then(|d| self.devices.get_mut( &d ) )
   }
 }
 
-impl scene::SceneController for State {
+impl SceneController for State {
   type Action = Action;
   type SceneId = SceneId;
 
-  async fn invoke( &mut self, action: Action ) -> scene::SceneEvent<Self::SceneId> {
+  async fn invoke( &mut self, action: Action ) -> SceneEvent<Self::SceneId> {
     match action {
       Action::Back => {
-        scene::SceneEvent::Pop
+        SceneEvent::Pop
       }
       Action::Connect => {
         if let Some( device ) = self.get_current_device_mut() {
           let _ = device.connect().await;
         }
 
-        scene::SceneEvent::None
+        SceneEvent::None
       }
       Action::Disconnect => {
         if let Some( device ) = self.get_current_device_mut() {
           let _ = device.disconnect().await;
         }
 
-        scene::SceneEvent::None
+        SceneEvent::None
       }
       Action::Play( track_id ) => {
         if let Some( sequencer ) = self.get_current_device_mut() {
           sequencer.play( track_id );
         }
 
-        scene::SceneEvent::None
+        SceneEvent::None
       }
       Action::SelectDevice( device_id ) => {
         self.set_current_device( Some( device_id ) );
-        scene::SceneEvent::Push( SceneId::ViewDevice )
+        SceneEvent::Push( SceneId::ViewDevice )
       }
       Action::Stop => {
         if let Some( sequencer ) = self.get_current_device_mut() {
           sequencer.stop();
         }
 
-        scene::SceneEvent::None
+        SceneEvent::None
       }
     }
   }

@@ -1,12 +1,12 @@
 use etherdream::generator;
 
-use crate::sequencer;
+use crate::device::Track;
 use super::common;
 
 #[derive( Default )]
 pub struct Beam;
 
-impl sequencer::Track for Beam {
+impl Track for Beam {
   fn execute( &mut self, ctx: &mut generator::ExecutionContext ) {
     let color = common::ilda_color( 1.0 );
     let pos = common::ilda_position( 0.0 );
