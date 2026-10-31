@@ -1,11 +1,12 @@
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use etherdream::discovery;
 use tokio::sync::RwLock;
 
-use crate::device::{ Device, VersionedDeviceMap };
 use crate::scene;
+use crate::sequencer::Sequencer;
 
 mod common;
 mod device;
@@ -33,7 +34,9 @@ pub struct State {
   // The currently selected device.
   current_device_id: Option<SocketAddr>,
   // Map of instantiated Etherdream devices.
-  devices: VersionedDeviceMap,
+  devices: HashMap<SocketAddr,Sequencer>,
+  //
+  devices_version: usize,
   // The device registry shared with the discovery service.
   registry: discovery::Registry
 }
@@ -43,18 +46,23 @@ impl State {
   pub fn new( registry: discovery::Registry ) -> Self {
     Self{
       current_device_id: None,
-      devices: VersionedDeviceMap::default(),
+      devices: HashMap::default(),
+      devices_version: 0,
       registry
     }
   }
 
   /// Returns an immutable reference to the `State`s registered devices.
-  pub fn devices( &self ) -> &VersionedDeviceMap { &self.devices }
+  pub fn devices( &self ) -> &HashMap<SocketAddr,Sequencer> { &self.devices }
+
+  ///
+  pub fn devices_version( &self ) -> usize { self.devices_version }
 
   /// Registers a device from the registry into the `DeviceMap` by `address`.
   pub async fn register_device( &mut self, address: SocketAddr ) {
     if let Some( broadcast ) = self.registry.read().await.get( &address ) {
-      self.devices.insert( address, *broadcast.device_info() );
+      self.devices.insert( address, Sequencer::new( *broadcast.device_info() ) );
+      self.devices_version = self.devices_version.saturating_add( 1 );
     }
   }
   /// Set the currently selected device id
@@ -63,12 +71,12 @@ impl State {
   }
 
   /// Get an immutable reference to the currently selected device
-  pub fn get_current_device( &self ) -> Option<&Device> {
+  pub fn get_current_device( &self ) -> Option<&Sequencer> {
     self.current_device_id.and_then(|d| self.devices.get( &d ) )
   }
 
   /// Get a mutable reference to the currently selected device
-  pub fn get_current_device_mut( &mut self ) -> Option<&mut Device> {
+  pub fn get_current_device_mut( &mut self ) -> Option<&mut Sequencer> {
     self.current_device_id.and_then(|d| self.devices.get_mut( &d ) )
   }
 }
@@ -97,10 +105,8 @@ impl scene::SceneController for State {
         scene::SceneEvent::None
       }
       Action::Play( track_id ) => {
-        if let Some( device ) = self.get_current_device_mut() {
-          if let Some( sequencer )= device.sequencer_mut(){
-            sequencer.play( track_id );
-          }
+        if let Some( sequencer ) = self.get_current_device_mut() {
+          sequencer.play( track_id );
         }
 
         scene::SceneEvent::None
@@ -110,7 +116,7 @@ impl scene::SceneController for State {
         scene::SceneEvent::Push( SceneId::ViewDevice )
       }
       Action::Stop => {
-        if let Some( device ) = self.get_current_device_mut() && let Some( sequencer ) = device.sequencer_mut() {
+        if let Some( sequencer ) = self.get_current_device_mut() {
           sequencer.stop();
         }
 

@@ -8,7 +8,6 @@ use tokio::sync::{ mpsc, RwLock };
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
-mod device;
 mod sequencer;
 mod scene;
 mod tracks;

@@ -5,7 +5,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{ Constraint, Layout, Rect };
 use ratatui::widgets::{ Cell, Row, StatefulWidget, Table, TableState, Widget };
 
-use crate::device::Device;
+use crate::sequencer::Sequencer;
 use crate::scene;
 use crate::ui::{ Action, State };
 use super::common;
@@ -45,9 +45,9 @@ impl scene::Scene<State> for ListScene {
 
   fn on_update( &mut self, ctx: &mut scene::Context<State> ) {
     let state = ctx.state();
-    let devices = state.devices();
 
-    if devices.version() != self.version {
+    if state.devices_version() != self.version {
+      let devices = state.devices();
       let mut addrs: Vec<SocketAddr> = devices.iter().map(|( &addr, _ )| addr ).collect();
       let mut updated_idx = None::<usize>;
 
@@ -70,7 +70,7 @@ impl scene::Scene<State> for ListScene {
 
       self.device_addrs = addrs;
       self.table.select( updated_idx );
-      self.version = devices.version();
+      self.version = state.devices_version();
     }
   }
 
@@ -102,14 +102,14 @@ impl ListScene {
       let state = ctx.state();
 
       for ( i, addr ) in self.device_addrs.iter().enumerate() {
-        if let Some( device ) = state.devices().get( addr ) {
+        if let Some( sequencer ) = state.devices().get( addr ) {
           let style = if selected_idx == i { common::HIGHLIGHT_ROW_SELECTED_STYLE } else { common::HIGHLIGHT_TEXT_STYLE };
 
           rows.push(
             Row::new([
-              Cell::new( device.info().ip().to_string() ),
-              Cell::new( device.info().mac_address().to_string() ),
-              Cell::new( device_status( &device ) )
+              Cell::new( sequencer.info().ip().to_string() ),
+              Cell::new( sequencer.info().mac_address().to_string() ),
+              Cell::new( device_status( &sequencer ) )
             ]).style( style )
           );
         }
@@ -132,8 +132,8 @@ impl ListScene {
   }
 }
 
-fn device_status( device: &Device ) -> &'static str {
-  if let Some( sequencer ) = device.sequencer() {
+fn device_status( sequencer: &Sequencer ) -> &'static str {
+  if sequencer.is_connected() {
     if sequencer.is_playing() {
       "PLAYING"
     } else {
