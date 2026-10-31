@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use etherdream::discovery;
+use etherdream::{ self, protocol };
 use tokio::sync::RwLock;
 
 use crate::scene;
@@ -36,19 +36,16 @@ pub struct State {
   // Map of instantiated Etherdream devices.
   devices: HashMap<SocketAddr,Sequencer>,
   //
-  devices_version: usize,
-  // The device registry shared with the discovery service.
-  registry: discovery::Registry
+  devices_version: usize
 }
 
 impl State {
   /// Creates a new `State` instance.
-  pub fn new( registry: discovery::Registry ) -> Self {
+  pub fn new() -> Self {
     Self{
       current_device_id: None,
       devices: HashMap::default(),
-      devices_version: 0,
-      registry
+      devices_version: 0
     }
   }
 
@@ -59,11 +56,9 @@ impl State {
   pub fn devices_version( &self ) -> usize { self.devices_version }
 
   /// Registers a device from the registry into the `DeviceMap` by `address`.
-  pub async fn register_device( &mut self, address: SocketAddr ) {
-    if let Some( broadcast ) = self.registry.read().await.get( &address ) {
-      self.devices.insert( address, Sequencer::new( *broadcast.device_info() ) );
-      self.devices_version = self.devices_version.saturating_add( 1 );
-    }
+  pub async fn register_device( &mut self, info: etherdream::DeviceInfo ) {
+    self.devices.insert( SocketAddr::new( info.ip(), protocol::CLIENT_PORT ), Sequencer::new( info ) );
+    self.devices_version = self.devices_version.saturating_add( 1 );
   }
   /// Set the currently selected device id
   pub fn set_current_device( &mut self, device_id: Option<SocketAddr> ) {

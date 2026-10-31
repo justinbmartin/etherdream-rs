@@ -22,8 +22,7 @@ fn main() -> Result<(),String> {
 
   let cancellation_token = CancellationToken::new();
   let ( discovery_tx, mut discovery_rx ) = mpsc::channel::<SocketAddr>( 16 );
-  let registry = discovery::Registry::default();
-  let state = Arc::new( RwLock::new( ui::State::new( registry.clone() ) ) );
+  let state = Arc::new( RwLock::new( ui::State::new() ) );
   let ( fg, bg ) = ui::build_scenes( state.clone() );
 
   let thread =
@@ -41,11 +40,14 @@ fn main() -> Result<(),String> {
 
             async move {
               cancellation_token.run_until_cancelled( async move {
-                let server = discovery::Discovery::with_registry( registry ).notify( discovery_tx );
+                let registry = discovery::Registry::default();
+                let server = discovery::Discovery::with_registry( registry.clone() ).notify( discovery_tx );
 
                 if let Ok( _ ) = server.listen().await {
                   while let Some( address ) = discovery_rx.recv().await {
-                    state.write().await.register_device( address ).await;
+                    if let Some( broadcast ) = registry.read().await.get( &address ) {
+                      state.write().await.register_device( *broadcast.device_info() ).await;
+                    }
                   }
                 }
               }).await;
