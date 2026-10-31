@@ -31,36 +31,47 @@ fn main() -> Result<(),String> {
 
       move ||{
         let _: io::Result<()> = rt.block_on( async move {
-          let mut tasks = JoinSet::<()>::new();
+          let mut tasks = JoinSet::<Result<(),io::Error>>::new();
 
           // Start an Etherdream discovery server
           tasks.spawn({
             let cancellation_token = cancellation_token.child_token();
-            let state = state.clone();
 
             async move {
-              cancellation_token.run_until_cancelled( async move {
-                let registry = discovery::Registry::default();
-                let server = discovery::Discovery::with_registry( registry.clone() ).notify( discovery_tx );
+              tokio::select!{
+                _ = cancellation_token.cancelled() => Ok( () ),
+                result = async move {
+                  let registry = discovery::Registry::default();
 
-                if let Ok( _ ) = server.listen().await {
+                  let _ = discovery::Discovery::with_registry( registry.clone() )
+                    .notify( discovery_tx )
+                    .listen().await?;
+
                   while let Some( address ) = discovery_rx.recv().await {
                     if let Some( broadcast ) = registry.read().await.get( &address ) {
                       state.write().await.register_device( *broadcast.device_info() ).await;
                     }
                   }
-                }
-              }).await;
+
+                  Ok( () )
+                } => result
+              }
             }
           });
 
           // Start the scene background task
           tasks.spawn({
             let cancellation_token = cancellation_token.child_token();
-            async move { cancellation_token.run_until_cancelled( bg.run() ).await; }
+
+            async move {
+              tokio::select!{
+                _ = cancellation_token.cancelled() => Ok( () ),
+                _ = bg.run() => Ok( () )
+              }
+            }
           });
 
-          let _ = tasks.join_all().await;
+          tasks.join_all().await;
           Ok( () )
         });
       }
