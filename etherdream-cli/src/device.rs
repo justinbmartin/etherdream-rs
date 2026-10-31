@@ -4,7 +4,8 @@ use std::sync::{ Arc, RwLock };
 
 use etherdream::protocol;
 
-use crate::{ sequencer, tracks };
+use crate::sequencer::{ self, Sequencer };
+use crate::tracks;
 
 pub struct Device {
   info: etherdream::DeviceInfo,
@@ -32,8 +33,8 @@ impl Device {
           tracks.insert( definition.id.clone(), ( definition.create_fn )() );
         }
 
-        let exe = sequencer::Executor::new( self.state.clone(), tracks );
-        self.generator = Some( etherdream::make_generator( client, Box::new( exe ) ) );
+        let sequencer = Box::new( Sequencer::new( self.state.clone(), tracks ) );
+        self.generator = Some( etherdream::make_generator( client, sequencer ) );
         Ok( () )
       }
       Err( err ) => Err( err )

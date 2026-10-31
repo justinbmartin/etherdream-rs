@@ -3,6 +3,13 @@ use std::sync::{ Arc, RwLock };
 
 use etherdream::generator;
 
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Track
+
+pub trait Track: Send + Sync {
+  /// Called by the sequencer to generate point-data for this track.
+  fn execute( &mut self, ctx: &mut generator::ExecutionContext );
+}
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  State
 
 #[derive( Default )]
@@ -17,18 +24,18 @@ impl State {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Executor
 
-pub struct Executor {
+pub struct Sequencer {
   state: Arc<RwLock<State>>,
   tracks: BTreeMap<String, Box<dyn Track>>
 }
 
-impl Executor {
+impl Sequencer {
   pub fn new( state: Arc<RwLock<State>>, tracks: BTreeMap<String, Box<dyn Track>> ) -> Self {
     Self{ state, tracks }
   }
 }
 
-impl generator::Executable for Executor {
+impl generator::Executable for Sequencer {
   fn on_start( &mut self, _: generator::OnStartContext ) -> generator::Config {
     generator::Config::new( 1_000 )
   }
@@ -40,11 +47,4 @@ impl generator::Executable for Executor {
       track.execute( ctx )
     }
   }
-}
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Track
-
-pub trait Track: Send + Sync {
-  /// Called by the sequencer to generate point-data for this track.
-  fn execute( &mut self, ctx: &mut generator::ExecutionContext );
 }
