@@ -61,7 +61,9 @@ impl Sequencer {
     Self{ generator, state }
   }
 
-  pub fn state( &self ) -> tokio::sync::watch::Ref<'_, etherdream::State> { self.generator.state() }
+  pub fn state( &self ) -> tokio::sync::watch::Ref<'_, etherdream::State> {
+    self.generator.state()
+  }
 
   pub fn play( &self, track_id: &'static str ) {
     if let Ok( mut state ) = self.state.write() {
