@@ -1,3 +1,4 @@
+use std::fmt;
 use std::sync::LazyLock;
 
 use crate::sequencer;
@@ -8,15 +9,26 @@ mod windmill;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Track Identifiers
 
-pub const BEAM_ID: &str = "beam";
-pub const WINDMILL_ID: &str = "windmill";
+#[derive( Clone, Copy, Debug, Eq, Hash, PartialEq )]
+pub enum TrackId {
+  Beam,
+  Windmill
+}
+
+impl fmt::Display for TrackId {
+  fn fmt( &self, f: &mut fmt::Formatter<'_> ) -> fmt::Result {
+    match self {
+      Self::Beam => write!( f, "Beam" ),
+      Self::Windmill => write!( f, "Windmill" )
+    }
+  }
+}
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Track Definition
 
 pub struct TrackDefinition {
   pub create_fn: fn() -> Box<dyn sequencer::Track>,
-  pub id: String,
-  pub name: String
+  pub id: TrackId
 }
 
 pub static DEFINITIONS: LazyLock<Vec<TrackDefinition>> = LazyLock::new(|| {
@@ -24,14 +36,12 @@ pub static DEFINITIONS: LazyLock<Vec<TrackDefinition>> = LazyLock::new(|| {
 
   definitions.push( TrackDefinition{
     create_fn: ||{ Box::new( beam::Beam::default() ) },
-    id: String::from( BEAM_ID ),
-    name: String::from( "Beam" )
+    id: TrackId::Beam
   });
 
   definitions.push( TrackDefinition{
     create_fn: ||{ Box::new( windmill::Windmill::new() ) },
-    id: String::from( WINDMILL_ID ),
-    name: String::from( "Windmill" )
+    id: TrackId::Windmill
   });
 
   definitions

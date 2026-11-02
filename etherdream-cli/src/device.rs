@@ -1,40 +1,43 @@
-use std::collections::BTreeMap;
+use std::collections::HashMap;
+use std::hash::Hash;
 use std::net::SocketAddr;
-use std::sync::{ Arc, RwLock };
 
 use etherdream::protocol;
 
+use crate::executors;
 use crate::sequencer::{ self, Sequencer };
-use crate::tracks;
 
-pub struct Device {
+pub struct Device<T> {
   info: etherdream::DeviceInfo,
-  generator: Option<etherdream::Generator>,
-  state: Arc<RwLock<sequencer::State>>
+  sequencer: Option<Sequencer<T>>
 }
 
-impl Device {
+impl<T> Device<T>
+  where T: 'static + Copy + Default + Eq + Hash + Send + Sync
+{
   pub fn new( info: etherdream::DeviceInfo ) -> Self {
-    let state = Arc::new( RwLock::new( sequencer::State::default() ) );
-    Self{ generator: None, info, state }
+    Self{ info, sequencer: None }
   }
 
   pub fn info( &self ) -> &etherdream::DeviceInfo { &self.info }
 
   pub async fn connect( &mut self ) -> Result<(), etherdream::client::Error> {
-    if self.generator.is_some() { return Ok( () ); }
+    if self.sequencer.is_some() { return Ok( () ); }
 
     match etherdream::connect( self.info ).await {
       Ok( client ) => {
         // TODO: not sure this required...
-        let mut tracks: BTreeMap<String, Box<dyn sequencer::Track>> = BTreeMap::new();
+        // NEXT: this should either be a behavior, that i can load into, or
+        // manually setup one-by-one, and figured out later;
+        let mut tracks: HashMap<T, Box<dyn sequencer::Track>> = HashMap::new();
 
-        for definition in tracks::DEFINITIONS.iter() {
-          tracks.insert( definition.id.clone(), ( definition.create_fn )() );
+        for definition in executors::DEFINITIONS.iter() {
+          tracks.insert( definition.id, ( definition.create_fn )() );
         }
 
-        let sequencer = Box::new( Sequencer::new( self.state.clone(), tracks ) );
-        self.generator = Some( etherdream::make_generator( client, sequencer ) );
+        let sequencer = Sequencer::new( client, tracks );
+
+        self.sequencer = Some( sequencer );
         Ok( () )
       }
       Err( err ) => Err( err )
@@ -42,37 +45,28 @@ impl Device {
   }
 
   pub async fn disconnect( &mut self ) {
-    if let Some( generator ) = self.generator.take() && let Ok( client ) = generator.into_client().await {
-      client.disconnect().await
+    if let Some( sequencer ) = self.sequencer.take() {
+      let _ = sequencer.disconnect().await;
     }
   }
 
   pub fn address( &self ) -> SocketAddr { SocketAddr::new( self.info.ip(), protocol::CLIENT_PORT ) }
 
-  pub fn is_connected( &self ) -> bool { self.generator.is_some() }
+  pub fn is_connected( &self ) -> bool { self.sequencer.is_some() }
 
-  pub fn state( &self ) -> Option<tokio::sync::watch::Ref<'_, etherdream::State>> {
-    self.generator.as_ref().map(| g | g.state() )
-  }
-
-  pub fn play( &self, track_id: &'static str ) {
-    if self.is_connected() && let Ok( mut state ) = self.state.write() {
-      state.set_current( Some( track_id ) );
-    }
+  pub fn play( &mut self, track_id: Option<T> ) {
+    self.sequencer.as_mut().map(| s | s.play( track_id ) );
   }
 
   ///
   pub fn is_playing( &self ) -> bool {
-    if let Ok( state ) = self.state.read() {
-      state.current().is_some()
+    if let Some( sequencer ) = self.sequencer.as_ref() {
+      sequencer.is_playing()
     } else {
       false
     }
   }
 
-  pub fn stop( &self ) {
-    if let Ok( mut state ) = self.state.write() {
-      state.set_current( None );
-    }
-  }
+  ///
+  pub fn stop( &mut self ) { self.play( None ) }
 }
