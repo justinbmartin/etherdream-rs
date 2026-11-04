@@ -3,6 +3,7 @@ use std::hash::Hash;
 use std::sync::{ Arc, RwLock };
 
 use etherdream::generator;
+use tokio::sync::watch;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Track
 
@@ -13,7 +14,7 @@ pub trait Track: Send + Sync {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  State
 
-struct State<T> {
+pub struct State<T> {
   current: Option<T>,
 }
 
@@ -37,13 +38,9 @@ impl<T> Sequencer<T>
     self.generator.into_client().await
   }
 
-  pub fn current( &self ) -> Option<T> {
-    self.state.read().ok().map(| s | s.current )?
-  }
-
-  pub fn play( &mut self, track_id: Option<T> ) {
+  pub fn play( &mut self, track_id: T ) {
     if let Ok( mut state ) = self.state.write() {
-      state.current = track_id;
+      state.current = Some( track_id );
     }
   }
 
@@ -53,6 +50,16 @@ impl<T> Sequencer<T>
     } else {
       false
     }
+  }
+
+  pub fn stop( &mut self ) {
+    if let Ok( mut state ) = self.state.write() {
+      state.current = None;
+    }
+  }
+
+  pub fn state( &'_ self ) -> watch::Ref<'_, etherdream::State> {
+    self.generator.state()
   }
 }
 

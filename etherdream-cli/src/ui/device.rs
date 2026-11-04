@@ -7,6 +7,7 @@ use ratatui::widgets::{ Block, Cell, Padding, Row, StatefulWidget, Table, TableS
 use crate::device::Device;
 use crate::executors;
 use crate::scene;
+use crate::sequencer::Sequencer;
 use crate::ui::{ Action, State };
 use super::common;
 
@@ -45,7 +46,7 @@ impl scene::Scene<State> for DeviceScene {
         true
       }
       KeyCode::Enter => {
-        ctx.invoke( Action::Play( "beam" ) );
+        ctx.invoke( Action::Play( executors::TrackId::Beam ) );
         true
       }
       key @ ( KeyCode::Down | KeyCode::Up ) => {
@@ -58,18 +59,22 @@ impl scene::Scene<State> for DeviceScene {
   }
 
   fn on_draw( &mut self, area: Rect, buf: &mut Buffer, ctx: &scene::Context<State> ) {
-    if let Some( device ) = ctx.state().get_current_device() {
-      let footer_msg = if device.is_connected() { FOOTER_CONNECTED_MSG } else { FOOTER_DISCONNECTED_MSG };
+    let state = ctx.state();
+
+    if let Some( device ) = state.get_current_device() {
+      let sequencer = state.sequencers().get( &device.address() );
+
+      let footer_msg = if sequencer.is_some() { FOOTER_CONNECTED_MSG } else { FOOTER_DISCONNECTED_MSG };
       let body_area = common::layout( area, buf, footer_msg );
 
       let layout = Layout::horizontal([ Constraint::Length( 54 ), Constraint::Fill( 1 ) ]);
       let [ left_area, right_area ] = layout.areas( body_area );
 
       // Render left pane
-      draw_device_panel( device, left_area, buf );
+      draw_device_panel( device, state.sequencers.get( &device.address() ), left_area, buf );
 
       // Render right pane
-      if device.is_connected() {
+      if sequencer.is_some() {
         let title = format!(" Tracks [{}] ", executors::DEFINITIONS.len() );
         let block = common::make_block( Some( &title ) );
         let inner_area = block.inner( right_area );
@@ -89,7 +94,7 @@ impl scene::Scene<State> for DeviceScene {
   }
 }
 
-pub fn draw_device_panel( device: &Device, area: Rect, buf: &mut Buffer ) -> bool {
+pub fn draw_device_panel( device: &Device, sequencer: Option<&Sequencer<executors::TrackId>>, area: Rect, buf: &mut Buffer ) -> bool {
   let block = Block::bordered()
     .border_style( common::HIGHLIGHT_BORDER_STYLE )
     .padding( Padding::new( 1, 1, 0, 0 ) )
@@ -126,16 +131,14 @@ pub fn draw_device_panel( device: &Device, area: Rect, buf: &mut Buffer ) -> boo
     .title( Line::styled( "STATE:", common::HIGHLIGHT_TEXT_STYLE ) );
 
   let mut rows = Vec::with_capacity( 50 );
-  rows.push( Row::new([ "Connected:", if device.is_connected() { "Yes" } else { "No" } ]) );
+  rows.push( Row::new([ "Connected:", if sequencer.is_some() { "Yes" } else { "No" } ]) );
 
 
-  if device.is_connected() {
-    let state = device.state().unwrap();
-
-    rows.push( Row::new([ "Playing:", if state.is_playing() { "Yes" } else { "No" } ]) );
-    rows.push( Row::new([ "Points Buffered:".to_owned(), state.points_buffered().to_string() ]) );
-    rows.push( Row::new([ "Points Per Second:".to_owned(), state.points_per_second().to_string() ]) );
-    rows.push( Row::new([ "Points Lifetime:".to_owned(), state.points_lifetime().to_string() ]) );
+  if let Some( sequencer ) = sequencer {
+    rows.push( Row::new([ "Playing:", if sequencer.is_playing() { "Yes" } else { "No" } ]) );
+    rows.push( Row::new([ "Points Buffered:".to_owned(), sequencer.state().points_buffered().to_string() ]) );
+    rows.push( Row::new([ "Points Per Second:".to_owned(), sequencer.state().points_per_second().to_string() ]) );
+    rows.push( Row::new([ "Points Lifetime:".to_owned(), sequencer.state().points_lifetime().to_string() ]) );
   }
 
   let state_table = Table::new( rows, [ Constraint::Length( 23 ), Constraint::Fill( 1 ) ])
@@ -145,7 +148,7 @@ pub fn draw_device_panel( device: &Device, area: Rect, buf: &mut Buffer ) -> boo
   Widget::render( intrinsics_table, intrinsics_area, buf );
   Widget::render( state_table, state_area, buf );
 
-  device.is_connected()
+  sequencer.is_some()
 }
 
 fn draw_generators_table( state: &mut TableState, area: Rect, buf: &mut Buffer ) {
@@ -155,7 +158,7 @@ fn draw_generators_table( state: &mut TableState, area: Rect, buf: &mut Buffer )
 
   for ( i, definition ) in executors::DEFINITIONS.iter().enumerate() {
     let style = if selected_idx == i { common::HIGHLIGHT_ROW_SELECTED_STYLE } else { common::HIGHLIGHT_TEXT_STYLE };
-    rows.push( Row::new([ Cell::new( definition.name.clone() ), Cell::new( "" ) ]).style( style ) );
+    rows.push( Row::new([ Cell::new( definition.id.to_string() ), Cell::new( "" ) ]).style( style ) );
   }
 
   let table = Table::new( rows, CONSTRAINTS )

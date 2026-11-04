@@ -5,8 +5,9 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{ Constraint, Layout, Rect };
 use ratatui::widgets::{ Cell, Row, StatefulWidget, Table, TableState, Widget };
 
-use crate::device::Device;
+use crate::executors;
 use crate::scene;
+use crate::sequencer::Sequencer;
 use crate::ui::{ Action, State };
 use super::common;
 
@@ -102,14 +103,14 @@ impl ListScene {
       let state = ctx.state();
 
       for ( i, addr ) in self.device_addrs.iter().enumerate() {
-        if let Some( sequencer ) = state.devices().get( addr ) {
+        if let Some( device ) = state.devices().get( addr ) {
           let style = if selected_idx == i { common::HIGHLIGHT_ROW_SELECTED_STYLE } else { common::HIGHLIGHT_TEXT_STYLE };
 
           rows.push(
             Row::new([
-              Cell::new( sequencer.info().ip().to_string() ),
-              Cell::new( sequencer.info().mac_address().to_string() ),
-              Cell::new( device_status( &sequencer ) )
+              Cell::new( device.info().ip().to_string() ),
+              Cell::new( device.info().mac_address().to_string() ),
+              Cell::new( sequencer_status( state.sequencers.get( addr ) ) )
             ]).style( style )
           );
         }
@@ -132,14 +133,9 @@ impl ListScene {
   }
 }
 
-fn device_status( device: &Device ) -> &'static str {
-  if device.is_connected() {
-    if device.is_playing() {
-      "PLAYING"
-    } else {
-      "CONNECTED"
-    }
-  } else {
-    "DISCONNECTED"
+fn sequencer_status( sequencer: Option<&Sequencer<executors::TrackId>> ) -> &'static str {
+  match sequencer {
+    Some( sequencer ) => if sequencer.is_playing() { "PLAYING" } else { "CONNECTED" },
+    None => "DISCONNECTED"
   }
 }
