@@ -13,7 +13,7 @@ use etherdream::{
 
 #[tokio::test]
 async fn discovery_server_will_receive_a_single_etherdream_broadcast() -> Result<(),io::Error> {
-  let ( discovery_tx, mut discovery_rx ) = mpsc::channel::<SocketAddr>( 16 );
+  let ( discovery_tx, mut discovery_rx ) = mpsc::channel::<discovery::Broadcast>( 16 );
 
   let discovery = discovery::Discovery::new()
     .address( SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), 0 ) )
@@ -65,7 +65,7 @@ async fn discovery_server_will_receive_a_single_etherdream_broadcast() -> Result
 
 #[tokio::test]
 async fn discovery_server_will_only_execute_callback_once_for_each_unique_device() -> Result<(),io::Error> {
-  let ( discovery_tx, mut discovery_rx ) = mpsc::channel::<SocketAddr>( 16 );
+  let ( discovery_tx, mut discovery_rx ) = mpsc::channel::<discovery::Broadcast>( 16 );
 
   let discovery = discovery::Discovery::new()
     .address( SocketAddr::new( IpAddr::V4( Ipv4Addr::LOCALHOST ), 0 ) )
@@ -91,10 +91,10 @@ async fn discovery_server_will_only_execute_callback_once_for_each_unique_device
   broadcast_device( &discovery, &intrinsics_2, &state, 1 ).await?;
 
   {
-    let address = receive_device_or_panic( &mut discovery_rx ).await;
+    let broadcast = receive_device_or_panic( &mut discovery_rx ).await;
 
     let registry = discovery.registry().read().await;
-    let broadcast = registry.get( &address ).expect( "Device not found." );
+    let broadcast = registry.get( *broadcast.device_info().ip() ).expect( "Device not found." );
     assert_eq!( *broadcast.device_info().mac_address(), intrinsics_1.mac_address );
   }
 
@@ -129,13 +129,13 @@ async fn broadcast_device( service: &discovery::Service, intrinsics: &Intrinsics
 
 // Awaits for a single device or panics. A panic can happen if a test timeout
 // is reached or the server was shutdown from some other means.
-async fn receive_device_or_panic( discovery_rx: &mut mpsc::Receiver<SocketAddr> ) -> SocketAddr {
+async fn receive_device_or_panic( discovery_rx: &mut mpsc::Receiver<discovery::Broadcast> ) -> discovery::Broadcast {
   tokio::select!{
     _ = time::sleep( time::Duration::from_secs( 5 ) ) => {
       panic!( "Failed to receive a device info by timeout..." )
     }
-    address = discovery_rx.recv()  => {
-      address.expect( "Discovery service shutdown..." )
+    broadcast = discovery_rx.recv()  => {
+      broadcast.expect( "Discovery service shutdown..." )
     }
   }
 }

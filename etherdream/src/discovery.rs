@@ -18,6 +18,7 @@ use crate::protocol;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Broadcast
 
+#[derive( Clone, Copy )]
 pub struct Broadcast {
   device_info: DeviceInfo,
   inserted_at: Instant,
@@ -41,7 +42,7 @@ impl Broadcast {
 
 pub struct Discovery {
   address: SocketAddr,
-  notifier: Option<mpsc::Sender<SocketAddr>>,
+  notifier: Option<mpsc::Sender<Broadcast>>,
   registry: Registry
 }
 
@@ -69,7 +70,7 @@ impl Discovery {
 
   /// Assign a channel that will receive a message for each unique device
   /// discovered.
-  pub fn notify( mut self, notifier: mpsc::Sender<SocketAddr> ) -> Self {
+  pub fn notify( mut self, notifier: mpsc::Sender<Broadcast> ) -> Self {
     self.notifier = Some( notifier );
     self
   }
@@ -158,34 +159,30 @@ impl Clone for Registry {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Listen Handler
 
-async fn do_listen( socket: UdpSocket, registry: Registry, notifier: Option<mpsc::Sender<SocketAddr>> )
+async fn do_listen( socket: UdpSocket, registry: Registry, notifier: Option<mpsc::Sender<Broadcast>> )
   -> Result<(),io::Error>
 {
   let mut framed = UdpFramed::new( socket, BroadcastDecoder{} );
-  let mut do_notify: bool;
 
   loop {
     if let Some( frame ) = framed.next().await {
       match frame {
         Ok( ( ( intrinsics, state ), address ) ) => {
-          do_notify = {
-            let mut registry = registry.write().await;
+          let mut registry = registry.write().await;
 
-            if let Some( broadcast ) = registry.get_mut( &address ) {
-              broadcast.updated_at = Instant::now();
-              broadcast.state = state;
-              false
-            } else {
-              let client_addr = SocketAddr::new( address.ip(), protocol::CLIENT_PORT );
-              let device_info = DeviceInfo::new( client_addr, intrinsics );
+          if let Some( broadcast ) = registry.get_mut( &address ) {
+            broadcast.updated_at = Instant::now();
+            broadcast.state = state;
+          } else {
+            let client_addr = SocketAddr::new( address.ip(), protocol::CLIENT_PORT );
+            let device_info = DeviceInfo::new( client_addr, intrinsics );
 
-              registry.insert( address, Broadcast::new( device_info, state ) );
-              true
+            let broadcast = Broadcast::new( device_info, state );
+            registry.insert( address, broadcast );
+
+            if let Some( notifier ) = notifier.as_ref() {
+              let _ = notifier.send( broadcast ).await;
             }
-          };
-
-          if do_notify && let Some( notifier ) = notifier.as_ref() {
-            let _ = notifier.send( address ).await;
           }
         }
         Err( e ) => {

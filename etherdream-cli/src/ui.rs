@@ -1,11 +1,10 @@
 use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::net::IpAddr;
 use std::sync::Arc;
 
-use etherdream::{ self, protocol };
+use etherdream;
 use tokio::sync::RwLock;
 
-use crate::device::Device;
 use crate::executors;
 use crate::scene::{ self, SceneController, SceneEvent };
 use crate::sequencer::{ self, Sequencer };
@@ -20,7 +19,7 @@ pub enum Action {
   Connect,
   Disconnect,
   Play( executors::TrackId ),
-  SelectDevice( SocketAddr ),
+  SelectDevice( IpAddr ),
   Stop
 }
 
@@ -34,13 +33,13 @@ pub enum SceneId {
 
 pub struct State {
   // The currently selected device.
-  current_device_id: Option<SocketAddr>,
-  // Map of instantiated Etherdream devices.
-  devices: HashMap<SocketAddr,Device>,
+  current_device_id: Option<IpAddr>,
+  //
+  devices: HashMap<IpAddr,etherdream::DeviceInfo>,
   //
   devices_version: usize,
   //
-  sequencers: HashMap<SocketAddr,Sequencer<executors::TrackId>>
+  sequencers: HashMap<IpAddr,Sequencer<executors::TrackId>>
 }
 
 impl State {
@@ -55,27 +54,27 @@ impl State {
   }
 
   /// Returns an immutable reference to the `State`s registered devices.
-  pub fn devices( &self ) -> &HashMap<SocketAddr,Device> { &self.devices }
+  pub fn devices( &self ) -> &HashMap<IpAddr,etherdream::DeviceInfo> { &self.devices }
 
   /// Returns an immutable reference to the `State`s registered devices.
-  pub fn sequencers( &self ) -> &HashMap<SocketAddr,Sequencer<executors::TrackId>> { &self.sequencers }
+  pub fn sequencers( &self ) -> &HashMap<IpAddr,Sequencer<executors::TrackId>> { &self.sequencers }
 
   ///
   pub fn devices_version( &self ) -> usize { self.devices_version }
 
   /// Registers a device from the registry into the `DeviceMap` by `address`.
   pub async fn register_device( &mut self, info: etherdream::DeviceInfo ) {
-    self.devices.insert( SocketAddr::new( info.ip(), protocol::CLIENT_PORT ), Device::new( info ) );
+    self.devices.insert( info.ip(), info );
     self.devices_version = self.devices_version.saturating_add( 1 );
   }
   /// Set the currently selected device id
-  pub fn set_current_device( &mut self, device_id: Option<SocketAddr> ) {
+  pub fn set_current_device( &mut self, device_id: Option<IpAddr> ) {
     self.current_device_id = device_id
   }
   
 
   /// Get an immutable reference to the currently selected device
-  pub fn get_current_device( &self ) -> Option<&Device> {
+  pub fn get_current_device( &self ) -> Option<&etherdream::DeviceInfo> {
     self.current_device_id.and_then(|d| self.devices.get( &d ) )
   }
 }
@@ -90,8 +89,8 @@ impl SceneController for State {
         SceneEvent::Pop
       }
       Action::Connect => {
-        if let Some( device ) = self.get_current_device() {
-          match etherdream::connect( *device.info() ).await {
+        if let Some( device_info ) = self.get_current_device() {
+          match etherdream::connect( *device_info ).await {
             Ok( client ) => {
               let mut tracks: HashMap<executors::TrackId, Box<dyn sequencer::Track>> = HashMap::new();
 
@@ -100,7 +99,7 @@ impl SceneController for State {
               }
 
               let sequencer = Sequencer::new( client, tracks );
-              self.sequencers.insert( device.address(), sequencer );
+              self.sequencers.insert( device_info.ip(), sequencer );
             }
             Err( _err ) => {
               //Err( err )
@@ -112,7 +111,7 @@ impl SceneController for State {
       }
       Action::Disconnect => {
         if let Some( device ) = self.get_current_device() {
-          if let Some( sequencer ) = self.sequencers.remove( &device.address() ) {
+          if let Some( sequencer ) = self.sequencers.remove( &device.ip() ) {
             let _ = sequencer.disconnect().await;
           }
         }
@@ -121,7 +120,7 @@ impl SceneController for State {
       }
       Action::Play( track_id ) => {
         if let Some( device ) = self.get_current_device() {
-          if let Some( sequencer ) = self.sequencers.get_mut( &device.address() ) {
+          if let Some( sequencer ) = self.sequencers.get_mut( &device.ip() ) {
             sequencer.play( track_id );
           }
         }
@@ -134,7 +133,7 @@ impl SceneController for State {
       }
       Action::Stop => {
         if let Some( device ) = self.get_current_device() {
-          if let Some( sequencer ) = self.sequencers.get_mut( &device.address() ) {
+          if let Some( sequencer ) = self.sequencers.get_mut( &device.ip() ) {
             sequencer.stop();
           }
         }

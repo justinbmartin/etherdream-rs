@@ -4,7 +4,6 @@ use ratatui::layout::{ Constraint, Layout, Rect };
 use ratatui::text::Line;
 use ratatui::widgets::{ Block, Cell, Padding, Row, StatefulWidget, Table, TableState, Widget };
 
-use crate::device::Device;
 use crate::executors;
 use crate::scene;
 use crate::sequencer::Sequencer;
@@ -61,8 +60,8 @@ impl scene::Scene<State> for DeviceScene {
   fn on_draw( &mut self, area: Rect, buf: &mut Buffer, ctx: &scene::Context<State> ) {
     let state = ctx.state();
 
-    if let Some( device ) = state.get_current_device() {
-      let sequencer = state.sequencers().get( &device.address() );
+    if let Some( device_info ) = state.get_current_device() {
+      let sequencer = state.sequencers().get( &device_info.ip() );
 
       let footer_msg = if sequencer.is_some() { FOOTER_CONNECTED_MSG } else { FOOTER_DISCONNECTED_MSG };
       let body_area = common::layout( area, buf, footer_msg );
@@ -71,7 +70,7 @@ impl scene::Scene<State> for DeviceScene {
       let [ left_area, right_area ] = layout.areas( body_area );
 
       // Render left pane
-      draw_device_panel( device, state.sequencers.get( &device.address() ), left_area, buf );
+      draw_device_panel( device_info, state.sequencers.get( &device_info.ip() ), left_area, buf );
 
       // Render right pane
       if sequencer.is_some() {
@@ -94,12 +93,12 @@ impl scene::Scene<State> for DeviceScene {
   }
 }
 
-pub fn draw_device_panel( device: &Device, sequencer: Option<&Sequencer<executors::TrackId>>, area: Rect, buf: &mut Buffer ) -> bool {
+pub fn draw_device_panel( device_info: &etherdream::DeviceInfo, sequencer: Option<&Sequencer<executors::TrackId>>, area: Rect, buf: &mut Buffer ) -> bool {
   let block = Block::bordered()
     .border_style( common::HIGHLIGHT_BORDER_STYLE )
     .padding( Padding::new( 1, 1, 0, 0 ) )
     .title(
-      Line::raw( format!( " Device({}) ", device.address().ip() ) )
+      Line::raw( format!( " Device({}) ", device_info.ip() ) )
         .centered()
         .style( common::HIGHLIGHT_TEXT_STYLE )
     );
@@ -114,12 +113,12 @@ pub fn draw_device_panel( device: &Device, sequencer: Option<&Sequencer<executor
     .title( Line::styled( "INTRINSICS:", common::HIGHLIGHT_TEXT_STYLE ) );
 
   let intrinsic_rows = [
-    Row::new([ "IP address:".to_owned(), device.info().ip().to_string() ]),
-    Row::new([ "MAC address:".to_owned(), device.info().mac_address().to_string() ]),
-    Row::new([ "Hardware version:".to_owned(), device.info().version().hardware.to_string() ]),
-    Row::new([ "Software version:".to_owned(), device.info().version().software.to_string() ]),
-    Row::new([ "Point buffer capacity:".to_owned(), device.info().buffer_capacity().to_string() ]),
-    Row::new([ "Max points per second:".to_owned(), device.info().max_points_per_second().to_string() ])
+    Row::new([ "IP address:".to_owned(), device_info.ip().to_string() ]),
+    Row::new([ "MAC address:".to_owned(), device_info.mac_address().to_string() ]),
+    Row::new([ "Hardware version:".to_owned(), device_info.version().hardware.to_string() ]),
+    Row::new([ "Software version:".to_owned(), device_info.version().software.to_string() ]),
+    Row::new([ "Point buffer capacity:".to_owned(), device_info.buffer_capacity().to_string() ]),
+    Row::new([ "Max points per second:".to_owned(), device_info.max_points_per_second().to_string() ])
   ];
 
   let intrinsics_table = Table::new( intrinsic_rows, [ Constraint::Length( 23 ), Constraint::Fill( 1 ) ])

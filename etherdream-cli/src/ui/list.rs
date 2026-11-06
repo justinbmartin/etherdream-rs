@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::net::IpAddr;
 
 use crossterm::event::{ KeyCode, KeyEvent };
 use ratatui::buffer::Buffer;
@@ -12,7 +12,7 @@ use crate::ui::{ Action, State };
 use super::common;
 
 pub struct ListScene {
-  device_addrs: Vec<SocketAddr>,
+  device_addrs: Vec<IpAddr>,
   table: TableState,
   version: usize,
 }
@@ -49,7 +49,7 @@ impl scene::Scene<State> for ListScene {
 
     if state.devices_version() != self.version {
       let devices = state.devices();
-      let mut addrs: Vec<SocketAddr> = devices.iter().map(|( &addr, _ )| addr ).collect();
+      let mut addrs: Vec<IpAddr> = devices.iter().map(|( &ip, _ )| ip ).collect();
       let mut updated_idx = None::<usize>;
 
       if ! addrs.is_empty() {
@@ -103,13 +103,13 @@ impl ListScene {
       let state = ctx.state();
 
       for ( i, addr ) in self.device_addrs.iter().enumerate() {
-        if let Some( device ) = state.devices().get( addr ) {
+        if let Some( device_info ) = state.devices().get( addr ) {
           let style = if selected_idx == i { common::HIGHLIGHT_ROW_SELECTED_STYLE } else { common::HIGHLIGHT_TEXT_STYLE };
 
           rows.push(
             Row::new([
-              Cell::new( device.info().ip().to_string() ),
-              Cell::new( device.info().mac_address().to_string() ),
+              Cell::new( device_info.ip().to_string() ),
+              Cell::new( device_info.mac_address().to_string() ),
               Cell::new( sequencer_status( state.sequencers.get( addr ) ) )
             ]).style( style )
           );
@@ -128,7 +128,7 @@ impl ListScene {
     StatefulWidget::render( table, area, buf, &mut self.table );
   }
 
-  fn selected_addr( &self ) -> Option<&SocketAddr> {
+  fn selected_addr( &self ) -> Option<&IpAddr> {
     self.table.selected().and_then(| i |{ self.device_addrs.get( i ) })
   }
 }
