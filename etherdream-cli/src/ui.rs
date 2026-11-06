@@ -5,7 +5,7 @@ use std::sync::Arc;
 use etherdream;
 use tokio::sync::RwLock;
 
-use crate::executors;
+use crate::executors::{ self, TrackId };
 use crate::scene::{ self, SceneController, SceneEvent };
 use crate::sequencer::{ self, Sequencer };
 
@@ -18,7 +18,7 @@ pub enum Action {
   Back,
   Connect,
   Disconnect,
-  Play( executors::TrackId ),
+  Play( TrackId ),
   SelectDevice( IpAddr ),
   Stop
 }
@@ -31,40 +31,32 @@ pub enum SceneId {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  State
 
+#[derive( Default )]
 pub struct State {
   // The currently selected device.
   current_device_id: Option<IpAddr>,
-  //
-  devices: HashMap<IpAddr,etherdream::DeviceInfo>,
-  //
+  // A registry of all devices that have been discovered, by IP address.
+  device_info_map: HashMap<IpAddr,etherdream::DeviceInfo>,
+  // Integer that is bumped each time a device is registered. Used for cache
+  // invalidation by scene views.
   devices_version: usize,
-  //
-  sequencers: HashMap<IpAddr,Sequencer<executors::TrackId>>
+  // A map of active sequencers, using the device's IP address as key.
+  sequencers: HashMap<IpAddr,Sequencer<TrackId>>
 }
 
 impl State {
-  /// Creates a new `State` instance.
-  pub fn new() -> Self {
-    Self{
-      current_device_id: None,
-      devices: HashMap::default(),
-      devices_version: 0,
-      sequencers: HashMap::default()
-    }
-  }
+  /// Returns an immutable reference to the `State`s registered devices.
+  pub fn devices( &self ) -> &HashMap<IpAddr,etherdream::DeviceInfo> { &self.device_info_map }
 
   /// Returns an immutable reference to the `State`s registered devices.
-  pub fn devices( &self ) -> &HashMap<IpAddr,etherdream::DeviceInfo> { &self.devices }
-
-  /// Returns an immutable reference to the `State`s registered devices.
-  pub fn sequencers( &self ) -> &HashMap<IpAddr,Sequencer<executors::TrackId>> { &self.sequencers }
+  pub fn sequencers( &self ) -> &HashMap<IpAddr,Sequencer<TrackId>> { &self.sequencers }
 
   ///
   pub fn devices_version( &self ) -> usize { self.devices_version }
 
   /// Registers a device from the registry into the `DeviceMap` by `address`.
   pub async fn register_device( &mut self, info: etherdream::DeviceInfo ) {
-    self.devices.insert( info.ip(), info );
+    self.device_info_map.insert( info.ip(), info );
     self.devices_version = self.devices_version.saturating_add( 1 );
   }
   /// Set the currently selected device id
@@ -75,7 +67,7 @@ impl State {
 
   /// Get an immutable reference to the currently selected device
   pub fn get_current_device( &self ) -> Option<&etherdream::DeviceInfo> {
-    self.current_device_id.and_then(|d| self.devices.get( &d ) )
+    self.current_device_id.and_then(|d| self.device_info_map.get( &d ) )
   }
 }
 
@@ -92,7 +84,7 @@ impl SceneController for State {
         if let Some( device_info ) = self.get_current_device() {
           match etherdream::connect( *device_info ).await {
             Ok( client ) => {
-              let mut tracks: HashMap<executors::TrackId, Box<dyn sequencer::Track>> = HashMap::new();
+              let mut tracks: HashMap<TrackId, Box<dyn sequencer::Track>> = HashMap::new();
 
               for definition in executors::DEFINITIONS.iter() {
                 tracks.insert( definition.id, ( definition.create_fn )() );

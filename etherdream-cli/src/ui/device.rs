@@ -58,7 +58,7 @@ impl scene::Scene<State> for DeviceScene {
   }
 
   fn on_draw( &mut self, area: Rect, buf: &mut Buffer, ctx: &scene::Context<State> ) {
-    let state = ctx.state();
+    let state = ctx.read_state();
 
     if let Some( device_info ) = state.get_current_device() {
       let sequencer = state.sequencers().get( &device_info.ip() );

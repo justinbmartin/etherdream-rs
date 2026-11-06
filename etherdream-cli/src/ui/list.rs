@@ -45,7 +45,7 @@ impl scene::Scene<State> for ListScene {
   }
 
   fn on_update( &mut self, ctx: &mut scene::Context<State> ) {
-    let state = ctx.state();
+    let state = ctx.read_state();
 
     if state.devices_version() != self.version {
       let devices = state.devices();
@@ -100,7 +100,7 @@ impl ListScene {
     let mut rows = Vec::with_capacity( self.device_addrs.len() );
 
     if let Some( selected_idx ) = self.table.selected() {
-      let state = ctx.state();
+      let state = ctx.read_state();
 
       for ( i, addr ) in self.device_addrs.iter().enumerate() {
         if let Some( device_info ) = state.devices().get( addr ) {

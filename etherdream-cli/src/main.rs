@@ -21,7 +21,7 @@ fn main() -> Result<(),String> {
 
   let cancellation_token = CancellationToken::new();
   let ( discovery_tx, mut discovery_rx ) = mpsc::channel::<discovery::Broadcast>( 16 );
-  let state = Arc::new( RwLock::new( ui::State::new() ) );
+  let state = Arc::new( RwLock::new( ui::State::default() ) );
   let ( fg, bg ) = ui::build_scenes( state.clone() );
 
   let thread =

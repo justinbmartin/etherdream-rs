@@ -205,7 +205,7 @@ pub struct Context<T: SceneController + Send + 'static>
 
 impl<T: SceneController + Send + 'static> Context<T> {
   /// Returns a read-only guard to the `Actionable` state.
-  pub fn state( &'_ self ) -> RwLockReadGuard<'_,T> { self.state.blocking_read() }
+  pub fn read_state( &'_ self ) -> RwLockReadGuard<'_,T> { self.state.blocking_read() }
 
   /// Sends `action` to the asynchronous `Background<T>` task. Returns true if
   /// the `action` was successfully published.
