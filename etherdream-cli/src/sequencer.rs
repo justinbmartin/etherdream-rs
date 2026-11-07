@@ -1,5 +1,6 @@
+use std::collections::HashMap;
 use std::hash::Hash;
-use std::sync::{ Arc, RwLock };
+use std::sync::{ Arc, RwLock, RwLockReadGuard };
 
 use etherdream::generator;
 use tokio::sync::watch;
@@ -16,30 +17,47 @@ pub trait Track: Send + Sync {
   fn execute( &mut self, ctx: &mut generator::ExecutionContext );
 }
 
+// `T` here is what they track id type is. Could be a &str, String, enum, etc...
+pub struct TrackDefinition<T: Clone + Copy> {
+  create_fn: fn() -> Box<dyn Track>,
+  id: T
+}
+
+impl<T: Clone + Copy> TrackDefinition<T> {
+  pub fn new( id: T, create_fn: fn() -> Box<dyn Track> ) -> Self {
+    Self{ create_fn, id }
+  }
+}
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  State
 
 // TODO: I don't think this is needed?
-struct State<T: TrackList> {
-  current: Option<T>,
+struct State<T: Clone + Copy> {
+  current: Option<T>
 }
 
-pub struct Sequencer<T: TrackList> {
+pub struct Sequencer<T: Clone + Copy + Send + Sync> {
   generator: etherdream::Generator,
-  state: Arc<RwLock<State<T>>>
+  state: Arc<RwLock<State<T>>>,
+  tracks: Vec<TrackDefinition<T>>
 }
 
-impl<T: 'static + Eq + Hash + TrackList> Sequencer<T> {
-  pub fn new( client: etherdream::Client ) -> Self {
+impl<T> Sequencer<T>
+  where T: 'static + Clone + Copy + Eq + Hash + Send + Sync
+{
+  pub fn new( client: etherdream::Client, tracks: Vec<TrackDefinition<T>> ) -> Self {
     let state = Arc::new( RwLock::new( State::<T>{ current: None } ) );
-    let executor = Box::new( Executor::new( state.clone() ) );
+    let executor = Box::new( Executor::new( state.clone(), tracks.clone() ) );
     let generator = etherdream::make_generator( client, executor );
 
-    Self{ generator, state }
+    Self{ generator, state, tracks }
   }
 
   pub async fn disconnect( self ) -> Result<etherdream::Client,generator::Error> {
     self.generator.into_client().await
   }
+
+  pub fn tracks( &self ) -> &Vec<TrackDefinition<T>> { &self.track_definitions }
 
   pub fn play( &mut self, track_id: T ) {
     if let Ok( mut state ) = self.state.write() {
@@ -68,44 +86,42 @@ impl<T: 'static + Eq + Hash + TrackList> Sequencer<T> {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Executor
 
-struct Executor<T: TrackList> {
+struct Executor<T: Clone + Copy> {
   current: Option<T>,
   state: Arc<RwLock<State<T>>>,
-  track: Option<Box<dyn Track>>
+  track: Option<Box<dyn Track>>,
+  track_definitions: HashMap<T,TrackDefinition<T>>
 }
 
-impl<T: TrackList> Executor<T> {
-  pub fn new( state: Arc<RwLock<State<T>>> ) -> Self {
-    Self{ current: None, state, track: None }
+impl<T: Clone + Copy + Eq + Hash> Executor<T> {
+  pub fn new( state: Arc<RwLock<State<T>>>, tracks: Vec<TrackDefinition<T>> ) -> Self {
+    let tracks: HashMap<T,TrackDefinition<T>> = tracks.into_iter().map(| t | ( t.id, t )).collect();
+    Self{ current: None, state, track: None, track_definitions: tracks }
   }
 }
 
 impl<T> generator::Executable for Executor<T>
-  where T: 'static + Eq + Hash + Send + Sync + TrackList
+  where T: Clone + Copy + Eq + Hash + Send + Sync
 {
   fn on_start( &mut self, _: generator::OnStartContext ) -> generator::Config {
     generator::Config::new( 1_000 )
   }
 
   fn execute( &mut self, ctx: &mut generator::ExecutionContext ) {
-    let next = self.state.read().map(| s | s.current ).ok().flatten();
-
-    match ( self.current.as_ref(), next ) {
-      ( Some( current ), Some( next ) ) => {
-        if *current != next {
-          self.track = Some( next.new() );
-          self.current = Some( next );
+    if let Ok( state ) = self.state.read() {
+      match ( self.current.as_ref(), state.current ) {
+        ( current, Some( next ) ) => {
+          if current.is_none_or(| c | *c != next ) && let Some( track_definition ) = state.track_definitions.get( &next ) {
+            self.track = Some( ( track_definition.create_fn )() );
+            self.current = Some( next );
+          }
         }
+        ( Some( _ ), None ) => {
+          self.track = None;
+          self.current = None;
+        }
+        ( None, None ) => { /* no-op */ }
       }
-      ( Some( _ ), None ) => {
-        self.track = None;
-        self.current = None;
-      }
-      ( None, Some( next ) ) => {
-        self.track = Some( next.new() );
-        self.current = Some( next );
-      }
-      ( None, None ) => { /* no-op */ }
     }
 
     if let Some( track ) = self.track.as_mut() {

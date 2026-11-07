@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::sequencer;
+use crate::sequencer::{ Sequencer, TrackDefinition };
 
 mod beam;
 mod common;
@@ -14,20 +14,10 @@ pub enum Track {
   Windmill
 }
 
-impl sequencer::TrackList for Track {
-  fn new( &self ) -> Box<dyn sequencer::Track> {
-    match self {
-      Self::Beam => Box::new( beam::Beam::default() ),
-      Self::Windmill => Box::new( windmill::Windmill::new() )
-    }
-  }
-}
+pub fn make_sequencer( client: etherdream::Client ) -> Sequencer<Track> {
+  let mut sequencer = Sequencer::<Track>::new( client );
+  sequencer.add_track( TrackDefinition::new( Track::Beam, ||{ Box::new( beam::Beam::default() ) }) );
+  sequencer.add_track( TrackDefinition::new( Track::Windmill, ||{ Box::new( windmill::Windmill::new() ) }) );
 
-impl fmt::Display for Track {
-  fn fmt( &self, f: &mut fmt::Formatter<'_> ) -> fmt::Result {
-    match self {
-      Self::Beam => write!( f, "Beam" ),
-      Self::Windmill => write!( f, "Windmill" )
-    }
-  }
+  sequencer
 }

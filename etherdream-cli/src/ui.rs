@@ -48,9 +48,6 @@ impl State {
   /// Returns an immutable reference to the `State`s registered devices.
   pub fn devices( &self ) -> &HashMap<IpAddr,etherdream::DeviceInfo> { &self.device_info_map }
 
-  /// Returns an immutable reference to the `State`s registered devices.
-  pub fn sequencers( &self ) -> &HashMap<IpAddr,Sequencer<executors::Track>> { &self.sequencers }
-
   ///
   pub fn devices_version( &self ) -> usize { self.devices_version }
 
@@ -63,11 +60,14 @@ impl State {
   pub fn set_current_device( &mut self, device_id: Option<IpAddr> ) {
     self.current_device_id = device_id
   }
-  
 
   /// Get an immutable reference to the currently selected device
   pub fn get_current_device( &self ) -> Option<&etherdream::DeviceInfo> {
-    self.current_device_id.and_then(|d| self.device_info_map.get( &d ) )
+    self.current_device_id.as_ref().and_then(| addr | self.device_info_map.get( addr ) )
+  }
+
+  pub fn get_current_sequencer( &self ) -> Option<&Sequencer<executors::Track>> {
+    self.current_device_id.as_ref().and_then(| addr | self.sequencers.get( addr ) )
   }
 }
 
@@ -84,8 +84,7 @@ impl SceneController for State {
         if let Some( device_info ) = self.get_current_device() {
           match etherdream::connect( *device_info ).await {
             Ok( client ) => {
-              let sequencer = Sequencer::<executors::Track>::new( client );
-              self.sequencers.insert( device_info.ip(), sequencer );
+              self.sequencers.insert( device_info.ip(), executors::make_sequencer( client ) );
             }
             Err( _err ) => {
               //Err( err )

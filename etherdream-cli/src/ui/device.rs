@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crossterm::event::{ KeyCode, KeyEvent };
 use ratatui::buffer::Buffer;
 use ratatui::layout::{ Constraint, Layout, Rect };
@@ -49,7 +51,8 @@ impl scene::Scene<State> for DeviceScene {
         true
       }
       key @ ( KeyCode::Down | KeyCode::Up ) => {
-        common::on_key_down_for_table_state(&key, &mut self.tracks, executors::DEFINITIONS.len() )
+        let count = ctx.read_state().sequencers.len();
+        common::on_key_down_for_table_state( &key, &mut self.tracks, count )
       }
       _ => {
         false
@@ -61,7 +64,7 @@ impl scene::Scene<State> for DeviceScene {
     let state = ctx.read_state();
 
     if let Some( device_info ) = state.get_current_device() {
-      let sequencer = state.sequencers().get( &device_info.ip() );
+      let sequencer = state.get_current_sequencer();
 
       let footer_msg = if sequencer.is_some() { FOOTER_CONNECTED_MSG } else { FOOTER_DISCONNECTED_MSG };
       let body_area = common::layout( area, buf, footer_msg );
@@ -73,13 +76,13 @@ impl scene::Scene<State> for DeviceScene {
       draw_device_panel( device_info, state.sequencers.get( &device_info.ip() ), left_area, buf );
 
       // Render right pane
-      if sequencer.is_some() {
-        let title = format!(" Tracks [{}] ", executors::DEFINITIONS.len() );
+      if let Some( sequencer ) = sequencer {
+        let title = format!(" Tracks [{}] ", sequencer.tracks().len() );
         let block = common::make_block( Some( &title ) );
         let inner_area = block.inner( right_area );
 
         Widget::render( block, right_area, buf );
-        draw_generators_table( &mut self.tracks, inner_area, buf );
+        draw_generators_table( &mut self.tracks, sequencer, inner_area, buf );
       } else {
         let block = common::make_block( None );
         let inner_area = block.inner( right_area );
@@ -150,14 +153,14 @@ pub fn draw_device_panel( device_info: &etherdream::DeviceInfo, sequencer: Optio
   sequencer.is_some()
 }
 
-fn draw_generators_table( state: &mut TableState, area: Rect, buf: &mut Buffer ) {
+fn draw_generators_table<T: Clone + Copy + Send + Sync>( state: &mut TableState, sequencer: &Sequencer<T>, area: Rect, buf: &mut Buffer ) {
   const CONSTRAINTS: [Constraint; 2] = [ Constraint::Min( 30 ), Constraint::Fill( 1 ) ];
-  let mut rows = Vec::with_capacity( executors::DEFINITIONS.len() );
+  let mut rows = Vec::with_capacity( sequencer.tracks().len() );
   let selected_idx = state.selected().unwrap_or( 0 );
 
-  for ( i, definition ) in executors::DEFINITIONS.iter().enumerate() {
+  for ( i, ( _, track ) ) in sequencer.tracks().iter().enumerate() {
     let style = if selected_idx == i { common::HIGHLIGHT_ROW_SELECTED_STYLE } else { common::HIGHLIGHT_TEXT_STYLE };
-    rows.push( Row::new([ Cell::new( definition.id.to_string() ), Cell::new( "" ) ]).style( style ) );
+    rows.push( Row::new([ Cell::new( track.id.to_string() ), Cell::new( "" ) ]).style( style ) );
   }
 
   let table = Table::new( rows, CONSTRAINTS )
