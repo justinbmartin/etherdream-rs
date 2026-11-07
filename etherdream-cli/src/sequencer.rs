@@ -1,16 +1,12 @@
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::hash::Hash;
-use std::sync::{ Arc, RwLock, RwLockReadGuard };
+use std::sync::{ Arc, RwLock };
 
 use etherdream::generator;
 use tokio::sync::watch;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Track
-
-pub trait TrackList: Clone + Copy + Send + Sync {
-  /// Called by the sequencer to generate point-data for this track.
-  fn new( &self ) -> Box<dyn Track>;
-}
 
 pub trait Track: Send + Sync {
   /// Called by the sequencer to generate point-data for this track.
@@ -18,9 +14,10 @@ pub trait Track: Send + Sync {
 }
 
 // `T` here is what they track id type is. Could be a &str, String, enum, etc...
+#[derive( Clone )]
 pub struct TrackDefinition<T: Clone + Copy> {
-  create_fn: fn() -> Box<dyn Track>,
-  id: T
+  pub create_fn: fn() -> Box<dyn Track>,
+  pub id: T
 }
 
 impl<T: Clone + Copy> TrackDefinition<T> {
@@ -43,7 +40,7 @@ pub struct Sequencer<T: Clone + Copy + Send + Sync> {
 }
 
 impl<T> Sequencer<T>
-  where T: 'static + Clone + Copy + Eq + Hash + Send + Sync
+  where T: 'static + Clone + Copy + Display + Eq + Hash + Send + Sync
 {
   pub fn new( client: etherdream::Client, tracks: Vec<TrackDefinition<T>> ) -> Self {
     let state = Arc::new( RwLock::new( State::<T>{ current: None } ) );
@@ -57,7 +54,7 @@ impl<T> Sequencer<T>
     self.generator.into_client().await
   }
 
-  pub fn tracks( &self ) -> &Vec<TrackDefinition<T>> { &self.track_definitions }
+  pub fn tracks( &self ) -> &Vec<TrackDefinition<T>> { &self.tracks }
 
   pub fn play( &mut self, track_id: T ) {
     if let Ok( mut state ) = self.state.write() {
@@ -111,7 +108,7 @@ impl<T> generator::Executable for Executor<T>
     if let Ok( state ) = self.state.read() {
       match ( self.current.as_ref(), state.current ) {
         ( current, Some( next ) ) => {
-          if current.is_none_or(| c | *c != next ) && let Some( track_definition ) = state.track_definitions.get( &next ) {
+          if current.is_none_or(| c | *c != next ) && let Some( track_definition ) = self.track_definitions.get( &next ) {
             self.track = Some( ( track_definition.create_fn )() );
             self.current = Some( next );
           }

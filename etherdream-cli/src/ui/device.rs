@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use std::hash::Hash;
+use std::fmt::Display;
 
 use crossterm::event::{ KeyCode, KeyEvent };
 use ratatui::buffer::Buffer;
@@ -153,12 +154,12 @@ pub fn draw_device_panel( device_info: &etherdream::DeviceInfo, sequencer: Optio
   sequencer.is_some()
 }
 
-fn draw_generators_table<T: Clone + Copy + Send + Sync>( state: &mut TableState, sequencer: &Sequencer<T>, area: Rect, buf: &mut Buffer ) {
+fn draw_generators_table<T: 'static + Clone + Copy + Display + Eq + Hash + Send + Sync>( state: &mut TableState, sequencer: &Sequencer<T>, area: Rect, buf: &mut Buffer ) {
   const CONSTRAINTS: [Constraint; 2] = [ Constraint::Min( 30 ), Constraint::Fill( 1 ) ];
   let mut rows = Vec::with_capacity( sequencer.tracks().len() );
   let selected_idx = state.selected().unwrap_or( 0 );
 
-  for ( i, ( _, track ) ) in sequencer.tracks().iter().enumerate() {
+  for ( i, track ) in sequencer.tracks().iter().enumerate() {
     let style = if selected_idx == i { common::HIGHLIGHT_ROW_SELECTED_STYLE } else { common::HIGHLIGHT_TEXT_STYLE };
     rows.push( Row::new([ Cell::new( track.id.to_string() ), Cell::new( "" ) ]).style( style ) );
   }
