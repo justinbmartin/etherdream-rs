@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::{ Arc, RwLock };
 
@@ -7,6 +6,11 @@ use tokio::sync::watch;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Track
 
+pub trait TrackList: Clone + Copy + Send + Sync {
+  /// Called by the sequencer to generate point-data for this track.
+  fn new( &self ) -> Box<dyn Track>;
+}
+
 pub trait Track: Send + Sync {
   /// Called by the sequencer to generate point-data for this track.
   fn execute( &mut self, ctx: &mut generator::ExecutionContext );
@@ -14,21 +18,20 @@ pub trait Track: Send + Sync {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  State
 
-pub struct State<T> {
+// TODO: I don't think this is needed?
+struct State<T: TrackList> {
   current: Option<T>,
 }
 
-pub struct Sequencer<T> {
+pub struct Sequencer<T: TrackList> {
   generator: etherdream::Generator,
   state: Arc<RwLock<State<T>>>
 }
 
-impl<T> Sequencer<T>
-  where T: 'static + Clone + Copy + Eq + Hash + Send + Sync
-{
-  pub fn new( client: etherdream::Client, tracks: HashMap<T, Box<dyn Track>> ) -> Self {
+impl<T: 'static + Eq + Hash + TrackList> Sequencer<T> {
+  pub fn new( client: etherdream::Client ) -> Self {
     let state = Arc::new( RwLock::new( State::<T>{ current: None } ) );
-    let executor = Box::new( Executor::new( state.clone(), tracks ) );
+    let executor = Box::new( Executor::new( state.clone() ) );
     let generator = etherdream::make_generator( client, executor );
 
     Self{ generator, state }
@@ -65,29 +68,48 @@ impl<T> Sequencer<T>
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Executor
 
-pub struct Executor<T: Eq + Hash> {
+struct Executor<T: TrackList> {
+  current: Option<T>,
   state: Arc<RwLock<State<T>>>,
-  tracks: HashMap<T, Box<dyn Track>>
+  track: Option<Box<dyn Track>>
 }
 
-impl<T: Eq + Hash> Executor<T> {
-  pub fn new( state: Arc<RwLock<State<T>>>, tracks: HashMap<T, Box<dyn Track>> ) -> Self {
-    Self{ state, tracks }
+impl<T: TrackList> Executor<T> {
+  pub fn new( state: Arc<RwLock<State<T>>> ) -> Self {
+    Self{ current: None, state, track: None }
   }
 }
 
 impl<T> generator::Executable for Executor<T>
-  where T: 'static + Eq + Hash + Send + Sync
+  where T: 'static + Eq + Hash + Send + Sync + TrackList
 {
   fn on_start( &mut self, _: generator::OnStartContext ) -> generator::Config {
     generator::Config::new( 1_000 )
   }
 
   fn execute( &mut self, ctx: &mut generator::ExecutionContext ) {
-    if let Ok( state ) = self.state.read() && let Some( current ) = state.current.as_ref() {
-      if let Some( track ) = self.tracks.get_mut( &current ) {
-        track.execute( ctx )
+    let next = self.state.read().map(| s | s.current ).ok().flatten();
+
+    match ( self.current.as_ref(), next ) {
+      ( Some( current ), Some( next ) ) => {
+        if *current != next {
+          self.track = Some( next.new() );
+          self.current = Some( next );
+        }
       }
+      ( Some( _ ), None ) => {
+        self.track = None;
+        self.current = None;
+      }
+      ( None, Some( next ) ) => {
+        self.track = Some( next.new() );
+        self.current = Some( next );
+      }
+      ( None, None ) => { /* no-op */ }
+    }
+
+    if let Some( track ) = self.track.as_mut() {
+      track.execute( ctx );
     }
   }
 }
