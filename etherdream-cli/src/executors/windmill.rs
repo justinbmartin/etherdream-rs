@@ -46,7 +46,7 @@ impl Windmill {
   pub fn new() -> Self { Self{ offset: 0, time: 0.0 } }
 }
 
-impl sequencer::Track for Windmill {
+impl sequencer::TrackExecutor for Windmill {
   fn execute( &mut self, ctx: &mut generator::ExecutionContext ) {
     let axis = na::Unit::new_normalize( na::Vector3::new( 0.75, 0.75, 0.1 ) );
     let mut m: na::Matrix4<f64>;

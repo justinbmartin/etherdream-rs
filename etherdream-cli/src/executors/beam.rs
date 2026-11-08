@@ -6,7 +6,7 @@ use super::common;
 #[derive( Default )]
 pub struct Beam;
 
-impl sequencer::Track for Beam {
+impl sequencer::TrackExecutor for Beam {
   fn execute( &mut self, ctx: &mut generator::ExecutionContext ) {
     let color = common::ilda_color( 1.0 );
     let pos = common::ilda_position( 0.0 );

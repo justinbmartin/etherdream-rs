@@ -1,6 +1,7 @@
 use std::fmt;
+use std::sync::LazyLock;
 
-use crate::sequencer::{ Sequencer, TrackDefinition };
+use crate::sequencer;
 
 mod beam;
 mod common;
@@ -23,11 +24,14 @@ impl fmt::Display for Track {
   }
 }
 
-pub fn make_sequencer( client: etherdream::Client ) -> Sequencer<Track> {
-  let tracks: Vec<TrackDefinition<Track>> = vec![
-    TrackDefinition::new( Track::Beam, ||{ Box::new( beam::Beam::default() ) }),
-    TrackDefinition::new( Track::Windmill, ||{ Box::new( windmill::Windmill::new() ) })
-  ];
+pub const TRACKS: LazyLock<Vec<sequencer::Track<Track>>> = LazyLock::new( ||{
+  vec![
+    sequencer::Track::new( Track::Beam, ||{ Box::new( beam::Beam::default() ) }),
+    sequencer::Track::new( Track::Windmill, ||{ Box::new( windmill::Windmill::new() ) })
+  ]
+});
 
-  Sequencer::<Track>::new( client, tracks )
+struct TrackDefinition {
+  id: Track,
+  name: String
 }

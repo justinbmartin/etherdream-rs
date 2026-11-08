@@ -8,21 +8,21 @@ use tokio::sync::watch;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Track
 
-pub trait Track: Send + Sync {
+pub trait TrackExecutor: Send + Sync {
   /// Called by the sequencer to generate point-data for this track.
   fn execute( &mut self, ctx: &mut generator::ExecutionContext );
 }
 
 // `T` here is what they track id type is. Could be a &str, String, enum, etc...
 #[derive( Clone )]
-pub struct TrackDefinition<T: Clone + Copy> {
-  pub create_fn: fn() -> Box<dyn Track>,
-  pub id: T
+pub struct Track<T: Clone + Copy> {
+  pub create_executor_fn: fn() -> Box<dyn TrackExecutor>,
+  pub definition: T
 }
 
-impl<T: Clone + Copy> TrackDefinition<T> {
-  pub fn new( id: T, create_fn: fn() -> Box<dyn Track> ) -> Self {
-    Self{ create_fn, id }
+impl<T: Clone + Copy> Track<T> {
+  pub fn new( definition: T, create_executor_fn: fn() -> Box<dyn TrackExecutor> ) -> Self {
+    Self{ create_executor_fn, definition }
   }
 }
 
@@ -36,13 +36,13 @@ struct State<T: Clone + Copy> {
 pub struct Sequencer<T: Clone + Copy + Send + Sync> {
   generator: etherdream::Generator,
   state: Arc<RwLock<State<T>>>,
-  tracks: Vec<TrackDefinition<T>>
+  tracks: Vec<Track<T>>
 }
 
 impl<T> Sequencer<T>
   where T: 'static + Clone + Copy + Display + Eq + Hash + Send + Sync
 {
-  pub fn new( client: etherdream::Client, tracks: Vec<TrackDefinition<T>> ) -> Self {
+  pub fn new( client: etherdream::Client, tracks: Vec<Track<T>> ) -> Self {
     let state = Arc::new( RwLock::new( State::<T>{ current: None } ) );
     let executor = Box::new( Executor::new( state.clone(), tracks.clone() ) );
     let generator = etherdream::make_generator( client, executor );
@@ -54,7 +54,7 @@ impl<T> Sequencer<T>
     self.generator.into_client().await
   }
 
-  pub fn tracks( &self ) -> &Vec<TrackDefinition<T>> { &self.tracks }
+  pub fn tracks( &self ) -> &Vec<Track<T>> { &self.tracks }
 
   pub fn play( &mut self, track_id: T ) {
     if let Ok( mut state ) = self.state.write() {
@@ -86,13 +86,13 @@ impl<T> Sequencer<T>
 struct Executor<T: Clone + Copy> {
   current: Option<T>,
   state: Arc<RwLock<State<T>>>,
-  track: Option<Box<dyn Track>>,
-  track_definitions: HashMap<T,TrackDefinition<T>>
+  track: Option<Box<dyn TrackExecutor>>,
+  track_definitions: HashMap<T,Track<T>>
 }
 
 impl<T: Clone + Copy + Eq + Hash> Executor<T> {
-  pub fn new( state: Arc<RwLock<State<T>>>, tracks: Vec<TrackDefinition<T>> ) -> Self {
-    let tracks: HashMap<T,TrackDefinition<T>> = tracks.into_iter().map(| t | ( t.id, t )).collect();
+  pub fn new( state: Arc<RwLock<State<T>>>, tracks: Vec<Track<T>> ) -> Self {
+    let tracks: HashMap<T,Track<T>> = tracks.into_iter().map(| t | ( t.definition.id, t )).collect();
     Self{ current: None, state, track: None, track_definitions: tracks }
   }
 }
@@ -109,7 +109,7 @@ impl<T> generator::Executable for Executor<T>
       match ( self.current.as_ref(), state.current ) {
         ( current, Some( next ) ) => {
           if current.is_none_or(| c | *c != next ) && let Some( track_definition ) = self.track_definitions.get( &next ) {
-            self.track = Some( ( track_definition.create_fn )() );
+            self.track = Some( ( track_definition.create_executor_fn )() );
             self.current = Some( next );
           }
         }

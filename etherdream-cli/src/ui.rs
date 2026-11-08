@@ -84,7 +84,8 @@ impl SceneController for State {
         if let Some( device_info ) = self.get_current_device() {
           match etherdream::connect( *device_info ).await {
             Ok( client ) => {
-              self.sequencers.insert( device_info.ip(), executors::make_sequencer( client ) );
+              let sequencer = Sequencer::new( client, executors::TRACKS.clone() );
+              self.sequencers.insert( device_info.ip(), sequencer );
             }
             Err( _err ) => {
               //Err( err )
