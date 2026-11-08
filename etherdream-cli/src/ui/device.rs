@@ -48,7 +48,7 @@ impl scene::Scene<State> for DeviceScene {
         true
       }
       KeyCode::Enter => {
-        ctx.invoke( Action::Play( executors::Track::Beam ) );
+        ctx.invoke( Action::Play( executors::TrackId::Beam ) );
         true
       }
       key @ ( KeyCode::Down | KeyCode::Up ) => {
@@ -97,7 +97,7 @@ impl scene::Scene<State> for DeviceScene {
   }
 }
 
-pub fn draw_device_panel( device_info: &etherdream::DeviceInfo, sequencer: Option<&Sequencer<executors::Track>>, area: Rect, buf: &mut Buffer ) -> bool {
+pub fn draw_device_panel( device_info: &etherdream::DeviceInfo, sequencer: Option<&Sequencer<executors::TrackId>>, area: Rect, buf: &mut Buffer ) -> bool {
   let block = Block::bordered()
     .border_style( common::HIGHLIGHT_BORDER_STYLE )
     .padding( Padding::new( 1, 1, 0, 0 ) )

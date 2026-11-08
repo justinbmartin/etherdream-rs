@@ -18,7 +18,7 @@ pub enum Action {
   Back,
   Connect,
   Disconnect,
-  Play( executors::Track ),
+  Play( executors::TrackId ),
   SelectDevice( IpAddr ),
   Stop
 }
@@ -41,7 +41,7 @@ pub struct State {
   // invalidation by scene views.
   devices_version: usize,
   // A map of active sequencers, using the device's IP address as key.
-  sequencers: HashMap<IpAddr,Sequencer<executors::Track>>
+  sequencers: HashMap<IpAddr,Sequencer<executors::TrackId>>
 }
 
 impl State {
@@ -66,7 +66,7 @@ impl State {
     self.current_device_id.as_ref().and_then(| addr | self.device_info_map.get( addr ) )
   }
 
-  pub fn get_current_sequencer( &self ) -> Option<&Sequencer<executors::Track>> {
+  pub fn get_current_sequencer( &self ) -> Option<&Sequencer<executors::TrackId>> {
     self.current_device_id.as_ref().and_then(| addr | self.sequencers.get( addr ) )
   }
 }

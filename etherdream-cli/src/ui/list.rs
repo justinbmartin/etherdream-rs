@@ -133,7 +133,7 @@ impl ListScene {
   }
 }
 
-fn sequencer_status( sequencer: Option<&Sequencer<executors::Track>> ) -> &'static str {
+fn sequencer_status( sequencer: Option<&Sequencer<executors::TrackId>> ) -> &'static str {
   match sequencer {
     Some( sequencer ) => if sequencer.is_playing() { "PLAYING" } else { "CONNECTED" },
     None => "DISCONNECTED"

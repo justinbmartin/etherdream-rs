@@ -10,12 +10,12 @@ mod windmill;
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Track Identifiers
 
 #[derive( Clone, Copy, Debug, Eq, Hash, PartialEq )]
-pub enum Track {
+pub enum TrackId {
   Beam,
   Windmill
 }
 
-impl fmt::Display for Track {
+impl fmt::Display for TrackId {
   fn fmt( &self, f: &mut fmt::Formatter<'_> ) -> fmt::Result {
     match self {
       Self::Beam => write!( f, "Beam" ),
@@ -24,9 +24,11 @@ impl fmt::Display for Track {
   }
 }
 
-pub const TRACKS: LazyLock<Vec<sequencer::TrackDefinition<Track>>> = LazyLock::new( ||{
+
+
+pub const TRACKS: LazyLock<Vec<sequencer::TrackDefinition<TrackId>>> = LazyLock::new( ||{
   vec![
-    sequencer::TrackDefinition::new( Track::Beam, ||{ Box::new( beam::Beam::default() ) }),
-    sequencer::TrackDefinition::new( Track::Windmill, ||{ Box::new( windmill::Windmill::new() ) })
+    sequencer::TrackDefinition::new( TrackId::Beam, ||{ Box::new( beam::Beam::default() ) }),
+    sequencer::TrackDefinition::new( TrackId::Windmill, ||{ Box::new( windmill::Windmill::new() ) })
   ]
 });
