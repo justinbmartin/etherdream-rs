@@ -5,17 +5,17 @@ use std::sync::Arc;
 use etherdream;
 use tokio::sync::RwLock;
 
-use crate::executors;
 use crate::scene::{ self, SceneController, SceneEvent };
 use crate::scenes;
 use crate::sequencer::Sequencer;
+use crate::tracks;
 
 #[derive( Debug )]
 pub enum Action {
   Back,
   Connect,
   Disconnect,
-  Play( executors::TrackId ),
+  Play( tracks::TrackId ),
   SelectDevice( IpAddr ),
   Stop
 }
@@ -38,7 +38,7 @@ pub struct State {
   // invalidation by scene views.
   devices_version: usize,
   // A map of active sequencers, using the device's IP address as key.
-  sequencers: HashMap<IpAddr,Sequencer<executors::Track>>
+  sequencers: HashMap<IpAddr,Sequencer<tracks::Track>>
 }
 
 impl State {
@@ -63,7 +63,7 @@ impl State {
     self.current_device_id.as_ref().and_then(| addr | self.device_info_map.get( addr ) )
   }
 
-  pub fn get_current_sequencer( &self ) -> Option<&Sequencer<executors::Track>> {
+  pub fn get_current_sequencer( &self ) -> Option<&Sequencer<tracks::Track>> {
     self.current_device_id.as_ref().and_then(| addr | self.sequencers.get( addr ) )
   }
 }
@@ -81,7 +81,7 @@ impl SceneController for State {
         if let Some( device_info ) = self.get_current_device() {
           match etherdream::connect( *device_info ).await {
             Ok( client ) => {
-              let sequencer = Sequencer::new( client, executors::TRACKS.clone() );
+              let sequencer = Sequencer::new( client, tracks::TRACKS.clone() );
               self.sequencers.insert( device_info.ip(), sequencer );
             }
             Err( _err ) => {

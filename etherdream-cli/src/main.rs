@@ -7,10 +7,10 @@ use tokio::sync::{ mpsc, RwLock };
 use tokio::task;
 use tokio_util::sync::CancellationToken;
 
-mod executors;
 mod scene;
 mod scenes;
 mod sequencer;
+mod tracks;
 mod ui;
 
 fn main() -> Result<(),String> {

@@ -5,9 +5,9 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{ Constraint, Layout, Rect };
 use ratatui::widgets::{ Cell, Row, StatefulWidget, Table, TableState, Widget };
 
-use crate::executors;
 use crate::scene;
 use crate::sequencer::Sequencer;
+use crate::tracks;
 use crate::ui::{ Action, State };
 use super::common;
 
@@ -133,7 +133,7 @@ impl ListDevicesScene {
   }
 }
 
-fn sequencer_status( sequencer: Option<&Sequencer<executors::Track>> ) -> &'static str {
+fn sequencer_status( sequencer: Option<&Sequencer<tracks::Track>> ) -> &'static str {
   match sequencer {
     Some( sequencer ) => if sequencer.is_playing() { "PLAYING" } else { "CONNECTED" },
     None => "DISCONNECTED"

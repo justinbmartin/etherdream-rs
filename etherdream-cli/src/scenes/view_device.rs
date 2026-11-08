@@ -4,9 +4,10 @@ use ratatui::layout::{ Constraint, Layout, Rect };
 use ratatui::text::Line;
 use ratatui::widgets::{ Block, Cell, Padding, Row, StatefulWidget, Table, TableState, Widget };
 
-use crate::executors;
+
 use crate::scene;
 use crate::sequencer::Sequencer;
+use crate::tracks;
 use crate::ui::{ Action, State };
 use super::common;
 
@@ -45,7 +46,7 @@ impl scene::Scene<State> for ViewDeviceScene {
         true
       }
       KeyCode::Enter => {
-        ctx.invoke( Action::Play( executors::TrackId::Beam ) );
+        ctx.invoke( Action::Play( tracks::TrackId::Beam ) );
         true
       }
       key @ ( KeyCode::Down | KeyCode::Up ) => {
@@ -97,7 +98,7 @@ impl scene::Scene<State> for ViewDeviceScene {
   }
 }
 
-pub fn draw_device_panel( device_info: &etherdream::DeviceInfo, sequencer: Option<&Sequencer<executors::Track>>, area: Rect, buf: &mut Buffer ) -> bool {
+pub fn draw_device_panel( device_info: &etherdream::DeviceInfo, sequencer: Option<&Sequencer<tracks::Track>>, area: Rect, buf: &mut Buffer ) -> bool {
   let block = Block::bordered()
     .border_style( common::HIGHLIGHT_BORDER_STYLE )
     .padding( Padding::new( 1, 1, 0, 0 ) )
@@ -154,7 +155,7 @@ pub fn draw_device_panel( device_info: &etherdream::DeviceInfo, sequencer: Optio
   sequencer.is_some()
 }
 
-fn draw_generators_table( state: &mut TableState, sequencer: &Sequencer<executors::Track>, area: Rect, buf: &mut Buffer ) {
+fn draw_generators_table( state: &mut TableState, sequencer: &Sequencer<tracks::Track>, area: Rect, buf: &mut Buffer ) {
   const CONSTRAINTS: [Constraint; 2] = [ Constraint::Min( 30 ), Constraint::Fill( 1 ) ];
   let mut rows = Vec::with_capacity( sequencer.tracks().len() );
   let selected_idx = state.selected().unwrap_or( 0 );
