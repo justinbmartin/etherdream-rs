@@ -110,7 +110,7 @@ impl ListScene {
             Row::new([
               Cell::new( device_info.ip().to_string() ),
               Cell::new( device_info.mac_address().to_string() ),
-              Cell::new( sequencer_status( state.sequencers.get( addr ) ) )
+              Cell::new( sequencer_status( state.get_current_sequencer() ) )
             ]).style( style )
           );
         }
@@ -133,7 +133,7 @@ impl ListScene {
   }
 }
 
-fn sequencer_status( sequencer: Option<&Sequencer<executors::TrackId>> ) -> &'static str {
+fn sequencer_status( sequencer: Option<&Sequencer<executors::TrackInfo>> ) -> &'static str {
   match sequencer {
     Some( sequencer ) => if sequencer.is_playing() { "PLAYING" } else { "CONNECTED" },
     None => "DISCONNECTED"

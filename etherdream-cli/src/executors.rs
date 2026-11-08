@@ -41,9 +41,14 @@ impl TrackInfo {
   pub fn name( &self ) -> &str { &self.name }
 }
 
-pub const TRACKS: LazyLock<Vec<sequencer::TrackDefinition<TrackId>>> = LazyLock::new( ||{
+pub const TRACKS: LazyLock<Vec<sequencer::TrackDefinition<TrackInfo>>> = LazyLock::new( ||{
   vec![
-    sequencer::TrackDefinition::new( TrackId::Beam, ||{ Box::new( beam::Beam::default() ) }),
-    sequencer::TrackDefinition::new( TrackId::Windmill, ||{ Box::new( windmill::Windmill::new() ) })
+    sequencer::TrackDefinition::new(
+      TrackInfo{ id: TrackId::Beam, name: String::from( "Beam" ) },
+      ||{ Box::new( beam::Beam::default() ) }
+    ),
+    sequencer::TrackDefinition::new(
+      TrackInfo{ id: TrackId::Windmill, name: String::from( "Windmill" ) },
+      ||{ Box::new( windmill::Windmill::new() ) })
   ]
 });

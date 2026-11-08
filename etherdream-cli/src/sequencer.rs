@@ -14,7 +14,7 @@ pub trait Track: Send + Sync {
 }
 
 /// Defines how to create a track and its varying properties.
-#[derive( Clone )]
+#[derive( Clone, Copy )]
 pub struct TrackDefinition<T: TrackInfo> {
   create_executor_fn: fn() -> Box<dyn Track>,
   info: T
@@ -37,17 +37,19 @@ pub trait TrackInfo: Clone {
 pub struct Sequencer<T: TrackInfo> {
   current: Arc<RwLock<Option<T::TrackId>>>,
   generator: etherdream::Generator,
-  track_ids: Vec<T::TrackId>
+  track_infos: Vec<T>
 }
 
 impl<T: TrackInfo> Sequencer<T> {
-  pub fn new( client: etherdream::Client, track_definitions: Vec<TrackDefinition<T::TrackId>> ) -> Self {
-    let current = Arc::new( RwLock::new( None ) );
-    let executor = Box::new( Executor::new( current.clone(), track_definitions.clone() ) );
+  pub fn new( client: etherdream::Client, track_definitions: Vec<TrackDefinition<T>> ) -> Self {
+    let current = Arc::new( RwLock::new( None::<T::TrackId> ) );
+
+    let track_creators = track_definitions.iter().map(| td | ( *td.info.id(), td.create_executor_fn )).collect();
+    let executor = Box::new( Executor::new( current.clone(), track_creators ) );
     let generator = etherdream::make_generator( client, executor );
 
-    let track_ids = track_definitions.iter().map(| td | td.id ).collect();
-    Self{ generator, current, track_ids }
+    let track_infos = track_definitions.iter().map(| td | td.info.clone() ).collect();
+    Self{ generator, current, track_infos }
   }
 
   pub async fn disconnect( self ) -> Result<etherdream::Client,generator::Error> {
@@ -55,7 +57,7 @@ impl<T: TrackInfo> Sequencer<T> {
   }
 
   /// Returns a list of all track id's recognized by the sequencer.
-  pub fn track_ids( &self ) -> &Vec<T::TrackId> { &self.track_ids }
+  pub fn track_ids( &self ) -> &Vec<T> { &self.track_infos }
 
   pub fn play( &mut self, track_id: T::TrackId ) {
     if let Ok( mut current ) = self.current.write() {
@@ -88,13 +90,12 @@ struct Executor<T: Clone + Copy> {
   local_current: Option<T>,
   current: Arc<RwLock<Option<T>>>,
   track: Option<Box<dyn Track>>,
-  track_definitions: HashMap<T,TrackDefinition<T>>
+  track_creators: HashMap<T, fn() -> Box<dyn Track>>
 }
 
 impl<T: Clone + Copy + Eq + Hash> Executor<T> {
-  pub fn new( current: Arc<RwLock<Option<T>>>, track_definitions: Vec<TrackDefinition<T>> ) -> Self {
-    let track_definitions = track_definitions.into_iter().map(| td | ( td.id, td )).collect();
-    Self{ local_current: None, current, track: None, track_definitions }
+  pub fn new( current: Arc<RwLock<Option<T>>>, track_creators: HashMap<T, fn() -> Box<dyn Track>> ) -> Self {
+    Self{ local_current: None, current, track: None, track_creators }
   }
 }
 
@@ -109,8 +110,8 @@ impl<T> generator::Executable for Executor<T>
     if let Ok( current ) = self.current.read() {
       match ( self.local_current.as_ref(), *current ) {
         ( current, Some( next ) ) => {
-          if current.is_none_or(| c | *c != next ) && let Some( track_definition ) = self.track_definitions.get( &next ) {
-            self.track = Some( ( track_definition.create_executor_fn )() );
+          if current.is_none_or(| c | *c != next ) && let Some( create_fn ) = self.track_creators.get( &next ) {
+            self.track = Some( create_fn() );
             self.local_current = Some( next );
           }
         }

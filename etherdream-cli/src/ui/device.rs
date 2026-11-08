@@ -1,6 +1,3 @@
-use std::hash::Hash;
-use std::fmt::Display;
-
 use crossterm::event::{ KeyCode, KeyEvent };
 use ratatui::buffer::Buffer;
 use ratatui::layout::{ Constraint, Layout, Rect };
@@ -74,7 +71,7 @@ impl scene::Scene<State> for DeviceScene {
       let [ left_area, right_area ] = layout.areas( body_area );
 
       // Render left pane
-      draw_device_panel( device_info, state.sequencers.get( &device_info.ip() ), left_area, buf );
+      draw_device_panel( device_info, state.get_current_sequencer(), left_area, buf );
 
       // Render right pane
       if let Some( sequencer ) = sequencer {
@@ -97,7 +94,7 @@ impl scene::Scene<State> for DeviceScene {
   }
 }
 
-pub fn draw_device_panel( device_info: &etherdream::DeviceInfo, sequencer: Option<&Sequencer<executors::TrackId>>, area: Rect, buf: &mut Buffer ) -> bool {
+pub fn draw_device_panel( device_info: &etherdream::DeviceInfo, sequencer: Option<&Sequencer<executors::TrackInfo>>, area: Rect, buf: &mut Buffer ) -> bool {
   let block = Block::bordered()
     .border_style( common::HIGHLIGHT_BORDER_STYLE )
     .padding( Padding::new( 1, 1, 0, 0 ) )
@@ -154,14 +151,14 @@ pub fn draw_device_panel( device_info: &etherdream::DeviceInfo, sequencer: Optio
   sequencer.is_some()
 }
 
-fn draw_generators_table<T: 'static + Clone + Copy + Display + Eq + Hash + Send + Sync>( state: &mut TableState, sequencer: &Sequencer<T>, area: Rect, buf: &mut Buffer ) {
+fn draw_generators_table( state: &mut TableState, sequencer: &Sequencer<executors::TrackInfo>, area: Rect, buf: &mut Buffer ) {
   const CONSTRAINTS: [Constraint; 2] = [ Constraint::Min( 30 ), Constraint::Fill( 1 ) ];
   let mut rows = Vec::with_capacity( sequencer.track_ids().len() );
   let selected_idx = state.selected().unwrap_or( 0 );
 
   for ( i, track_id ) in sequencer.track_ids().iter().enumerate() {
     let style = if selected_idx == i { common::HIGHLIGHT_ROW_SELECTED_STYLE } else { common::HIGHLIGHT_TEXT_STYLE };
-    rows.push( Row::new([ Cell::new( track_id.to_string() ), Cell::new( "" ) ]).style( style ) );
+    rows.push( Row::new([ Cell::new( track_id.name() ), Cell::new( "" ) ]).style( style ) );
   }
 
   let table = Table::new( rows, CONSTRAINTS )
