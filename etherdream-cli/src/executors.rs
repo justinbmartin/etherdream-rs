@@ -1,3 +1,4 @@
+// This is effectively the "sequencer" configuration for this crate.
 use std::fmt;
 use std::sync::LazyLock;
 
@@ -24,7 +25,20 @@ impl fmt::Display for TrackId {
   }
 }
 
+pub struct TrackInfo {
+  id: TrackId,
+  name: String
+}
 
+impl sequencer::TrackInfo for TrackInfo {
+  type TrackId = TrackId;
+
+  fn id( &self ) -> &TrackId { &self.id }
+}
+
+impl TrackInfo {
+  pub fn name( &self ) -> &str { &self.name }
+}
 
 pub const TRACKS: LazyLock<Vec<sequencer::TrackDefinition<TrackId>>> = LazyLock::new( ||{
   vec![

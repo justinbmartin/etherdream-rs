@@ -27,18 +27,22 @@ impl<T: Clone + Copy> TrackDefinition<T> {
   }
 }
 
+pub trait TrackInfo: Clone + Copy {
+  type TrackId: Clone + Copy + Eq + Hash + Send + Sync;
+
+  fn id( &self ) -> &Self::TrackId;
+}
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  State
 
-pub struct Sequencer<T: Clone + Copy + Send + Sync> {
-  current: Arc<RwLock<Option<T>>>,
+pub struct Sequencer<T: TrackInfo> {
+  current: Arc<RwLock<Option<T::TrackId>>>,
   generator: etherdream::Generator,
   track_ids: Vec<T>
 }
 
-impl<T> Sequencer<T>
-  where T: 'static + Clone + Copy + Display + Eq + Hash + Send + Sync
-{
-  pub fn new( client: etherdream::Client, track_definitions: Vec<TrackDefinition<T>> ) -> Self {
+impl<T: TrackInfo> Sequencer<T> {
+  pub fn new( client: etherdream::Client, track_definitions: Vec<TrackDefinition<T::TrackId>> ) -> Self {
     let current = Arc::new( RwLock::new( None ) );
     let executor = Box::new( Executor::new( current.clone(), track_definitions.clone() ) );
     let generator = etherdream::make_generator( client, executor );
