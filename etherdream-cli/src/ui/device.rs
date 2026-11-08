@@ -78,7 +78,7 @@ impl scene::Scene<State> for DeviceScene {
 
       // Render right pane
       if let Some( sequencer ) = sequencer {
-        let title = format!(" Tracks [{}] ", sequencer.tracks().len() );
+        let title = format!(" Tracks [{}] ", sequencer.track_ids().len() );
         let block = common::make_block( Some( &title ) );
         let inner_area = block.inner( right_area );
 
@@ -156,12 +156,12 @@ pub fn draw_device_panel( device_info: &etherdream::DeviceInfo, sequencer: Optio
 
 fn draw_generators_table<T: 'static + Clone + Copy + Display + Eq + Hash + Send + Sync>( state: &mut TableState, sequencer: &Sequencer<T>, area: Rect, buf: &mut Buffer ) {
   const CONSTRAINTS: [Constraint; 2] = [ Constraint::Min( 30 ), Constraint::Fill( 1 ) ];
-  let mut rows = Vec::with_capacity( sequencer.tracks().len() );
+  let mut rows = Vec::with_capacity( sequencer.track_ids().len() );
   let selected_idx = state.selected().unwrap_or( 0 );
 
-  for ( i, track ) in sequencer.tracks().iter().enumerate() {
+  for ( i, track_id ) in sequencer.track_ids().iter().enumerate() {
     let style = if selected_idx == i { common::HIGHLIGHT_ROW_SELECTED_STYLE } else { common::HIGHLIGHT_TEXT_STYLE };
-    rows.push( Row::new([ Cell::new( track.id.to_string() ), Cell::new( "" ) ]).style( style ) );
+    rows.push( Row::new([ Cell::new( track_id.to_string() ), Cell::new( "" ) ]).style( style ) );
   }
 
   let table = Table::new( rows, CONSTRAINTS )

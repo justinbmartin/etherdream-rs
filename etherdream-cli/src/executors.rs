@@ -24,10 +24,10 @@ impl fmt::Display for Track {
   }
 }
 
-pub const TRACKS: LazyLock<Vec<sequencer::Track<Track>>> = LazyLock::new( ||{
+pub const TRACKS: LazyLock<Vec<sequencer::TrackDefinition<Track>>> = LazyLock::new( ||{
   vec![
-    sequencer::Track::new( Track::Beam, ||{ Box::new( beam::Beam::default() ) }),
-    sequencer::Track::new( Track::Windmill, ||{ Box::new( windmill::Windmill::new() ) })
+    sequencer::TrackDefinition::new( Track::Beam, ||{ Box::new( beam::Beam::default() ) }),
+    sequencer::TrackDefinition::new( Track::Windmill, ||{ Box::new( windmill::Windmill::new() ) })
   ]
 });
 
