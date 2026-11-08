@@ -40,11 +40,11 @@ async fn discovery_server_will_receive_a_single_etherdream_broadcast() -> Result
   broadcast_device( &discovery, &intrinsics, &state, 1 ).await?;
 
   // TODO: Verify that the discovery server receives that device and executes the callback
-  let address = receive_device_or_panic( &mut discovery_rx ).await;
+  let broadcast = receive_device_or_panic( &mut discovery_rx ).await;
 
   {
     let registry = discovery.registry().read().await;
-    let broadcast = registry.get( &address ).expect( "Device not found." );
+    let broadcast = registry.get( &broadcast.device_info().ip() ).expect( "Device not found." );
 
     let device_info = broadcast.device_info();
     assert_eq!( device_info.buffer_capacity(), intrinsics.buffer_capacity as usize );

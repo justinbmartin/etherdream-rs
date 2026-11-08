@@ -5,6 +5,8 @@ use std::sync::{ Arc, RwLock };
 use etherdream::generator;
 use tokio::sync::watch;
 
+type CreateExecutorFn = fn() -> Box<dyn TrackExecutor>;
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Track
 
 /// The trait that must be implemented by all track executors. Responsible for
@@ -27,19 +29,21 @@ pub trait Track: Clone {
 /// Describes a tracks properties and a function to create it.
 #[derive( Clone, Copy )]
 pub struct TrackDefinition<T: Track> {
-  create_fn: fn() -> Box<dyn TrackExecutor>,
+  create_fn: CreateExecutorFn,
   track: T
 }
 
 impl<T: Track> TrackDefinition<T> {
   /// Creates a new track definition.
-  pub fn new( track: T, create_fn: fn() -> Box<dyn TrackExecutor> ) -> Self {
+  pub fn new( track: T, create_fn: CreateExecutorFn ) -> Self {
     Self{ create_fn, track }
   }
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  State
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Sequencer
 
+/// Consumes a client and provides for sequencer capabilities: tracks, the
+/// ability to switch between tracks, start/stop, etc.
 pub struct Sequencer<T: Track> {
   current: Arc<RwLock<Option<T::TrackId>>>,
   generator: etherdream::Generator,
@@ -48,29 +52,33 @@ pub struct Sequencer<T: Track> {
 
 impl<T: Track> Sequencer<T> {
   pub fn new( client: etherdream::Client, track_definitions: Vec<TrackDefinition<T>> ) -> Self {
-    let current = Arc::new( RwLock::new( None::<T::TrackId> ) );
+    let current = Arc::new( RwLock::new( None ) );
 
     let track_create_fn_map = track_definitions.iter().map(| td | ( *td.track.id(), td.create_fn )).collect();
     let tracks = track_definitions.into_iter().map(| td | td.track ).collect();
 
     let executor = Box::new( Executor::new( current.clone(), track_create_fn_map ) );
     let generator = etherdream::make_generator( client, executor );
-    Self{ generator, current, tracks }
+    Self{ current, generator, tracks }
   }
 
   pub async fn disconnect( self ) -> Result<etherdream::Client,generator::Error> {
+    /// TODO: graceful shutdown
     self.generator.into_client().await
   }
 
-  /// Returns a list of all track id's recognized by the sequencer.
+  /// Returns the vector of all tracks registered with the sequencer.
   pub fn tracks( &self ) -> &Vec<T> { &self.tracks }
 
+  /// Plays a track by `track_id`. Does nothing is the track is already
+  /// playing.
   pub fn play( &mut self, track_id: T::TrackId ) {
     if let Ok( mut current ) = self.current.write() {
       *current = Some( track_id );
     }
   }
 
+  /// Returns true if the sequencer is currently playing.
   pub fn is_playing( &self ) -> bool {
     if let Ok( current ) = self.current.read() {
       current.is_some()
@@ -79,12 +87,15 @@ impl<T: Track> Sequencer<T> {
     }
   }
 
+  /// Stops the sequencer.
   pub fn stop( &mut self ) {
     if let Ok( mut current ) = self.current.write() {
       *current = None;
     }
   }
 
+  /// Returns a reference to the device state associated the underlying
+  /// Etherdream client.
   pub fn state( &'_ self ) -> watch::Ref<'_, etherdream::State> {
     self.generator.state()
   }
@@ -96,11 +107,11 @@ struct Executor<T: Clone + Copy> {
   local_current: Option<T>,
   current: Arc<RwLock<Option<T>>>,
   track: Option<Box<dyn TrackExecutor>>,
-  track_create_fn_map: HashMap<T, fn() -> Box<dyn TrackExecutor>>
+  track_create_fn_map: HashMap<T, CreateExecutorFn>
 }
 
 impl<T: Clone + Copy + Eq + Hash> Executor<T> {
-  pub fn new( current: Arc<RwLock<Option<T>>>, track_create_fn_map: HashMap<T, fn() -> Box<dyn TrackExecutor>> ) -> Self {
+  pub fn new( current: Arc<RwLock<Option<T>>>, track_create_fn_map: HashMap<T,CreateExecutorFn> ) -> Self {
     Self{ local_current: None, current, track: None, track_create_fn_map }
   }
 }

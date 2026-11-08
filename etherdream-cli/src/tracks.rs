@@ -6,8 +6,7 @@ mod beam;
 mod common;
 mod windmill;
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Track Identifiers
-
+/// Our defined tracks
 #[derive( Clone, Copy, Debug, Eq, Hash, PartialEq )]
 pub enum TrackId {
   Beam,
