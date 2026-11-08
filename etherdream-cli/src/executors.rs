@@ -25,6 +25,7 @@ impl fmt::Display for TrackId {
   }
 }
 
+#[derive( Clone )]
 pub struct TrackInfo {
   id: TrackId,
   name: String

@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::fmt::Display;
 use std::hash::Hash;
 use std::sync::{ Arc, RwLock };
 
@@ -16,19 +15,19 @@ pub trait Track: Send + Sync {
 
 /// Defines how to create a track and its varying properties.
 #[derive( Clone )]
-pub struct TrackDefinition<T: Clone + Copy> {
+pub struct TrackDefinition<T: TrackInfo> {
   create_executor_fn: fn() -> Box<dyn Track>,
-  id: T
+  info: T
 }
 
-impl<T: Clone + Copy> TrackDefinition<T> {
-  pub fn new( id: T, create_executor_fn: fn() -> Box<dyn Track> ) -> Self {
-    Self{ create_executor_fn, id }
+impl<T: TrackInfo> TrackDefinition<T> {
+  pub fn new( info: T, create_executor_fn: fn() -> Box<dyn Track> ) -> Self {
+    Self{ create_executor_fn, info }
   }
 }
 
-pub trait TrackInfo: Clone + Copy {
-  type TrackId: Clone + Copy + Eq + Hash + Send + Sync;
+pub trait TrackInfo: Clone {
+  type TrackId: 'static + Clone + Copy + Eq + Hash + Send + Sync;
 
   fn id( &self ) -> &Self::TrackId;
 }
@@ -38,7 +37,7 @@ pub trait TrackInfo: Clone + Copy {
 pub struct Sequencer<T: TrackInfo> {
   current: Arc<RwLock<Option<T::TrackId>>>,
   generator: etherdream::Generator,
-  track_ids: Vec<T>
+  track_ids: Vec<T::TrackId>
 }
 
 impl<T: TrackInfo> Sequencer<T> {
@@ -56,9 +55,9 @@ impl<T: TrackInfo> Sequencer<T> {
   }
 
   /// Returns a list of all track id's recognized by the sequencer.
-  pub fn track_ids( &self ) -> &Vec<T> { &self.track_ids }
+  pub fn track_ids( &self ) -> &Vec<T::TrackId> { &self.track_ids }
 
-  pub fn play( &mut self, track_id: T ) {
+  pub fn play( &mut self, track_id: T::TrackId ) {
     if let Ok( mut current ) = self.current.write() {
       *current = Some( track_id );
     }
