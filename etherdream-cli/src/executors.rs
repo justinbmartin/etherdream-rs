@@ -1,5 +1,3 @@
-// This is effectively the "sequencer" configuration for this crate.
-use std::fmt;
 use std::sync::LazyLock;
 
 use crate::sequencer;
@@ -14,15 +12,6 @@ mod windmill;
 pub enum TrackId {
   Beam,
   Windmill
-}
-
-impl fmt::Display for TrackId {
-  fn fmt( &self, f: &mut fmt::Formatter<'_> ) -> fmt::Result {
-    match self {
-      Self::Beam => write!( f, "Beam" ),
-      Self::Windmill => write!( f, "Windmill" )
-    }
-  }
 }
 
 #[derive( Clone )]
