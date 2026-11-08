@@ -26,29 +26,29 @@ impl fmt::Display for TrackId {
 }
 
 #[derive( Clone )]
-pub struct TrackInfo {
+pub struct Track {
   id: TrackId,
   name: String
 }
 
-impl sequencer::TrackInfo for TrackInfo {
+impl sequencer::Track for Track {
   type TrackId = TrackId;
 
   fn id( &self ) -> &TrackId { &self.id }
 }
 
-impl TrackInfo {
+impl Track {
   pub fn name( &self ) -> &str { &self.name }
 }
 
-pub const TRACKS: LazyLock<Vec<sequencer::TrackDefinition<TrackInfo>>> = LazyLock::new( ||{
+pub const TRACKS: LazyLock<Vec<sequencer::TrackDefinition<Track>>> = LazyLock::new( ||{
   vec![
     sequencer::TrackDefinition::new(
-      TrackInfo{ id: TrackId::Beam, name: String::from( "Beam" ) },
+      Track{ id: TrackId::Beam, name: String::from( "Beam" ) },
       ||{ Box::new( beam::Beam::default() ) }
     ),
     sequencer::TrackDefinition::new(
-      TrackInfo{ id: TrackId::Windmill, name: String::from( "Windmill" ) },
+      Track{ id: TrackId::Windmill, name: String::from( "Windmill" ) },
       ||{ Box::new( windmill::Windmill::new() ) })
   ]
 });

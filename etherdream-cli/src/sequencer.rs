@@ -8,39 +8,39 @@ use tokio::sync::watch;
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Track
 
 /// The trait that must be implemented by all track executors in the sequencer.
-pub trait Track: Send + Sync {
+pub trait TrackExecutor: Send + Sync {
   /// Called by the sequencer to generate point-data for this track.
   fn execute( &mut self, ctx: &mut generator::ExecutionContext );
 }
 
-/// Defines how to create a track and its varying properties.
-#[derive( Clone, Copy )]
-pub struct TrackDefinition<T: TrackInfo> {
-  create_executor_fn: fn() -> Box<dyn Track>,
-  info: T
-}
-
-impl<T: TrackInfo> TrackDefinition<T> {
-  pub fn new( info: T, create_executor_fn: fn() -> Box<dyn Track> ) -> Self {
-    Self{ create_executor_fn, info }
-  }
-}
-
-pub trait TrackInfo: Clone {
+pub trait Track: Clone {
   type TrackId: 'static + Clone + Copy + Eq + Hash + Send + Sync;
 
   fn id( &self ) -> &Self::TrackId;
 }
 
+/// Defines how to create a track and its varying properties.
+#[derive( Clone, Copy )]
+pub struct TrackDefinition<T: Track> {
+  create_executor_fn: fn() -> Box<dyn TrackExecutor>,
+  info: T
+}
+
+impl<T: Track> TrackDefinition<T> {
+  pub fn new( info: T, create_executor_fn: fn() -> Box<dyn TrackExecutor> ) -> Self {
+    Self{ create_executor_fn, info }
+  }
+}
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  State
 
-pub struct Sequencer<T: TrackInfo> {
+pub struct Sequencer<T: Track> {
   current: Arc<RwLock<Option<T::TrackId>>>,
   generator: etherdream::Generator,
   track_infos: Vec<T>
 }
 
-impl<T: TrackInfo> Sequencer<T> {
+impl<T: Track> Sequencer<T> {
   pub fn new( client: etherdream::Client, track_definitions: Vec<TrackDefinition<T>> ) -> Self {
     let current = Arc::new( RwLock::new( None::<T::TrackId> ) );
 
@@ -89,12 +89,12 @@ impl<T: TrackInfo> Sequencer<T> {
 struct Executor<T: Clone + Copy> {
   local_current: Option<T>,
   current: Arc<RwLock<Option<T>>>,
-  track: Option<Box<dyn Track>>,
-  track_creators: HashMap<T, fn() -> Box<dyn Track>>
+  track: Option<Box<dyn TrackExecutor>>,
+  track_creators: HashMap<T, fn() -> Box<dyn TrackExecutor>>
 }
 
 impl<T: Clone + Copy + Eq + Hash> Executor<T> {
-  pub fn new( current: Arc<RwLock<Option<T>>>, track_creators: HashMap<T, fn() -> Box<dyn Track>> ) -> Self {
+  pub fn new( current: Arc<RwLock<Option<T>>>, track_creators: HashMap<T, fn() -> Box<dyn TrackExecutor>> ) -> Self {
     Self{ local_current: None, current, track: None, track_creators }
   }
 }

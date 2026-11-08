@@ -94,7 +94,7 @@ impl scene::Scene<State> for DeviceScene {
   }
 }
 
-pub fn draw_device_panel( device_info: &etherdream::DeviceInfo, sequencer: Option<&Sequencer<executors::TrackInfo>>, area: Rect, buf: &mut Buffer ) -> bool {
+pub fn draw_device_panel( device_info: &etherdream::DeviceInfo, sequencer: Option<&Sequencer<executors::Track>>, area: Rect, buf: &mut Buffer ) -> bool {
   let block = Block::bordered()
     .border_style( common::HIGHLIGHT_BORDER_STYLE )
     .padding( Padding::new( 1, 1, 0, 0 ) )
@@ -151,7 +151,7 @@ pub fn draw_device_panel( device_info: &etherdream::DeviceInfo, sequencer: Optio
   sequencer.is_some()
 }
 
-fn draw_generators_table( state: &mut TableState, sequencer: &Sequencer<executors::TrackInfo>, area: Rect, buf: &mut Buffer ) {
+fn draw_generators_table( state: &mut TableState, sequencer: &Sequencer<executors::Track>, area: Rect, buf: &mut Buffer ) {
   const CONSTRAINTS: [Constraint; 2] = [ Constraint::Min( 30 ), Constraint::Fill( 1 ) ];
   let mut rows = Vec::with_capacity( sequencer.track_ids().len() );
   let selected_idx = state.selected().unwrap_or( 0 );
