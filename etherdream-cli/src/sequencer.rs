@@ -25,21 +25,13 @@ impl<T: Clone + Copy> TrackDefinition<T> {
   pub fn new( id: T, create_executor_fn: fn() -> Box<dyn Track> ) -> Self {
     Self{ create_executor_fn, id }
   }
-
-  fn create_executor( &self ) -> Box<dyn Track> { ( self.create_executor_fn )() }
-  fn id( &self ) -> &T { &self.id }
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  State
 
-// TODO: I don't think this is needed?
-struct State<T: Clone + Copy> {
-  current: Option<T>
-}
-
 pub struct Sequencer<T: Clone + Copy + Send + Sync> {
+  current: Arc<RwLock<Option<T>>>,
   generator: etherdream::Generator,
-  state: Arc<RwLock<State<T>>>,
   track_ids: Vec<T>
 }
 
@@ -47,12 +39,12 @@ impl<T> Sequencer<T>
   where T: 'static + Clone + Copy + Display + Eq + Hash + Send + Sync
 {
   pub fn new( client: etherdream::Client, track_definitions: Vec<TrackDefinition<T>> ) -> Self {
-    let state = Arc::new( RwLock::new( State::<T>{ current: None } ) );
-    let executor = Box::new( Executor::new( state.clone(), track_definitions.clone() ) );
+    let current = Arc::new( RwLock::new( None ) );
+    let executor = Box::new( Executor::new( current.clone(), track_definitions.clone() ) );
     let generator = etherdream::make_generator( client, executor );
 
     let track_ids = track_definitions.iter().map(| td | td.id ).collect();
-    Self{ generator, state, track_ids }
+    Self{ generator, current, track_ids }
   }
 
   pub async fn disconnect( self ) -> Result<etherdream::Client,generator::Error> {
@@ -63,22 +55,22 @@ impl<T> Sequencer<T>
   pub fn track_ids( &self ) -> &Vec<T> { &self.track_ids }
 
   pub fn play( &mut self, track_id: T ) {
-    if let Ok( mut state ) = self.state.write() {
-      state.current = Some( track_id );
+    if let Ok( mut current ) = self.current.write() {
+      *current = Some( track_id );
     }
   }
 
   pub fn is_playing( &self ) -> bool {
-    if let Ok( state ) = self.state.read() {
-      state.current.is_some()
+    if let Ok( current ) = self.current.read() {
+      current.is_some()
     } else {
       false
     }
   }
 
   pub fn stop( &mut self ) {
-    if let Ok( mut state ) = self.state.write() {
-      state.current = None;
+    if let Ok( mut current ) = self.current.write() {
+      *current = None;
     }
   }
 
@@ -90,16 +82,16 @@ impl<T> Sequencer<T>
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Executor
 
 struct Executor<T: Clone + Copy> {
-  current: Option<T>,
-  state: Arc<RwLock<State<T>>>,
+  local_current: Option<T>,
+  current: Arc<RwLock<Option<T>>>,
   track: Option<Box<dyn Track>>,
   track_definitions: HashMap<T,TrackDefinition<T>>
 }
 
 impl<T: Clone + Copy + Eq + Hash> Executor<T> {
-  pub fn new( state: Arc<RwLock<State<T>>>, track_definitions: Vec<TrackDefinition<T>> ) -> Self {
+  pub fn new( current: Arc<RwLock<Option<T>>>, track_definitions: Vec<TrackDefinition<T>> ) -> Self {
     let track_definitions = track_definitions.into_iter().map(| td | ( td.id, td )).collect();
-    Self{ current: None, state, track: None, track_definitions }
+    Self{ local_current: None, current, track: None, track_definitions }
   }
 }
 
@@ -111,17 +103,17 @@ impl<T> generator::Executable for Executor<T>
   }
 
   fn execute( &mut self, ctx: &mut generator::ExecutionContext ) {
-    if let Ok( state ) = self.state.read() {
-      match ( self.current.as_ref(), state.current ) {
+    if let Ok( current ) = self.current.read() {
+      match ( self.local_current.as_ref(), *current ) {
         ( current, Some( next ) ) => {
           if current.is_none_or(| c | *c != next ) && let Some( track_definition ) = self.track_definitions.get( &next ) {
             self.track = Some( ( track_definition.create_executor_fn )() );
-            self.current = Some( next );
+            self.local_current = Some( next );
           }
         }
         ( Some( _ ), None ) => {
           self.track = None;
-          self.current = None;
+          self.local_current = None;
         }
         ( None, None ) => { /* no-op */ }
       }

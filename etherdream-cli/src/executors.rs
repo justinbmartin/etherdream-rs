@@ -30,8 +30,3 @@ pub const TRACKS: LazyLock<Vec<sequencer::TrackDefinition<Track>>> = LazyLock::n
     sequencer::TrackDefinition::new( Track::Windmill, ||{ Box::new( windmill::Windmill::new() ) })
   ]
 });
-
-struct TrackDefinition {
-  id: Track,
-  name: String
-}
