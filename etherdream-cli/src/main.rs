@@ -9,6 +9,7 @@ use tokio_util::sync::CancellationToken;
 
 mod executors;
 mod scene;
+mod scenes;
 mod sequencer;
 mod ui;
 

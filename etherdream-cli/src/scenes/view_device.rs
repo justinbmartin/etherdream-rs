@@ -13,11 +13,11 @@ use super::common;
 const FOOTER_CONNECTED_MSG: &str = "Use '<Enter>' to play a generator, 'd' to disconnect, 'Esc' to go back.";
 const FOOTER_DISCONNECTED_MSG: &str = "Use 'c' to connect, 'Esc' to go back.";
 
-pub struct DeviceScene {
+pub struct ViewDeviceScene {
   tracks: TableState
 }
 
-impl DeviceScene {
+impl ViewDeviceScene {
   pub fn new() -> Self {
     Self{
       tracks: TableState::new().with_selected( Some( 0 ) )
@@ -25,7 +25,7 @@ impl DeviceScene {
   }
 }
 
-impl scene::Scene<State> for DeviceScene {
+impl scene::Scene<State> for ViewDeviceScene {
   fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::Context<State> ) -> bool {
     match key.code {
       KeyCode::Char( 'c' ) => {
@@ -49,8 +49,11 @@ impl scene::Scene<State> for DeviceScene {
         true
       }
       key @ ( KeyCode::Down | KeyCode::Up ) => {
-        let count = ctx.read_state().sequencers.len();
-        common::on_key_down_for_table_state( &key, &mut self.tracks, count )
+        if let Some( sequencer ) = ctx.read_state().get_current_sequencer() {
+          common::on_key_down_for_table_state( &key, &mut self.tracks, sequencer.tracks().len() );
+        }
+
+        true
       }
       _ => {
         false
@@ -75,7 +78,7 @@ impl scene::Scene<State> for DeviceScene {
 
       // Render right pane
       if let Some( sequencer ) = sequencer {
-        let title = format!(" Tracks [{}] ", sequencer.track_ids().len() );
+        let title = format!(" Tracks [{}] ", sequencer.tracks().len() );
         let block = common::make_block( Some( &title ) );
         let inner_area = block.inner( right_area );
 
@@ -153,12 +156,12 @@ pub fn draw_device_panel( device_info: &etherdream::DeviceInfo, sequencer: Optio
 
 fn draw_generators_table( state: &mut TableState, sequencer: &Sequencer<executors::Track>, area: Rect, buf: &mut Buffer ) {
   const CONSTRAINTS: [Constraint; 2] = [ Constraint::Min( 30 ), Constraint::Fill( 1 ) ];
-  let mut rows = Vec::with_capacity( sequencer.track_ids().len() );
+  let mut rows = Vec::with_capacity( sequencer.tracks().len() );
   let selected_idx = state.selected().unwrap_or( 0 );
 
-  for ( i, track_id ) in sequencer.track_ids().iter().enumerate() {
+  for ( i, track ) in sequencer.tracks().iter().enumerate() {
     let style = if selected_idx == i { common::HIGHLIGHT_ROW_SELECTED_STYLE } else { common::HIGHLIGHT_TEXT_STYLE };
-    rows.push( Row::new([ Cell::new( track_id.name() ), Cell::new( "" ) ]).style( style ) );
+    rows.push( Row::new([ Cell::new( track.name() ), Cell::new( "" ) ]).style( style ) );
   }
 
   let table = Table::new( rows, CONSTRAINTS )

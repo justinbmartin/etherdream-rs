@@ -11,13 +11,13 @@ use crate::sequencer::Sequencer;
 use crate::ui::{ Action, State };
 use super::common;
 
-pub struct ListScene {
+pub struct ListDevicesScene {
   device_addrs: Vec<IpAddr>,
   table: TableState,
   version: usize,
 }
 
-impl ListScene {
+impl ListDevicesScene {
   pub fn new() -> Self {
     Self{
       device_addrs: Vec::new(),
@@ -27,7 +27,7 @@ impl ListScene {
   }
 }
 
-impl scene::Scene<State> for ListScene {
+impl scene::Scene<State> for ListDevicesScene {
   fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::Context<State> ) -> bool {
     match key.code {
       KeyCode::Enter => {
@@ -95,7 +95,7 @@ impl scene::Scene<State> for ListScene {
   }
 }
 
-impl ListScene {
+impl ListDevicesScene {
   fn draw_list( &mut self, area: Rect, buf: &mut Buffer, ctx: &scene::Context<State> ) {
     let mut rows = Vec::with_capacity( self.device_addrs.len() );
 

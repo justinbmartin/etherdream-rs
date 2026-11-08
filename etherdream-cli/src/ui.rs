@@ -7,11 +7,8 @@ use tokio::sync::RwLock;
 
 use crate::executors;
 use crate::scene::{ self, SceneController, SceneEvent };
+use crate::scenes;
 use crate::sequencer::Sequencer;
-
-mod common;
-mod device;
-mod list;
 
 #[derive( Debug )]
 pub enum Action {
@@ -133,7 +130,7 @@ impl SceneController for State {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene Definitions
 
 pub fn build_scenes( state: Arc<RwLock<State>> ) -> ( scene::Foreground<State>, scene::Background<State> ) {
-  scene::Builder::new( state, SceneId::ListDevices, Box::new( list::ListScene::new() ) )
-    .add_scene( SceneId::ViewDevice, Box::new( device::DeviceScene::new() ) )
+  scene::Builder::new( state, SceneId::ListDevices, Box::new( scenes::ListDevicesScene::new() ) )
+    .add_scene( SceneId::ViewDevice, Box::new( scenes::ViewDeviceScene::new() ) )
     .build()
 }
