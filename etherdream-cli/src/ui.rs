@@ -95,7 +95,7 @@ impl SceneController for State {
       Action::Disconnect => {
         if let Some( device ) = self.get_current_device() {
           if let Some( sequencer ) = self.sequencers.remove( &device.ip() ) {
-            let _ = sequencer.disconnect().await;
+            let _ = sequencer.into_client().await;
           }
         }
 

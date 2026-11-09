@@ -16,17 +16,17 @@ pub trait TrackExecutor: Send + Sync {
   fn execute( &mut self, ctx: &mut generator::ExecutionContext );
 }
 
-/// A trait used to describe the required and any implementor-defined
-/// properties for a track.
-pub trait Track: Clone {
-  type TrackId: 'static + Clone + Copy + Eq + Hash + Send + Sync;
+/// A trait used to describe required and any implementor-defined properties
+/// for a track.
+pub trait Track: 'static + Clone {
+  type TrackId: Clone + Copy + Eq + Hash + Send + Sync;
 
   /// Returns the ID for this track. The ID must be unique across all tracks in
   /// the sequencer.
   fn id( &self ) -> &Self::TrackId;
 }
 
-/// Describes a tracks properties and a function to create it.
+/// Describes a track's properties and the function to create it.
 #[derive( Clone, Copy )]
 pub struct TrackDefinition<T: Track> {
   create_fn: CreateExecutorFn,
@@ -57,17 +57,17 @@ impl<T: Track> Sequencer<T> {
     let track_create_fn_map = track_definitions.iter().map(| td | ( *td.track.id(), td.create_fn )).collect();
     let tracks = track_definitions.into_iter().map(| td | td.track ).collect();
 
-    let executor = Box::new( Executor::new( current.clone(), track_create_fn_map ) );
+    let executor = Box::new( Executor::<T>::new( current.clone(), track_create_fn_map ) );
     let generator = etherdream::make_generator( client, executor );
     Self{ current, generator, tracks }
   }
 
-  pub async fn disconnect( self ) -> Result<etherdream::Client,generator::Error> {
-    /// TODO: graceful shutdown
+  /// Consumes the sequencer and returns the underlying `etherdream::Client`.
+  pub async fn into_client( self ) -> Result<etherdream::Client,generator::Error> {
     self.generator.into_client().await
   }
 
-  /// Returns the vector of all tracks registered with the sequencer.
+  /// Returns all tracks registered with the sequencer.
   pub fn tracks( &self ) -> &Vec<T> { &self.tracks }
 
   /// Plays a track by `track_id`. Does nothing is the track is already
@@ -80,11 +80,7 @@ impl<T: Track> Sequencer<T> {
 
   /// Returns true if the sequencer is currently playing.
   pub fn is_playing( &self ) -> bool {
-    if let Ok( current ) = self.current.read() {
-      current.is_some()
-    } else {
-      false
-    }
+    self.current.read().is_ok_and(| c | c.is_some() )
   }
 
   /// Stops the sequencer.
@@ -94,8 +90,8 @@ impl<T: Track> Sequencer<T> {
     }
   }
 
-  /// Returns a reference to the device state associated the underlying
-  /// Etherdream client.
+  /// Returns a reference to the internal device state associated with the
+  /// `etherdream::Client`.
   pub fn state( &'_ self ) -> watch::Ref<'_, etherdream::State> {
     self.generator.state()
   }
@@ -103,29 +99,28 @@ impl<T: Track> Sequencer<T> {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Executor
 
-struct Executor<T: Clone + Copy> {
-  local_current: Option<T>,
-  current: Arc<RwLock<Option<T>>>,
+// The Etherdream generator that drives the `Sequencer` asynchronously.
+struct Executor<T: Track> {
+  local_current: Option<T::TrackId>,
+  current: Arc<RwLock<Option<T::TrackId>>>,
   track: Option<Box<dyn TrackExecutor>>,
-  track_create_fn_map: HashMap<T, CreateExecutorFn>
+  track_create_fn_map: HashMap<T::TrackId, CreateExecutorFn>
 }
 
-impl<T: Clone + Copy + Eq + Hash> Executor<T> {
-  pub fn new( current: Arc<RwLock<Option<T>>>, track_create_fn_map: HashMap<T,CreateExecutorFn> ) -> Self {
+impl<T: Track> Executor<T> {
+  pub fn new( current: Arc<RwLock<Option<T::TrackId>>>, track_create_fn_map: HashMap<T::TrackId,CreateExecutorFn> ) -> Self {
     Self{ local_current: None, current, track: None, track_create_fn_map }
   }
 }
 
-impl<T> generator::Executable for Executor<T>
-  where T: Clone + Copy + Eq + Hash + Send + Sync
-{
+impl<T: Track> generator::Executable for Executor<T> {
   fn on_start( &mut self, _: generator::OnStartContext ) -> generator::Config {
     generator::Config::new( 1_000 )
   }
 
   fn execute( &mut self, ctx: &mut generator::ExecutionContext ) {
-    if let Ok( current ) = self.current.read() {
-      match ( self.local_current.as_ref(), *current ) {
+    if let Ok( next ) = self.current.read() {
+      match ( self.local_current.as_ref(), *next ) {
         ( current, Some( next ) ) => {
           if current.is_none_or(| c | *c != next ) && let Some( create_fn ) = self.track_create_fn_map.get( &next ) {
             self.track = Some( create_fn() );
