@@ -5,7 +5,7 @@ use std::sync::{ Arc, RwLock };
 use etherdream::generator;
 use tokio::sync::watch;
 
-type CreateExecutorFn = fn() -> Box<dyn TrackExecutor>;
+type CreateTrackExecutorFn = fn() -> Box<dyn TrackExecutor>;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Track
 
@@ -19,23 +19,23 @@ pub trait TrackExecutor: Send + Sync {
 /// A trait used to describe required and any implementor-defined properties
 /// for a track.
 pub trait Track: 'static + Clone {
-  type TrackId: Clone + Copy + Eq + Hash + Send + Sync;
+  type Id: Clone + Copy + Eq + Hash + Send + Sync;
 
   /// Returns the ID for this track. The ID must be unique across all tracks in
   /// the sequencer.
-  fn id( &self ) -> &Self::TrackId;
+  fn id( &self ) -> &Self::Id;
 }
 
 /// Describes a track's properties and the function to create it.
 #[derive( Clone, Copy )]
 pub struct TrackDefinition<T: Track> {
-  create_fn: CreateExecutorFn,
+  create_fn: CreateTrackExecutorFn,
   track: T
 }
 
 impl<T: Track> TrackDefinition<T> {
   /// Creates a new track definition.
-  pub fn new( track: T, create_fn: CreateExecutorFn ) -> Self {
+  pub fn new( track: T, create_fn: CreateTrackExecutorFn ) -> Self {
     Self{ create_fn, track }
   }
 }
@@ -45,7 +45,7 @@ impl<T: Track> TrackDefinition<T> {
 /// Consumes a client and provides for sequencer capabilities: tracks, the
 /// ability to switch between tracks, start/stop, etc.
 pub struct Sequencer<T: Track> {
-  current: Arc<RwLock<Option<T::TrackId>>>,
+  current: Arc<RwLock<Option<T::Id>>>,
   generator: etherdream::Generator,
   tracks: Vec<T>
 }
@@ -54,10 +54,10 @@ impl<T: Track> Sequencer<T> {
   pub fn new( client: etherdream::Client, track_definitions: Vec<TrackDefinition<T>> ) -> Self {
     let current = Arc::new( RwLock::new( None ) );
 
-    let track_create_fn_map = track_definitions.iter().map(| td | ( *td.track.id(), td.create_fn )).collect();
+    let create_track_executor_fn_map = track_definitions.iter().map(| td | ( *td.track.id(), td.create_fn )).collect();
     let tracks = track_definitions.into_iter().map(| td | td.track ).collect();
 
-    let executor = Box::new( Executor::<T>::new( current.clone(), track_create_fn_map ) );
+    let executor = Box::new( Executor::<T>::new( current.clone(), create_track_executor_fn_map ) );
     let generator = etherdream::make_generator( client, executor );
     Self{ current, generator, tracks }
   }
@@ -72,7 +72,7 @@ impl<T: Track> Sequencer<T> {
 
   /// Plays a track by `track_id`. Does nothing is the track is already
   /// playing.
-  pub fn play( &mut self, track_id: T::TrackId ) {
+  pub fn play( &mut self, track_id: T::Id ) {
     if let Ok( mut current ) = self.current.write() {
       *current = Some( track_id );
     }
@@ -101,15 +101,18 @@ impl<T: Track> Sequencer<T> {
 
 // The Etherdream generator that drives the `Sequencer` asynchronously.
 struct Executor<T: Track> {
-  local_current: Option<T::TrackId>,
-  current: Arc<RwLock<Option<T::TrackId>>>,
-  track: Option<Box<dyn TrackExecutor>>,
-  track_create_fn_map: HashMap<T::TrackId, CreateExecutorFn>
+  create_track_executor_fn_map: HashMap<T::Id, CreateTrackExecutorFn>,
+  current_track: Arc<RwLock<Option<T::Id>>>,
+  executor: Option<Box<dyn TrackExecutor>>,
+  local_current: Option<T::Id>
 }
 
 impl<T: Track> Executor<T> {
-  pub fn new( current: Arc<RwLock<Option<T::TrackId>>>, track_create_fn_map: HashMap<T::TrackId,CreateExecutorFn> ) -> Self {
-    Self{ local_current: None, current, track: None, track_create_fn_map }
+  pub fn new(
+    current_track: Arc<RwLock<Option<T::Id>>>,
+    create_track_executor_fn_map: HashMap<T::Id,CreateTrackExecutorFn>
+  ) -> Self {
+    Self{ create_track_executor_fn_map, current_track, executor: None, local_current: None }
   }
 }
 
@@ -119,24 +122,25 @@ impl<T: Track> generator::Executable for Executor<T> {
   }
 
   fn execute( &mut self, ctx: &mut generator::ExecutionContext ) {
-    if let Ok( next ) = self.current.read() {
-      match ( self.local_current.as_ref(), *next ) {
+    // Observe if we need to change tracks.
+    if let Ok( next ) = self.current_track.read() {
+      match ( &self.local_current, *next ) {
         ( current, Some( next ) ) => {
-          if current.is_none_or(| c | *c != next ) && let Some( create_fn ) = self.track_create_fn_map.get( &next ) {
-            self.track = Some( create_fn() );
+          if current.is_none_or(| c | c != next ) && let Some( create_fn ) = self.create_track_executor_fn_map.get( &next ) {
+            self.executor = Some( create_fn() );
             self.local_current = Some( next );
           }
         }
         ( Some( _ ), None ) => {
-          self.track = None;
+          self.executor = None;
           self.local_current = None;
         }
         ( None, None ) => { /* no-op */ }
       }
     }
 
-    if let Some( track ) = self.track.as_mut() {
-      track.execute( ctx );
+    if let Some( executor ) = self.executor.as_mut() {
+      executor.execute( ctx );
     }
   }
 }

@@ -20,7 +20,7 @@ pub struct Track {
 }
 
 impl sequencer::Track for Track {
-  type TrackId = TrackId;
+  type Id = TrackId;
 
   fn id( &self ) -> &TrackId { &self.id }
 }
