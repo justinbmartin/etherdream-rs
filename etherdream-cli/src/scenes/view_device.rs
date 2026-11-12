@@ -4,9 +4,8 @@ use ratatui::layout::{ Constraint, Layout, Rect };
 use ratatui::text::Line;
 use ratatui::widgets::{ Block, Cell, Padding, Row, StatefulWidget, Table, TableState, Widget };
 
-
 use crate::scene;
-use crate::sequencer::Sequencer;
+use crate::sequencer::{ Sequencer, Track };
 use crate::tracks;
 use crate::ui::{ Action, State };
 use super::common;
@@ -46,7 +45,20 @@ impl scene::Scene<State> for ViewDeviceScene {
         true
       }
       KeyCode::Enter => {
-        ctx.invoke( Action::Play( tracks::TrackId::Beam ) );
+        let track_idx =
+          if let Some( idx ) = self.tracks.selected()
+            && let Some( sequencer ) = ctx.read_state().get_current_sequencer()
+            && let Some( track ) = sequencer.tracks().get( idx )
+          {
+            Some( *track.id() )
+          } else {
+            None
+          };
+
+        if let Some( track_idx ) = track_idx {
+          ctx.invoke( Action::Play( track_idx ) );
+        }
+
         true
       }
       key @ ( KeyCode::Down | KeyCode::Up ) => {
