@@ -22,8 +22,8 @@ pub enum Action {
 
 #[derive( Clone, Copy, Debug, Eq, Hash, PartialEq )]
 pub enum SceneId {
-  ListDevices,
-  ViewDevice
+  DevicesList,
+  DevicesView
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  State
@@ -112,7 +112,7 @@ impl SceneController for State {
       }
       Action::SelectDevice( device_id ) => {
         self.set_current_device( Some( device_id ) );
-        SceneEvent::Push( SceneId::ViewDevice )
+        SceneEvent::Push( SceneId::DevicesView )
       }
       Action::Stop => {
         if let Some( device ) = self.get_current_device() {
@@ -130,7 +130,7 @@ impl SceneController for State {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene Definitions
 
 pub fn build_scenes( state: Arc<RwLock<State>> ) -> ( scene::Foreground<State>, scene::Background<State> ) {
-  scene::Builder::new( state, SceneId::ListDevices, Box::new( scenes::ListDevicesScene::new() ) )
-    .add_scene( SceneId::ViewDevice, Box::new( scenes::ViewDeviceScene::new() ) )
+  scene::Builder::new( state, SceneId::DevicesList, Box::new( scenes::DevicesListScene::new() ) )
+    .add_scene( SceneId::DevicesView, Box::new( scenes::DevicesViewScene::new() ) )
     .build()
 }

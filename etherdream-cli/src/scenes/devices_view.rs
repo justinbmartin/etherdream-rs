@@ -13,11 +13,11 @@ use super::common;
 const FOOTER_CONNECTED_MSG: &str = "Use '<Enter>' to play a generator, 'd' to disconnect, 'Esc' to go back.";
 const FOOTER_DISCONNECTED_MSG: &str = "Use 'c' to connect, 'Esc' to go back.";
 
-pub struct ViewDeviceScene {
+pub struct DevicesViewScene {
   tracks: TableState
 }
 
-impl ViewDeviceScene {
+impl DevicesViewScene {
   pub fn new() -> Self {
     Self{
       tracks: TableState::new().with_selected( Some( 0 ) )
@@ -25,7 +25,7 @@ impl ViewDeviceScene {
   }
 }
 
-impl scene::Scene<State> for ViewDeviceScene {
+impl scene::Scene<State> for DevicesViewScene {
   fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::Context<State> ) -> bool {
     match key.code {
       KeyCode::Char( 'c' ) => {

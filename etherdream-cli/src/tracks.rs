@@ -6,17 +6,24 @@ mod beam;
 mod common;
 mod windmill;
 
-/// Our defined tracks
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Track Ids
+
 #[derive( Clone, Copy, Debug, Eq, Hash, PartialEq )]
 pub enum TrackId {
   Beam,
   Windmill
 }
 
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Track
+
 #[derive( Clone )]
 pub struct Track {
   id: TrackId,
   name: String
+}
+
+impl Track {
+  pub fn name( &self ) -> &str { &self.name }
 }
 
 impl sequencer::Track for Track {
@@ -25,9 +32,7 @@ impl sequencer::Track for Track {
   fn id( &self ) -> &TrackId { &self.id }
 }
 
-impl Track {
-  pub fn name( &self ) -> &str { &self.name }
-}
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Track List
 
 pub const TRACKS: LazyLock<Vec<sequencer::TrackDefinition<Track>>> = LazyLock::new( ||{
   vec![

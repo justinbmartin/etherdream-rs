@@ -11,13 +11,13 @@ use crate::tracks;
 use crate::ui::{ Action, State };
 use super::common;
 
-pub struct ListDevicesScene {
+pub struct DevicesListScene {
   device_addrs: Vec<IpAddr>,
   table: TableState,
   version: usize,
 }
 
-impl ListDevicesScene {
+impl DevicesListScene {
   pub fn new() -> Self {
     Self{
       device_addrs: Vec::new(),
@@ -27,7 +27,7 @@ impl ListDevicesScene {
   }
 }
 
-impl scene::Scene<State> for ListDevicesScene {
+impl scene::Scene<State> for DevicesListScene {
   fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::Context<State> ) -> bool {
     match key.code {
       KeyCode::Enter => {
@@ -95,7 +95,7 @@ impl scene::Scene<State> for ListDevicesScene {
   }
 }
 
-impl ListDevicesScene {
+impl DevicesListScene {
   fn draw_list( &mut self, area: Rect, buf: &mut Buffer, ctx: &scene::Context<State> ) {
     let mut rows = Vec::with_capacity( self.device_addrs.len() );
 

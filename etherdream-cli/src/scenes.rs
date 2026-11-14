@@ -1,6 +1,6 @@
 mod common;
-mod view_device;
-mod list_devices;
+mod devices_list;
+mod devices_view;
 
-pub use view_device::ViewDeviceScene;
-pub use list_devices::ListDevicesScene;
+pub use devices_list::DevicesListScene;
+pub use devices_view::DevicesViewScene;
