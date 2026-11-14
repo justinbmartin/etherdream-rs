@@ -72,19 +72,29 @@ impl<T: Track> Sequencer<T> {
 
   /// Plays a track by `track_id`. Does nothing is the track is already
   /// playing.
-  pub fn play( &mut self, track_id: T::Id ) {
+  pub async fn play( &mut self, track_id: T::Id ) -> bool {
     if let Ok( mut current ) = self.current.write() {
       *current = Some( track_id );
+    } else {
+      return false;
     }
+
+    if ! self.generator.is_running() {
+      self.generator.start().await;
+    }
+
+    true
   }
 
   /// Returns true if the sequencer is currently playing.
   pub fn is_playing( &self ) -> bool {
-    self.current.read().is_ok_and(| c | c.is_some() )
+    self.current.read().is_ok_and(| c | c.is_some() && self.generator.is_running() )
   }
 
   /// Stops the sequencer.
-  pub fn stop( &mut self ) {
+  pub async fn stop( &mut self ) {
+    let _ = self.generator.stop().await;
+
     if let Ok( mut current ) = self.current.write() {
       *current = None;
     }

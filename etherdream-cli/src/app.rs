@@ -58,11 +58,12 @@ impl State {
     self.current_device_id = device_id
   }
 
-  /// Get an immutable reference to the currently selected device
+  /// Returns an immutable reference to the currently selected device info
   pub fn get_current_device( &self ) -> Option<&etherdream::DeviceInfo> {
     self.current_device_id.as_ref().and_then(| addr | self.device_info_map.get( addr ) )
   }
 
+  /// Returns an immutable reference to the currently selected sequencer
   pub fn get_current_sequencer( &self ) -> Option<&Sequencer<tracks::Track>> {
     self.current_device_id.as_ref().and_then(| addr | self.sequencers.get( addr ) )
   }
@@ -102,10 +103,9 @@ impl SceneController for State {
         SceneEvent::None
       }
       Action::Play( track_id ) => {
-        if let Some( device ) = self.get_current_device() {
-          if let Some( sequencer ) = self.sequencers.get_mut( &device.ip() ) {
-            sequencer.play( track_id );
-          }
+        if let Some( sequencer ) = get_current_sequencer_mut( &mut self ) {
+          // TODO: handle error
+          sequencer.play( track_id ).await;
         }
 
         SceneEvent::None
@@ -115,16 +115,19 @@ impl SceneController for State {
         SceneEvent::Push( SceneId::DevicesView )
       }
       Action::Stop => {
-        if let Some( device ) = self.get_current_device() {
-          if let Some( sequencer ) = self.sequencers.get_mut( &device.ip() ) {
-            sequencer.stop();
-          }
+        if let Some( sequencer ) = get_current_sequencer_mut( &mut self ) {
+          sequencer.stop().await;
         }
 
         SceneEvent::None
       }
     }
   }
+}
+
+// Returns a mutable reference to the states current sequencer.
+fn get_current_sequencer_mut( state: &mut State ) -> Option<&mut Sequencer<tracks::Track>> {
+  state.current_device_id.as_mut().and_then(| addr | state.sequencers.get_mut( addr ) )
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene Definitions
