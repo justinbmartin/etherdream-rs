@@ -4,28 +4,44 @@ use ratatui::layout::{ Constraint, Layout, Rect };
 use ratatui::text::Line;
 use ratatui::widgets::{ Block, Cell, Padding, Row, StatefulWidget, Table, TableState, Widget };
 
+use crate::app::{ Action, State };
 use crate::scene;
-use crate::sequencer::{ Sequencer, Track };
+use crate::sequencer::{Sequencer, Track };
 use crate::tracks;
-use crate::ui::{ Action, State };
 use super::common;
 
 const FOOTER_CONNECTED_MSG: &str = "Use '<Enter>' to play a generator, 'd' to disconnect, 'Esc' to go back.";
 const FOOTER_DISCONNECTED_MSG: &str = "Use 'c' to connect, 'Esc' to go back.";
 
 pub struct DevicesViewScene {
-  tracks: TableState
+  table: TableState,
+  tracks: Vec<tracks::Track>
 }
 
 impl DevicesViewScene {
   pub fn new() -> Self {
     Self{
-      tracks: TableState::new().with_selected( Some( 0 ) )
+      table: TableState::new().with_selected( Some( 0 ) ),
+      tracks: Vec::new()
     }
   }
 }
 
 impl scene::Scene<State> for DevicesViewScene {
+  fn on_enter( &mut self, ctx: &scene::Context<State> ) {
+    let state = ctx.read_state();
+
+    // Cache the sequencers track listing when we enter the scene to provide us
+    // a constant index for the table.
+    if let Some( sequencer ) = state.get_current_sequencer() {
+      self.tracks = sequencer.tracks().clone();
+    }
+  }
+
+  fn on_exit( &mut self, _ctx: &scene::Context<State> ) {
+    self.tracks.clear();
+  }
+
   fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::Context<State> ) -> bool {
     match key.code {
       KeyCode::Char( 'c' ) => {
@@ -46,7 +62,7 @@ impl scene::Scene<State> for DevicesViewScene {
       }
       KeyCode::Enter => {
         let track_idx =
-          if let Some( idx ) = self.tracks.selected()
+          if let Some( idx ) = self.table.selected()
             && let Some( sequencer ) = ctx.read_state().get_current_sequencer()
             && let Some( track ) = sequencer.tracks().get( idx )
           {
@@ -62,10 +78,7 @@ impl scene::Scene<State> for DevicesViewScene {
         true
       }
       key @ ( KeyCode::Down | KeyCode::Up ) => {
-        if let Some( sequencer ) = ctx.read_state().get_current_sequencer() {
-          common::on_key_down_for_table_state( &key, &mut self.tracks, sequencer.tracks().len() );
-        }
-
+        common::on_key_down_for_table_state( &key, &mut self.table, self.tracks.len() );
         true
       }
       _ => {
@@ -96,7 +109,7 @@ impl scene::Scene<State> for DevicesViewScene {
         let inner_area = block.inner( right_area );
 
         Widget::render( block, right_area, buf );
-        draw_generators_table( &mut self.tracks, sequencer, inner_area, buf );
+        draw_generators_table( &mut self.table, &self.tracks, inner_area, buf );
       } else {
         let block = common::make_block( None );
         let inner_area = block.inner( right_area );
@@ -167,12 +180,12 @@ pub fn draw_device_panel( device_info: &etherdream::DeviceInfo, sequencer: Optio
   sequencer.is_some()
 }
 
-fn draw_generators_table( state: &mut TableState, sequencer: &Sequencer<tracks::Track>, area: Rect, buf: &mut Buffer ) {
+fn draw_generators_table( state: &mut TableState, tracks: &Vec<tracks::Track>, area: Rect, buf: &mut Buffer ) {
   const CONSTRAINTS: [Constraint; 2] = [ Constraint::Min( 30 ), Constraint::Fill( 1 ) ];
-  let mut rows = Vec::with_capacity( sequencer.tracks().len() );
+  let mut rows = Vec::with_capacity( tracks.len() );
   let selected_idx = state.selected().unwrap_or( 0 );
 
-  for ( i, track ) in sequencer.tracks().iter().enumerate() {
+  for ( i, track ) in tracks.iter().enumerate() {
     let style = if selected_idx == i { common::HIGHLIGHT_ROW_SELECTED_STYLE } else { common::HIGHLIGHT_TEXT_STYLE };
     rows.push( Row::new([ Cell::new( track.name() ), Cell::new( "" ) ]).style( style ) );
   }

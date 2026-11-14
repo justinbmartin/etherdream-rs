@@ -5,10 +5,10 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{ Constraint, Layout, Rect };
 use ratatui::widgets::{ Cell, Row, StatefulWidget, Table, TableState, Widget };
 
+use crate::app::{ Action, State };
 use crate::scene;
 use crate::sequencer::Sequencer;
 use crate::tracks;
-use crate::ui::{ Action, State };
 use super::common;
 
 pub struct DevicesListScene {

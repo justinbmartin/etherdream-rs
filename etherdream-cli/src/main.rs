@@ -7,11 +7,11 @@ use tokio::sync::{ mpsc, RwLock };
 use tokio::task;
 use tokio_util::sync::CancellationToken;
 
+mod app;
 mod scene;
 mod scenes;
 mod sequencer;
 mod tracks;
-mod ui;
 
 fn main() -> Result<(),String> {
   let rt = tokio::runtime::Builder::new_multi_thread()
@@ -22,8 +22,8 @@ fn main() -> Result<(),String> {
 
   let cancellation_token = CancellationToken::new();
   let ( discovery_tx, mut discovery_rx ) = mpsc::channel::<discovery::Broadcast>( 16 );
-  let state = Arc::new( RwLock::new( ui::State::default() ) );
-  let ( fg, bg ) = ui::build_scenes( state.clone() );
+  let state = Arc::new( RwLock::new( app::State::default() ) );
+  let ( fg, bg ) = app::build_scenes( state.clone() );
 
   let thread =
     std::thread::spawn({
