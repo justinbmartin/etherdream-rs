@@ -6,40 +6,27 @@ use ratatui::widgets::{ Block, Cell, Padding, Row, StatefulWidget, Table, TableS
 
 use crate::app::{ Action, State };
 use crate::scene;
-use crate::sequencer::{Sequencer, Track };
+use crate::sequencer::{ Sequencer, Track };
 use crate::tracks;
 use super::common;
 
 const FOOTER_CONNECTED_MSG: &str = "Use '<Enter>' to play a generator, 'd' to disconnect, 'Esc' to go back.";
 const FOOTER_DISCONNECTED_MSG: &str = "Use 'c' to connect, 'Esc' to go back.";
 
+#[derive( Default )]
 pub struct DevicesViewScene {
   table: TableState,
-  tracks: Vec<tracks::Track>
-}
-
-impl DevicesViewScene {
-  pub fn new() -> Self {
-    Self{
-      table: TableState::new().with_selected( Some( 0 ) ),
-      tracks: Vec::new()
-    }
-  }
+  tracks: Vec<tracks::Track>,
+  tracks_loaded: bool
 }
 
 impl scene::Scene<State> for DevicesViewScene {
-  fn on_enter( &mut self, ctx: &scene::Context<State> ) {
-    let state = ctx.read_state();
-
-    // Cache the sequencers track listing when we enter the scene to provide us
-    // a constant index for the table.
-    if let Some( sequencer ) = state.get_current_sequencer() {
-      self.tracks = sequencer.tracks().clone();
-    }
+  fn on_enter( &mut self, _ctx: &scene::Context<State> ) {
+    self.table.select( Some( 0 ) );
   }
 
   fn on_exit( &mut self, _ctx: &scene::Context<State> ) {
-    self.tracks.clear();
+    self.tracks_loaded = false
   }
 
   fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::Context<State> ) -> bool {
@@ -61,7 +48,7 @@ impl scene::Scene<State> for DevicesViewScene {
         true
       }
       KeyCode::Enter => {
-        let track_idx =
+        let track_id =
           if let Some( idx ) = self.table.selected()
             && let Some( sequencer ) = ctx.read_state().get_current_sequencer()
             && let Some( track ) = sequencer.tracks().get( idx )
@@ -71,8 +58,8 @@ impl scene::Scene<State> for DevicesViewScene {
             None
           };
 
-        if let Some( track_idx ) = track_idx {
-          ctx.invoke( Action::Play( track_idx ) );
+        if let Some( track_id ) = track_id {
+          ctx.invoke( Action::Play( track_id ) );
         }
 
         true
@@ -84,6 +71,13 @@ impl scene::Scene<State> for DevicesViewScene {
       _ => {
         false
       }
+    }
+  }
+
+  fn on_update( &mut self, ctx: &mut scene::Context<State> ) {
+    if ! self.tracks_loaded && let Some( sequencer ) = ctx.read_state().get_current_sequencer() {
+      self.tracks.clone_from( sequencer.tracks() );
+      self.tracks_loaded = true;
     }
   }
 
