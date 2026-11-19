@@ -12,7 +12,7 @@ use crate::tracks;
 use super::common;
 
 pub struct DevicesListScene {
-  device_addrs: Vec<IpAddr>,
+  device_cache: Vec<Device>,
   table: TableState,
   version: usize,
 }
@@ -20,7 +20,7 @@ pub struct DevicesListScene {
 impl DevicesListScene {
   pub fn new() -> Self {
     Self{
-      device_addrs: Vec::new(),
+      device_cache: Vec::new(),
       table: TableState::new(),
       version: 0
     }
@@ -38,7 +38,7 @@ impl scene::Scene<State> for DevicesListScene {
         true
       }
       key @ ( KeyCode::Down | KeyCode::Up ) => {
-        common::on_key_down_for_table_state( &key, &mut self.table, self.device_addrs.len() )
+        common::on_key_down_for_table_state( &key, &mut self.table, self.device_cache.len() )
       }
       _ => false
     }
@@ -49,14 +49,19 @@ impl scene::Scene<State> for DevicesListScene {
 
     if state.devices_version() != self.version {
       let devices = state.devices();
-      let mut addrs: Vec<IpAddr> = devices.iter().map(|( &ip, _ )| ip ).collect();
       let mut updated_idx = None::<usize>;
 
+      let mut addrs: Vec<Device> = devices.iter().map(|( &ip, &d )| Device{
+        ip,
+        ip_str: ip.to_string(),
+        mac_str: d.mac_address().to_string()
+      }).collect();
+
       if ! addrs.is_empty() {
-        addrs.sort();
+        addrs.sort_by_key(| d | d.ip );
 
         if let Some( idx ) = self.table.selected() {
-          if let Some( addr ) = self.device_addrs.get( idx ) && let Ok( idx ) = addrs.binary_search( &addr ) {
+          if let Some( device_cache ) = self.device_cache.get( idx ) && let Ok( idx ) = addrs.binary_search_by_key( &device_cache.ip, | d | d.ip ) {
             // The device index may have changed. Update the device index to reflect any new position.
             updated_idx = Some( idx );
           } else {
@@ -69,7 +74,7 @@ impl scene::Scene<State> for DevicesListScene {
         }
       }
 
-      self.device_addrs = addrs;
+      self.device_cache = addrs;
       self.table.select( updated_idx );
       self.version = state.devices_version();
     }
@@ -79,11 +84,11 @@ impl scene::Scene<State> for DevicesListScene {
     let layout = Layout::vertical([ Constraint::Fill( 1 ), Constraint::Length( 1 ) ]);
     let [ body_area, footer_area ] = area.layout( &layout );
 
-    let title = format!( " Etherdream Devices [{}] ", self.device_addrs.len() );
+    let title = format!( " Etherdream Devices [{}] ", self.device_cache.len() );
     let block = common::make_block( Some( &title ) );
     let inner_area = block.inner( body_area );
 
-    if self.device_addrs.is_empty() {
+    if self.device_cache.is_empty() {
       Widget::render( block, body_area, buf );
       common::draw_centered_line( "Listening for devices...", common::INFO_TEXT_STYLE.italic(), inner_area, buf );
       common::draw_footer( "Use 'q' to quit.", footer_area, buf );
@@ -97,23 +102,21 @@ impl scene::Scene<State> for DevicesListScene {
 
 impl DevicesListScene {
   fn draw_list( &mut self, area: Rect, buf: &mut Buffer, ctx: &scene::Context<State> ) {
-    let mut rows = Vec::with_capacity( self.device_addrs.len() );
+    let mut rows = Vec::with_capacity( self.device_cache.len() );
 
     if let Some( selected_idx ) = self.table.selected() {
       let state = ctx.read_state();
 
-      for ( i, addr ) in self.device_addrs.iter().enumerate() {
-        if let Some( device_info ) = state.devices().get( addr ) {
-          let style = if selected_idx == i { common::HIGHLIGHT_ROW_SELECTED_STYLE } else { common::HIGHLIGHT_TEXT_STYLE };
+      for ( i, device_cache ) in self.device_cache.iter().enumerate() {
+        let style = if selected_idx == i { common::HIGHLIGHT_ROW_SELECTED_STYLE } else { common::HIGHLIGHT_TEXT_STYLE };
 
-          rows.push(
-            Row::new([
-              Cell::new( device_info.ip().to_string() ),
-              Cell::new( device_info.mac_address().to_string() ),
-              Cell::new( sequencer_status( state.get_current_sequencer() ) )
-            ]).style( style )
-          );
-        }
+        rows.push(
+          Row::new([
+            Cell::new( device_cache.ip_str.as_str() ),
+            Cell::new( device_cache.mac_str.as_str() ),
+            Cell::new( sequencer_status( state.get_current_sequencer() ) )
+          ]).style( style )
+        );
       }
     }
 
@@ -129,7 +132,7 @@ impl DevicesListScene {
   }
 
   fn selected_addr( &self ) -> Option<&IpAddr> {
-    self.table.selected().and_then(| i |{ self.device_addrs.get( i ) })
+    self.table.selected().and_then(| i |{ self.device_cache.get( i ).map(| d | &d.ip ) })
   }
 }
 
@@ -138,4 +141,12 @@ fn sequencer_status( sequencer: Option<&Sequencer<tracks::Track>> ) -> &'static 
     Some( sequencer ) => if sequencer.is_playing() { "PLAYING" } else { "CONNECTED" },
     None => "DISCONNECTED"
   }
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Device
+
+struct Device {
+  ip: IpAddr,
+  ip_str: String,
+  mac_str: String
 }
