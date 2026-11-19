@@ -647,8 +647,8 @@ impl ReadOnlyClient {
 
   /// Clones a copy of the run-time state into `state`.
   #[inline]
-  pub(crate) fn state( &self ) -> watch::Ref<'_,State> {
-    self.state_tx.borrow()
+  pub(crate) fn clone_state_into( &self, state: &mut State ) {
+    self.state_tx.borrow().clone_into( state )
   }
 
   /// Returns the `DeviceInfo` associated with this client.

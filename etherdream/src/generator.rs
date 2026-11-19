@@ -134,8 +134,8 @@ impl Generator {
 
   /// Clone's a copy of the client's run-time state into `state`.
   #[inline]
-  pub fn state( &'_ self ) -> tokio::sync::watch::Ref<'_,State> {
-    self.client.state()
+  pub fn clone_state_into( &self, state: &mut State ) {
+    self.client.clone_state_into( state )
   }
   
   /// Starts the generator.

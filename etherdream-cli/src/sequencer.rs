@@ -3,7 +3,6 @@ use std::hash::Hash;
 use std::sync::{ Arc, RwLock };
 
 use etherdream::generator;
-use tokio::sync::watch;
 
 type CreateTrackExecutorFn = fn() -> Box<dyn TrackExecutor>;
 
@@ -102,8 +101,8 @@ impl<T: Track> Sequencer<T> {
 
   /// Returns a reference to the internal device state associated with the
   /// `etherdream::Client`.
-  pub fn state( &'_ self ) -> watch::Ref<'_, etherdream::State> {
-    self.generator.state()
+  pub fn clone_state_into( &self, state: &mut etherdream::State ) {
+    self.generator.clone_state_into( state )
   }
 }
 
