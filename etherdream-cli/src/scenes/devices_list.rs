@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::net::IpAddr;
 
 use crossterm::event::{ KeyCode, KeyEvent };
@@ -5,10 +6,8 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{ Constraint, Layout, Rect };
 use ratatui::widgets::{ Cell, Row, StatefulWidget, Table, TableState, Widget };
 
-use crate::app::{ Action, State };
+use crate::app;
 use crate::scene;
-use crate::sequencer::Sequencer;
-use crate::tracks;
 use super::common;
 
 pub struct DevicesListScene {
@@ -27,31 +26,29 @@ impl DevicesListScene {
   }
 }
 
-impl scene::Scene<State> for DevicesListScene {
-  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::Context<State> ) -> bool {
+impl scene::Scene<app::State> for DevicesListScene {
+  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::Context<app::State> ) -> bool {
     match key.code {
       KeyCode::Enter => {
-        if let Some( addr ) = self.selected_addr() {
-          ctx.invoke( Action::SelectDevice( *addr ) );
+        if let Some( ip ) = self.table.selected().and_then(| i |{ self.device_cache.get( i ).map(| d | &d.ip ) }) {
+          ctx.invoke( app::Action::SelectDevice( *ip ) );
         }
 
         true
       }
-      key @ ( KeyCode::Down | KeyCode::Up ) => {
+      key => {
         common::on_key_down_for_table_state( &key, &mut self.table, self.device_cache.len() )
       }
-      _ => false
     }
   }
 
-  fn on_update( &mut self, ctx: &mut scene::Context<State> ) {
+  fn on_update( &mut self, ctx: &mut scene::Context<app::State> ) {
     let state = ctx.read_state();
 
     if state.devices_version() != self.version {
-      let devices = state.devices();
       let mut updated_idx = None::<usize>;
 
-      let mut addrs: Vec<Device> = devices.iter().map(|( &ip, &d )| Device{
+      let mut addrs: BTreeMap<IpAddr,Device> = state.devices().iter().map(|( &ip, &d )| Device{
         ip,
         ip_str: ip.to_string(),
         mac_str: d.mac_address().to_string()
@@ -80,7 +77,7 @@ impl scene::Scene<State> for DevicesListScene {
     }
   }
 
-  fn on_draw( &mut self, area: Rect, buf: &mut Buffer, ctx: &scene::Context<State> ) {
+  fn on_draw( &mut self, area: Rect, buf: &mut Buffer, ctx: &scene::Context<app::State> ) {
     let layout = Layout::vertical([ Constraint::Fill( 1 ), Constraint::Length( 1 ) ]);
     let [ body_area, footer_area ] = area.layout( &layout );
 
@@ -101,7 +98,7 @@ impl scene::Scene<State> for DevicesListScene {
 }
 
 impl DevicesListScene {
-  fn draw_list( &mut self, area: Rect, buf: &mut Buffer, ctx: &scene::Context<State> ) {
+  fn draw_list( &mut self, area: Rect, buf: &mut Buffer, ctx: &scene::Context<app::State> ) {
     let mut rows = Vec::with_capacity( self.device_cache.len() );
 
     if let Some( selected_idx ) = self.table.selected() {
@@ -110,11 +107,16 @@ impl DevicesListScene {
       for ( i, device_cache ) in self.device_cache.iter().enumerate() {
         let style = if selected_idx == i { common::HIGHLIGHT_ROW_SELECTED_STYLE } else { common::HIGHLIGHT_TEXT_STYLE };
 
+        let sequencer_status = match state.get_current_sequencer() {
+          Some( sequencer ) => if sequencer.is_playing() { "PLAYING" } else { "CONNECTED" },
+          None => "DISCONNECTED"
+        };
+
         rows.push(
           Row::new([
             Cell::new( device_cache.ip_str.as_str() ),
             Cell::new( device_cache.mac_str.as_str() ),
-            Cell::new( sequencer_status( state.get_current_sequencer() ) )
+            Cell::new( sequencer_status )
           ]).style( style )
         );
       }
@@ -129,17 +131,6 @@ impl DevicesListScene {
       .header( Row::new([ "IP", "MAC", "STATUS" ]).style( common::TABLE_HEADER_STYLE ) );
 
     StatefulWidget::render( table, area, buf, &mut self.table );
-  }
-
-  fn selected_addr( &self ) -> Option<&IpAddr> {
-    self.table.selected().and_then(| i |{ self.device_cache.get( i ).map(| d | &d.ip ) })
-  }
-}
-
-fn sequencer_status( sequencer: Option<&Sequencer<tracks::Track>> ) -> &'static str {
-  match sequencer {
-    Some( sequencer ) => if sequencer.is_playing() { "PLAYING" } else { "CONNECTED" },
-    None => "DISCONNECTED"
   }
 }
 

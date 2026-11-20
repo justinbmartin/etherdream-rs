@@ -6,7 +6,7 @@ use ratatui::layout::{ Constraint, Layout, Rect };
 use ratatui::text::Line;
 use ratatui::widgets::{ Block, Cell, Padding, Row, StatefulWidget, Table, TableState, Widget };
 
-use crate::app::{ Action, State };
+use crate::app;
 use crate::scene;
 use crate::sequencer::Track;
 use crate::tracks;
@@ -15,39 +15,35 @@ use super::common;
 #[derive( Default )]
 pub struct DevicesViewScene {
   device: etherdream::State,
+  device_title: String,
   is_connected: bool,
   table: TableState,
   tracks: Vec<tracks::Track>,
   tracks_loaded: bool,
+  tracks_title: String,
 
-  // `DeviceInfo` string caches
+  // String caches for `etherdream::DeviceInfo`
   hardware_version: String,
   ip: String,
   mac_addr: String,
   max_points_per_second: String,
   point_buffer_capacity: String,
   software_version: String,
-  device_title: String,
-  tracks_title: String,
 
-  // Sequencer string caches
+  // String caches for `etherdream::State`
   points_buffered: String,
   points_lifetime: String,
   points_per_second: String,
 }
 
-impl scene::Scene<State> for DevicesViewScene {
-  fn on_enter( &mut self, ctx: &scene::Context<State> ) {
+impl scene::Scene<app::State> for DevicesViewScene {
+  fn on_enter( &mut self, ctx: &scene::Context<app::State> ) {
+    // Reset all properties
     self.device = etherdream::State::default();
-    self.is_connected = false;
-    self.table.select( Some( 0 ) );
-    self.tracks.clear();
-    self.tracks_loaded = false;
-
-    // Clear all cached strings
     self.device_title.clear();
     self.hardware_version.clear();
     self.ip.clear();
+    self.is_connected = false;
     self.mac_addr.clear();
     self.max_points_per_second.clear();
     self.point_buffer_capacity.clear();
@@ -55,8 +51,11 @@ impl scene::Scene<State> for DevicesViewScene {
     self.points_lifetime.clear();
     self.points_per_second.clear();
     self.software_version.clear();
+    self.table.select( Some( 0 ) );
+    self.tracks.clear();
+    self.tracks_loaded = false;
 
-    // ...
+    // Reset the tracks title
     self.tracks_title.clear();
     set_tracks_title( &mut self.tracks_title, &self.tracks );
 
@@ -73,57 +72,55 @@ impl scene::Scene<State> for DevicesViewScene {
     }
   }
 
-  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::Context<State> ) -> bool {
+  fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::Context<app::State> ) -> bool {
     match key.code {
       KeyCode::Char( 'c' ) => {
-        ctx.invoke( Action::Connect );
+        ctx.invoke( app::Action::Connect );
         true
       }
       KeyCode::Char( 'd' ) => {
-        ctx.invoke( Action::Disconnect );
+        ctx.invoke( app::Action::Disconnect );
         true
       }
       KeyCode::Char( 'q' ) => {
-        ctx.invoke( Action::Back );
+        ctx.invoke( app::Action::Back );
         true
       }
       KeyCode::Char( 'p' ) => {
         if let Some( track ) = self.table.selected().and_then(| idx | self.tracks.get( idx ) ) {
-          ctx.invoke( Action::Play( *track.id() ) );
+          ctx.invoke( app::Action::Play( *track.id() ) );
         }
 
         true
       }
       KeyCode::Char( 's' ) => {
-        ctx.invoke( Action::Stop );
+        ctx.invoke( app::Action::Stop );
         true
       }
-      key @ ( KeyCode::Down | KeyCode::Up ) => {
-        common::on_key_down_for_table_state( &key, &mut self.table, self.tracks.len() );
-        true
-      }
-      _ => {
-        false
+      key => {
+        common::on_key_down_for_table_state( &key, &mut self.table, self.tracks.len() )
       }
     }
   }
 
-  fn on_update( &mut self, ctx: &mut scene::Context<State> ) {
+  fn on_update( &mut self, ctx: &mut scene::Context<app::State> ) {
     if let Some( sequencer ) = ctx.read_state().get_current_sequencer() {
       sequencer.clone_state_into( &mut self.device );
       self.is_connected = true;
 
       if ! self.tracks_loaded {
         self.tracks.clone_from( sequencer.tracks() );
-        set_tracks_title( &mut self.tracks_title, &self.tracks );
         self.tracks_loaded = true;
+
+        set_tracks_title( &mut self.tracks_title, &self.tracks );
       }
     } else {
       self.device = etherdream::State::default();
       self.is_connected = false;
+      self.tracks_loaded = false;
     }
 
-    // 
+    //
     self.points_buffered.clear();
     let _ = write!( &mut self.points_buffered, "{}", self.device.points_buffered() );
 
@@ -134,7 +131,7 @@ impl scene::Scene<State> for DevicesViewScene {
     let _ = write!( &mut self.points_per_second, "{}", self.device.points_per_second() );
   }
 
-  fn on_draw( &mut self, area: Rect, buf: &mut Buffer, _ctx: &scene::Context<State> ) {
+  fn on_draw( &mut self, area: Rect, buf: &mut Buffer, _ctx: &scene::Context<app::State> ) {
     let footer_msg = if self.is_connected {
         "Use '<Enter>' to play a generator, 'd' to disconnect, 'Esc' to go back."
       } else {
@@ -142,7 +139,6 @@ impl scene::Scene<State> for DevicesViewScene {
       };
 
     let body_area = common::layout( area, buf, footer_msg );
-
     let layout = Layout::horizontal([ Constraint::Length( 54 ), Constraint::Fill( 1 ) ]);
     let [ left_area, right_area ] = layout.areas( body_area );
 
@@ -174,9 +170,8 @@ impl DevicesViewScene {
       .padding( Padding::new( 1, 1, 0, 0 ) )
       .title( Line::raw( &self.device_title ).centered().style( common::HIGHLIGHT_TEXT_STYLE ) );
 
-    let [ intrinsics_area, state_area ] = block.inner( area ).layout( &Layout::vertical([
-      Constraint::Length( 8 ), Constraint::Fill( 1 ),
-    ]) );
+    let [ intrinsics_area, state_area ] = block.inner( area )
+      .layout( &Layout::vertical([ Constraint::Length( 8 ), Constraint::Fill( 1 ) ]) );
 
     // Render intrinsics
     let intrinsics_block = Block::new()
