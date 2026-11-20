@@ -118,18 +118,20 @@ impl scene::Scene<State> for DevicesViewScene {
         set_tracks_title( &mut self.tracks_title, &self.tracks );
         self.tracks_loaded = true;
       }
+    } else {
+      self.device = etherdream::State::default();
+      self.is_connected = false;
     }
 
-    if self.is_connected {
-      self.points_buffered.clear();
-      let _ = write!( &mut self.points_buffered, "{}", self.device.points_buffered() );
+    // 
+    self.points_buffered.clear();
+    let _ = write!( &mut self.points_buffered, "{}", self.device.points_buffered() );
 
-      self.points_lifetime.clear();
-      let _ = write!( &mut self.points_lifetime, "{}", self.device.points_lifetime() );
+    self.points_lifetime.clear();
+    let _ = write!( &mut self.points_lifetime, "{}", self.device.points_lifetime() );
 
-      self.points_per_second.clear();
-      let _ = write!( &mut self.points_per_second, "{}", self.device.points_per_second() );
-    }
+    self.points_per_second.clear();
+    let _ = write!( &mut self.points_per_second, "{}", self.device.points_per_second() );
   }
 
   fn on_draw( &mut self, area: Rect, buf: &mut Buffer, _ctx: &scene::Context<State> ) {
