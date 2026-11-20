@@ -12,64 +12,65 @@ use crate::sequencer::Track;
 use crate::tracks;
 use super::common;
 
-const FOOTER_CONNECTED_MSG: &str = "Use '<Enter>' to play a generator, 'd' to disconnect, 'Esc' to go back.";
-const FOOTER_DISCONNECTED_MSG: &str = "Use 'c' to connect, 'Esc' to go back.";
-
 #[derive( Default )]
 pub struct DevicesViewScene {
+  device: etherdream::State,
+  is_connected: bool,
   table: TableState,
   tracks: Vec<tracks::Track>,
   tracks_loaded: bool,
 
   // `DeviceInfo` string caches
-  di_hardware_version: String,
-  di_ip: String,
-  di_mac_address: String,
-  di_max_points_per_second: String,
-  di_point_buffer_capacity: String,
-  di_software_version: String,
+  hardware_version: String,
+  ip: String,
+  mac_addr: String,
+  max_points_per_second: String,
+  point_buffer_capacity: String,
+  software_version: String,
+  device_title: String,
+  tracks_title: String,
 
   // Sequencer string caches
-  seq_points_buffered: String,
-  seq_points_lifetime: String,
-  seq_points_per_second: String,
-
-  // Etherdream state cache
-  state: etherdream::State
+  points_buffered: String,
+  points_lifetime: String,
+  points_per_second: String,
 }
 
 impl scene::Scene<State> for DevicesViewScene {
   fn on_enter( &mut self, ctx: &scene::Context<State> ) {
+    self.device = etherdream::State::default();
+    self.is_connected = false;
     self.table.select( Some( 0 ) );
+    self.tracks.clear();
+    self.tracks_loaded = false;
 
     // Clear all cached strings
-    self.di_hardware_version.clear();
-    self.di_ip.clear();
-    self.di_mac_address.clear();
-    self.di_max_points_per_second.clear();
-    self.di_point_buffer_capacity.clear();
-    self.di_software_version.clear();
-    self.seq_points_buffered.clear();
-    self.seq_points_lifetime.clear();
-    self.seq_points_per_second.clear();
+    self.device_title.clear();
+    self.hardware_version.clear();
+    self.ip.clear();
+    self.mac_addr.clear();
+    self.max_points_per_second.clear();
+    self.point_buffer_capacity.clear();
+    self.points_buffered.clear();
+    self.points_lifetime.clear();
+    self.points_per_second.clear();
+    self.software_version.clear();
 
-    //
-    self.state = etherdream::State::default();
+    // ...
+    self.tracks_title.clear();
+    set_tracks_title( &mut self.tracks_title, &self.tracks );
 
     // Since `DeviceInfo` never changes, we load that into our string caches on
     // scene enter.
     if let Some( device_info ) = ctx.read_state().get_current_device() {
-      let _ = write!( self.di_hardware_version, "{}", device_info.version().hardware );
-      let _ = write!( self.di_ip, "{}", device_info.ip() );
-      let _ = write!( self.di_mac_address, "{}", device_info.mac_address() );
-      let _ = write!( self.di_max_points_per_second, "{}", device_info.max_points_per_second() );
-      let _ = write!( self.di_point_buffer_capacity, "{}", device_info.buffer_capacity() );
-      let _ = write!( self.di_software_version, "{}", device_info.version().software );
+      let _ = write!( self.device_title, " Device({}) ", device_info.ip() );
+      let _ = write!( self.hardware_version, "{}", device_info.version().hardware );
+      let _ = write!( self.ip, "{}", device_info.ip() );
+      let _ = write!( self.mac_addr, "{}", device_info.mac_address() );
+      let _ = write!( self.max_points_per_second, "{}", device_info.max_points_per_second() );
+      let _ = write!( self.point_buffer_capacity, "{}", device_info.buffer_capacity() );
+      let _ = write!( self.software_version, "{}", device_info.version().software );
     }
-  }
-
-  fn on_exit( &mut self, _ctx: &scene::Context<State> ) {
-    self.tracks_loaded = false
   }
 
   fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::Context<State> ) -> bool {
@@ -86,25 +87,15 @@ impl scene::Scene<State> for DevicesViewScene {
         ctx.invoke( Action::Back );
         true
       }
-      KeyCode::Char( 's' ) => {
-        ctx.invoke( Action::Stop );
-        true
-      }
-      KeyCode::Enter => {
-        let track_id =
-          if let Some( idx ) = self.table.selected()
-            && let Some( sequencer ) = ctx.read_state().get_current_sequencer()
-            && let Some( track ) = sequencer.tracks().get( idx )
-          {
-            Some( *track.id() )
-          } else {
-            None
-          };
-
-        if let Some( track_id ) = track_id {
-          ctx.invoke( Action::Play( track_id ) );
+      KeyCode::Char( 'p' ) => {
+        if let Some( track ) = self.table.selected().and_then(| idx | self.tracks.get( idx ) ) {
+          ctx.invoke( Action::Play( *track.id() ) );
         }
 
+        true
+      }
+      KeyCode::Char( 's' ) => {
+        ctx.invoke( Action::Stop );
         true
       }
       key @ ( KeyCode::Down | KeyCode::Up ) => {
@@ -119,39 +110,45 @@ impl scene::Scene<State> for DevicesViewScene {
 
   fn on_update( &mut self, ctx: &mut scene::Context<State> ) {
     if let Some( sequencer ) = ctx.read_state().get_current_sequencer() {
-      sequencer.clone_state_into( &mut self.state );
+      sequencer.clone_state_into( &mut self.device );
+      self.is_connected = true;
 
       if ! self.tracks_loaded {
         self.tracks.clone_from( sequencer.tracks() );
+        set_tracks_title( &mut self.tracks_title, &self.tracks );
         self.tracks_loaded = true;
       }
     }
 
-    self.seq_points_buffered.clear();
-    let _ = write!( &mut self.seq_points_buffered, "{}", self.state.points_buffered() );
+    if self.is_connected {
+      self.points_buffered.clear();
+      let _ = write!( &mut self.points_buffered, "{}", self.device.points_buffered() );
 
-    self.seq_points_lifetime.clear();
-    let _ = write!( &mut self.seq_points_lifetime, "{}", self.state.points_lifetime() );
+      self.points_lifetime.clear();
+      let _ = write!( &mut self.points_lifetime, "{}", self.device.points_lifetime() );
 
-    self.seq_points_per_second.clear();
-    let _ = write!( &mut self.seq_points_per_second, "{}", self.state.points_per_second() );
+      self.points_per_second.clear();
+      let _ = write!( &mut self.points_per_second, "{}", self.device.points_per_second() );
+    }
   }
 
-  fn on_draw( &mut self, area: Rect, buf: &mut Buffer, ctx: &scene::Context<State> ) {
-    let state = ctx.read_state();
-    let sequencer = state.get_current_sequencer();
+  fn on_draw( &mut self, area: Rect, buf: &mut Buffer, _ctx: &scene::Context<State> ) {
+    let footer_msg = if self.is_connected {
+        "Use '<Enter>' to play a generator, 'd' to disconnect, 'Esc' to go back."
+      } else {
+        "Use 'c' to connect, 'Esc' to go back."
+      };
 
-    let footer_msg = if sequencer.is_some() { FOOTER_CONNECTED_MSG } else { FOOTER_DISCONNECTED_MSG };
     let body_area = common::layout( area, buf, footer_msg );
 
     let layout = Layout::horizontal([ Constraint::Length( 54 ), Constraint::Fill( 1 ) ]);
     let [ left_area, right_area ] = layout.areas( body_area );
 
     // Render left pane
-    self.draw_device_panel( sequencer.is_some(), sequencer.is_some() && self.state.is_playing(), left_area, buf );
+    self.draw_device_panel( self.device.is_playing(), left_area, buf );
 
     // Render right pane
-    if sequencer.is_some() {
+    if self.is_connected {
       let title = format!(" Tracks [{}] ", self.tracks.len() );
       let block = common::make_block( Some( &title ) );
       let inner_area = block.inner( right_area );
@@ -169,15 +166,11 @@ impl scene::Scene<State> for DevicesViewScene {
 }
 
 impl DevicesViewScene {
-  fn draw_device_panel( &self, is_connected: bool, is_playing: bool, area: Rect, buf: &mut Buffer ) {
+  fn draw_device_panel( &self, is_playing: bool, area: Rect, buf: &mut Buffer ) {
     let block = Block::bordered()
       .border_style( common::HIGHLIGHT_BORDER_STYLE )
       .padding( Padding::new( 1, 1, 0, 0 ) )
-      .title(
-        Line::raw( format!( " Device({}) ", self.di_ip ) )
-          .centered()
-          .style( common::HIGHLIGHT_TEXT_STYLE )
-      );
+      .title( Line::raw( &self.device_title ).centered().style( common::HIGHLIGHT_TEXT_STYLE ) );
 
     let [ intrinsics_area, state_area ] = block.inner( area ).layout( &Layout::vertical([
       Constraint::Length( 8 ), Constraint::Fill( 1 ),
@@ -189,12 +182,12 @@ impl DevicesViewScene {
       .title( Line::styled( "INTRINSICS:", common::HIGHLIGHT_TEXT_STYLE ) );
 
     let intrinsic_rows = [
-      Row::new([ "IP address:", &self.di_ip ]),
-      Row::new([ "MAC address:", &self.di_mac_address ]),
-      Row::new([ "Hardware version:", &self.di_hardware_version ]),
-      Row::new([ "Software version:", &self.di_software_version ]),
-      Row::new([ "Point buffer capacity:", &self.di_point_buffer_capacity ]),
-      Row::new([ "Max points per second:", &self.di_max_points_per_second ])
+      Row::new([ "IP address:", &self.ip ]),
+      Row::new([ "MAC address:", &self.mac_addr ]),
+      Row::new([ "Hardware version:", &self.hardware_version ]),
+      Row::new([ "Software version:", &self.software_version ]),
+      Row::new([ "Point buffer capacity:", &self.point_buffer_capacity ]),
+      Row::new([ "Max points per second:", &self.max_points_per_second ])
     ];
 
     let intrinsics_table = Table::new( intrinsic_rows, [ Constraint::Length( 23 ), Constraint::Fill( 1 ) ])
@@ -206,13 +199,13 @@ impl DevicesViewScene {
       .title( Line::styled( "STATE:", common::HIGHLIGHT_TEXT_STYLE ) );
 
     let mut rows = Vec::with_capacity( 50 );
-    rows.push( Row::new([ "Connected:", if is_connected { "Yes" } else { "No" }]) );
+    rows.push( Row::new([ "Connected:", if self.is_connected { "Yes" } else { "No" }]) );
 
-    if is_connected {
+    if self.is_connected {
       rows.push( Row::new([ "Playing:", if is_playing { "Yes" } else { "No" } ]) );
-      rows.push( Row::new([ "Points Buffered:", &self.seq_points_buffered ]) );
-      rows.push( Row::new([ "Points Per Second:", &self.seq_points_per_second ]) );
-      rows.push( Row::new([ "Points Lifetime:", &self.seq_points_lifetime ]) );
+      rows.push( Row::new([ "Points Buffered:", &self.points_buffered ]) );
+      rows.push( Row::new([ "Points Per Second:", &self.points_per_second ]) );
+      rows.push( Row::new([ "Points Lifetime:", &self.points_lifetime ]) );
     }
 
     let state_table = Table::new( rows, [ Constraint::Length( 23 ), Constraint::Fill( 1 ) ])
@@ -238,4 +231,8 @@ fn draw_generators_table( state: &mut TableState, tracks: &Vec<tracks::Track>, a
     .header( Row::new([ "NAME", "STATUS" ]).style( common::TABLE_HEADER_STYLE ) );
 
   StatefulWidget::render( table, area, buf, state );
+}
+
+fn set_tracks_title( tracks_title: &mut String, tracks: &Vec<tracks::Track> ) {
+  let _ = write!( tracks_title, " Tracks [{}] ", tracks.len() );
 }
