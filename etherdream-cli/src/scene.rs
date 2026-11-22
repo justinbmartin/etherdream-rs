@@ -68,16 +68,14 @@ pub trait Scene<T: SceneController + Send + 'static> {
 
 pub struct Builder<T: SceneController + Send + 'static> {
   current: T::SceneId,
-  scenes: HashMap<T::SceneId, Box<dyn Scene<T>>>,
-  state: Arc<RwLock<T>>
+  scenes: HashMap<T::SceneId, Box<dyn Scene<T>>>
 }
 
 impl<T: SceneController + Send + 'static> Builder<T> {
-  pub fn new( state: Arc<RwLock<T>>, id: T::SceneId, scene: Box<dyn Scene<T>> ) -> Self {
+  pub fn new( id: T::SceneId, scene: Box<dyn Scene<T>> ) -> Self {
     Self{
       current: id,
-      scenes: HashMap::from([( id, scene )]),
-      state
+      scenes: HashMap::from([( id, scene )])
     }
   }
 
@@ -89,20 +87,20 @@ impl<T: SceneController + Send + 'static> Builder<T> {
 
   /// Builds the scene definitions, returning back a foreground and background
   /// handler.
-  pub fn build( self ) -> ( Foreground<T>, Background<T> ) {
+  pub fn build( self, state: Arc<RwLock<T>> ) -> ( Foreground<T>, Background<T> ) {
     let ( action_tx, action_rx ) = mpsc::channel::<T::Action>( 16 );
     let ( events_tx, events_rx ) = mpsc::channel::<Event<T::SceneId>>( 1024 );
 
     (
       Foreground{
-        ctx: Context{ action_tx, state: self.state.clone() },
+        ctx: Context{ action_tx, state: state.clone() },
         events_rx,
         scenes: self.scenes,
         stack: vec![ self.current ]
       },
       Background{
         action_rx,
-        actionable: self.state,
+        actionable: state,
         events_tx
       }
     )

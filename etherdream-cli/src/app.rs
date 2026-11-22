@@ -105,7 +105,7 @@ impl SceneController for State {
         SceneEvent::None
       }
       Action::Play( track_id ) => {
-        if let Some( sequencer ) = get_current_sequencer_mut( self ) {
+        if let Some( sequencer ) = current_sequencer_mut( self ) {
           // TODO: handle error
           sequencer.play( track_id ).await;
         }
@@ -117,7 +117,7 @@ impl SceneController for State {
         SceneEvent::Push( SceneId::DevicesView )
       }
       Action::Stop => {
-        if let Some( sequencer ) = get_current_sequencer_mut( self ) {
+        if let Some( sequencer ) = current_sequencer_mut( self ) {
           sequencer.stop().await;
         }
 
@@ -127,14 +127,14 @@ impl SceneController for State {
   }
 }
 
-fn get_current_sequencer_mut( state: &mut State ) -> Option<&mut Sequencer<tracks::Track>> {
+fn current_sequencer_mut( state: &mut State ) -> Option<&mut Sequencer<tracks::Track>> {
   state.current_device_id.as_mut().and_then(| addr | state.sequencers.get_mut( addr ) )
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene Definitions
 
 pub fn build_scenes( state: Arc<RwLock<State>> ) -> ( scene::Foreground<State>, scene::Background<State> ) {
-  scene::Builder::new( state, SceneId::DevicesList, Box::new( scenes::DevicesListScene::new() ) )
+  scene::Builder::new( SceneId::DevicesList, Box::new( scenes::DevicesListScene::new() ) )
     .add_scene( SceneId::DevicesView, Box::new( scenes::DevicesViewScene::default() ) )
-    .build()
+    .build( state )
 }
