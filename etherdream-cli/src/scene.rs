@@ -66,44 +66,48 @@ pub trait Scene<T: SceneController + Send + 'static> {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Builder
 
+#[derive( Debug )]
+pub enum BuilderError {
+  NoScenesDefined
+}
+
 pub struct Builder<T: SceneController + Send + 'static> {
-  current: T::SceneId,
+  current: Option<T::SceneId>,
   scenes: HashMap<T::SceneId, Box<dyn Scene<T>>>
 }
 
 impl<T: SceneController + Send + 'static> Builder<T> {
-  pub fn new( id: T::SceneId, scene: Box<dyn Scene<T>> ) -> Self {
-    Self{
-      current: id,
-      scenes: HashMap::from([( id, scene )])
-    }
-  }
+  pub fn new() -> Self { Self{ current: None, scenes: HashMap::new() } }
+}
 
+impl<T: SceneController + Send + 'static> Builder<T> {
   /// Adds a scene to the builder definition.
   pub fn add_scene( mut self, id: T::SceneId, scene: Box<dyn Scene<T>> ) -> Self {
     self.scenes.insert( id, scene );
+    self.current.get_or_insert( id );
     self
   }
 
   /// Builds the scene definitions, returning back a foreground and background
   /// handler.
-  pub fn build( self, state: Arc<RwLock<T>> ) -> ( Foreground<T>, Background<T> ) {
+  pub fn build( self, state: Arc<RwLock<T>> ) -> Result<( Foreground<T>, Background<T> ),BuilderError> {
+    let current = self.current.ok_or( BuilderError::NoScenesDefined )?;
     let ( action_tx, action_rx ) = mpsc::channel::<T::Action>( 16 );
     let ( events_tx, events_rx ) = mpsc::channel::<Event<T::SceneId>>( 1024 );
 
-    (
+    Ok( (
       Foreground{
         ctx: Context{ action_tx, state: state.clone() },
         events_rx,
         scenes: self.scenes,
-        stack: vec![ self.current ]
+        stack: vec![ current ]
       },
       Background{
         action_rx,
         actionable: state,
         events_tx
       }
-    )
+    ) )
   }
 }
 
