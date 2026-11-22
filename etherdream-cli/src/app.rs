@@ -133,10 +133,9 @@ fn current_sequencer_mut( state: &mut State ) -> Option<&mut Sequencer<tracks::T
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene Definitions
 
-pub fn build_scenes( state: Arc<RwLock<State>> ) -> ( scene::Foreground<State>, scene::Background<State> ) {
+pub fn build_scenes( state: Arc<RwLock<State>> ) -> Result<( scene::Foreground<State>, scene::Background<State> ),scene::BuilderError> {
   scene::Builder::new()
     .add_scene( SceneId::DevicesList, Box::new( scenes::DevicesListScene::new() ) )
     .add_scene( SceneId::DevicesView, Box::new( scenes::DevicesViewScene::default() ) )
     .build( state )
-    .unwrap()
 }
