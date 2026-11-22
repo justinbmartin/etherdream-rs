@@ -1,3 +1,4 @@
+use std::fmt::Write;
 use std::net::IpAddr;
 
 use crossterm::event::{ KeyCode, KeyEvent };
@@ -11,6 +12,7 @@ use super::common;
 
 pub struct DevicesListScene {
   devices: Vec<Device>,
+  devices_title: String,
   table: TableState,
   version: usize
 }
@@ -19,6 +21,7 @@ impl DevicesListScene {
   pub fn new() -> Self {
     Self{
       devices: Vec::new(),
+      devices_title: String::new(),
       table: TableState::new().with_selected( 0 ),
       version: 0
     }
@@ -45,24 +48,21 @@ impl scene::Scene<app::State> for DevicesListScene {
     let state = ctx.read_state();
 
     if state.devices_version() != self.version {
-      //
-      let mut device_ips: Vec<IpAddr> = state.devices().keys().copied().collect();
-      device_ips.sort();
-
-      //
-      let devices: Vec<Device> = device_ips
+      let mut devices: Vec<Device> = state
+        .devices()
         .iter()
-        .map(| &ip | {
-          state
-            .devices()
-            .get( &ip )
-            .and_then( | &d | Some( Device{ id: ip, ip_addr: ip.to_string(), mac_addr: d.mac_address().to_string() } ) )
+        .map(|( &ip, &d )| {
+          Some( Device{ id: ip, ip_addr: ip.to_string(), mac_addr: d.mac_address().to_string() } )
         })
         .flatten()
         .collect();
 
+      devices.sort_by_key(| d | d.id );
+
       self.devices = devices;
       self.version = state.devices_version();
+
+      let _ = write!( &mut self.devices_title, " Etherdream Devices [{}] ", self.devices.len() );
     }
   }
 
@@ -70,8 +70,7 @@ impl scene::Scene<app::State> for DevicesListScene {
     let layout = Layout::vertical([ Constraint::Fill( 1 ), Constraint::Length( 1 ) ]);
     let [ body_area, footer_area ] = area.layout( &layout );
 
-    let title = format!( " Etherdream Devices [{}] ", self.devices.len() );
-    let block = common::make_block( Some( &title ) );
+    let block = common::make_block( Some( &self.devices_title ) );
     let inner_area = block.inner( body_area );
 
     if self.devices.is_empty() {
@@ -91,6 +90,11 @@ impl DevicesListScene {
     let selected_idx = self.table.selected().unwrap_or( 0 );
     let state = ctx.read_state();
 
+    const CONSTRAINTS: [Constraint; 3] = [
+      Constraint::Length( 20 ),
+      Constraint::Length( 35 ),
+      Constraint::Fill( 1 ) ];
+
     let rows = self.devices
       .iter()
       .enumerate()
@@ -104,11 +108,6 @@ impl DevicesListScene {
 
         Row::new([ device.ip_addr.as_str(), device.mac_addr.as_str(), status ]).style( style )
       });
-
-    const CONSTRAINTS: [Constraint; 3] = [
-      Constraint::Length( 20 ),
-      Constraint::Length( 35 ),
-      Constraint::Fill( 1 ) ];
 
     let table = Table::new( rows, CONSTRAINTS )
       .header( Row::new([ "IP", "MAC", "STATUS" ]).style( common::TABLE_HEADER_STYLE ) );
