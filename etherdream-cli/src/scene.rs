@@ -68,7 +68,8 @@ pub trait Scene<T: SceneController + Send + 'static> {
 
 #[derive( Debug )]
 pub enum BuilderError {
-  NoScenesDefined
+  NoScenesDefined,
+  DefaultSceneDoesNotExist
 }
 
 pub struct Builder<T: SceneController + Send + 'static> {
@@ -81,10 +82,17 @@ impl<T: SceneController + Send + 'static> Builder<T> {
 }
 
 impl<T: SceneController + Send + 'static> Builder<T> {
-  /// Adds a scene to the builder definition.
+  /// Adds a scene to the builder definition. If this is the first scene, it
+  /// will set the scene as the default.
   pub fn add_scene( mut self, id: T::SceneId, scene: Box<dyn Scene<T>> ) -> Self {
     self.scenes.insert( id, scene );
     self.current.get_or_insert( id );
+    self
+  }
+
+  /// Sets the default scene.
+  pub fn set_default_scene( mut self, id: T::SceneId ) -> Self {
+    self.current = Some( id );
     self
   }
 
@@ -92,6 +100,8 @@ impl<T: SceneController + Send + 'static> Builder<T> {
   /// handler.
   pub fn build( self, state: Arc<RwLock<T>> ) -> Result<( Foreground<T>, Background<T> ),BuilderError> {
     let current = self.current.ok_or( BuilderError::NoScenesDefined )?;
+    self.scenes.contains_key( &current ).ok_or( BuilderError::DefaultSceneDoesNotExist )?;
+
     let ( action_tx, action_rx ) = mpsc::channel::<T::Action>( 16 );
     let ( events_tx, events_rx ) = mpsc::channel::<Event<T::SceneId>>( 1024 );
 

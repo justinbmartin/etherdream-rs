@@ -137,5 +137,6 @@ pub fn build_scenes( state: Arc<RwLock<State>> ) -> Result<( scene::Foreground<S
   scene::Builder::new()
     .add_scene( SceneId::DevicesList, Box::new( scenes::DevicesListScene::new() ) )
     .add_scene( SceneId::DevicesView, Box::new( scenes::DevicesViewScene::default() ) )
+    .set_default_scene( SceneId::DevicesList )
     .build( state )
 }
