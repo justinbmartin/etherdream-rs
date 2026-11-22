@@ -61,7 +61,7 @@ impl scene::Scene<app::State> for DevicesViewScene {
 
     // Since `DeviceInfo` never changes, we load that into our string caches on
     // scene enter.
-    if let Some( device_info ) = ctx.read_state().get_current_device() {
+    if let Some( device_info ) = ctx.read_state().current_device() {
       let _ = write!( self.device_title, " Device({}) ", device_info.ip() );
       let _ = write!( self.hardware_version, "{}", device_info.version().hardware );
       let _ = write!( self.ip, "{}", device_info.ip() );
@@ -104,7 +104,7 @@ impl scene::Scene<app::State> for DevicesViewScene {
   }
 
   fn on_update( &mut self, ctx: &mut scene::Context<app::State> ) {
-    if let Some( sequencer ) = ctx.read_state().get_current_sequencer() {
+    if let Some( sequencer ) = ctx.read_state().current_sequencer() {
       sequencer.clone_state_into( &mut self.device );
       self.is_connected = true;
 

@@ -45,27 +45,29 @@ impl State {
   /// Returns an immutable reference to the `State`s registered devices.
   pub fn devices( &self ) -> &HashMap<IpAddr,etherdream::DeviceInfo> { &self.device_info_map }
 
-  ///
+  /// Returns the version of the `HashMap` returned back from `Self::devices`.
   pub fn devices_version( &self ) -> usize { self.devices_version }
 
   /// Registers a device from the registry into the `DeviceMap` by `address`.
+  // TODO: This should not be accessible by scenes.
   pub async fn register_device( &mut self, info: etherdream::DeviceInfo ) {
     self.device_info_map.insert( info.ip(), info );
     self.devices_version = self.devices_version.saturating_add( 1 );
   }
-  /// Set the currently selected device id
-  pub fn set_current_device( &mut self, device_id: Option<IpAddr> ) {
-    self.current_device_id = device_id
-  }
 
   /// Returns an immutable reference to the currently selected device info
-  pub fn get_current_device( &self ) -> Option<&etherdream::DeviceInfo> {
+  pub fn current_device( &self ) -> Option<&etherdream::DeviceInfo> {
     self.current_device_id.as_ref().and_then(| addr | self.device_info_map.get( addr ) )
   }
 
   /// Returns an immutable reference to the currently selected sequencer
-  pub fn get_current_sequencer( &self ) -> Option<&Sequencer<tracks::Track>> {
+  pub fn current_sequencer( &self ) -> Option<&Sequencer<tracks::Track>> {
     self.current_device_id.as_ref().and_then(| addr | self.sequencers.get( addr ) )
+  }
+
+  /// Returns the `Sequencer` associated with `ip`.
+  pub fn sequencer( &self, ip: &IpAddr ) -> Option<&Sequencer<tracks::Track>> {
+    self.sequencers.get( ip )
   }
 }
 
@@ -79,7 +81,7 @@ impl SceneController for State {
         SceneEvent::Pop
       }
       Action::Connect => {
-        if let Some( device_info ) = self.get_current_device() {
+        if let Some( device_info ) = self.current_device() {
           match etherdream::connect( *device_info ).await {
             Ok( client ) => {
               let sequencer = Sequencer::new( client, tracks::TRACKS.clone() );
@@ -94,7 +96,7 @@ impl SceneController for State {
         SceneEvent::None
       }
       Action::Disconnect => {
-        if let Some( device ) = self.get_current_device() {
+        if let Some( device ) = self.current_device() {
           if let Some( sequencer ) = self.sequencers.remove( &device.ip() ) {
             let _ = sequencer.into_client().await;
           }
@@ -111,7 +113,7 @@ impl SceneController for State {
         SceneEvent::None
       }
       Action::SelectDevice( device_id ) => {
-        self.set_current_device( Some( device_id ) );
+        self.current_device_id = Some( device_id );
         SceneEvent::Push( SceneId::DevicesView )
       }
       Action::Stop => {
