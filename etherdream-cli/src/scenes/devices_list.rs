@@ -4,25 +4,23 @@ use std::net::IpAddr;
 use crossterm::event::{ KeyCode, KeyEvent };
 use ratatui::buffer::Buffer;
 use ratatui::layout::{ Constraint, Layout, Rect };
-use ratatui::widgets::{ Row, StatefulWidget, Table, TableState, Widget };
+use ratatui::widgets::{ Row, Widget };
 
 use crate::app;
 use crate::scene;
 use super::common;
 
 pub struct DevicesListScene {
-  devices: Vec<Device>,
   devices_title: String,
-  table: TableState,
+  table: common::Table<IpAddr,Device>,
   version: usize
 }
 
 impl DevicesListScene {
   pub fn new() -> Self {
     Self{
-      devices: Vec::new(),
       devices_title: String::new(),
-      table: TableState::new().with_selected( 0 ),
+      table: common::Table::new(),
       version: 0
     }
   }
@@ -32,14 +30,14 @@ impl scene::Scene<app::State> for DevicesListScene {
   fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::Context<app::State> ) -> bool {
     match key.code {
       KeyCode::Enter => {
-        if let Some( ip ) = self.table.selected().and_then(| idx |{ self.devices.get( idx ).map(| d | &d.id ) }) {
+        if let Some( ip ) = self.table.selected() {
           ctx.invoke( app::Action::SelectDevice( *ip ) );
         }
 
         true
       }
       key => {
-        common::on_key_down_for_table_state( &key, &mut self.table, self.devices.len() )
+        self.table.handle_key_event( &key )
       }
     }
   }
@@ -48,21 +46,15 @@ impl scene::Scene<app::State> for DevicesListScene {
     let state = ctx.read_state();
 
     if state.devices_version() != self.version {
-      let mut devices: Vec<Device> = state
-        .devices()
-        .iter()
-        .map(|( &ip, &d )| {
-          Some( Device{ id: ip, ip_addr: ip.to_string(), mac_addr: d.mac_address().to_string() } )
-        })
-        .flatten()
-        .collect();
+      self.table.clear();
 
-      devices.sort_by_key(| d | d.id );
+      for ( ip, device ) in state.devices() {
+        self.table.insert( *ip, Device{ ip_addr: ip.to_string(), mac_addr: device.mac_address().to_string() } );
+      }
 
-      self.devices = devices;
       self.version = state.devices_version();
 
-      let _ = write!( &mut self.devices_title, " Etherdream Devices [{}] ", self.devices.len() );
+      let _ = write!( &mut self.devices_title, " Etherdream Devices [{}] ", self.table.len() );
     }
   }
 
@@ -73,7 +65,7 @@ impl scene::Scene<app::State> for DevicesListScene {
     let block = common::make_block( Some( &self.devices_title ) );
     let inner_area = block.inner( body_area );
 
-    if self.devices.is_empty() {
+    if self.table.is_empty() {
       Widget::render( block, body_area, buf );
       common::draw_centered_line( "Listening for devices...", common::INFO_TEXT_STYLE.italic(), inner_area, buf );
       common::draw_footer( "Use 'q' to quit.", footer_area, buf );
@@ -87,7 +79,7 @@ impl scene::Scene<app::State> for DevicesListScene {
 
 impl DevicesListScene {
   fn draw_list( &mut self, area: Rect, buf: &mut Buffer, ctx: &scene::Context<app::State> ) {
-    let selected_idx = self.table.selected().unwrap_or( 0 );
+    //let selected_ip = self.table.selected().unwrap();
     let state = ctx.read_state();
 
     const CONSTRAINTS: [Constraint; 3] = [
@@ -95,32 +87,24 @@ impl DevicesListScene {
       Constraint::Length( 35 ),
       Constraint::Fill( 1 ) ];
 
-    let rows = self.devices
-      .iter()
-      .enumerate()
-      .map(|( i, device )|{
-        let style = if selected_idx == i { common::HIGHLIGHT_ROW_SELECTED_STYLE } else { common::HIGHLIGHT_TEXT_STYLE };
+    self.table.render( area, buf, |( ip, device )| {
+      //let style = if ip == selected_ip { common::HIGHLIGHT_ROW_SELECTED_STYLE } else { common::HIGHLIGHT_TEXT_STYLE };
+      let style = common::HIGHLIGHT_TEXT_STYLE;
 
-        let status = match state.sequencer( &device.id ) {
-          Some( sequencer ) => if sequencer.is_playing() { "PLAYING" } else { "CONNECTED" },
-          None => "DISCONNECTED"
-        };
+      let status = match state.sequencer( &ip ) {
+        Some( sequencer ) => if sequencer.is_playing() { "PLAYING" } else { "CONNECTED" },
+        None => "DISCONNECTED"
+      };
 
-        Row::new([ device.ip_addr.as_str(), device.mac_addr.as_str(), status ]).style( style )
-      });
-
-    let table = Table::new( rows, CONSTRAINTS )
-      .header( Row::new([ "IP", "MAC", "STATUS" ]).style( common::TABLE_HEADER_STYLE ) );
-
-    StatefulWidget::render( table, area, buf, &mut self.table );
+      Row::new([ device.ip_addr.as_str(), device.mac_addr.as_str(), status ]).style( style )
+    });
   }
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Device Row
 
+#[derive( Default )]
 struct Device {
-  id: IpAddr,
-
   ip_addr: String,
   mac_addr: String
 }

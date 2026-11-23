@@ -1,9 +1,11 @@
+use std::collections::BTreeMap;
+
 use crossterm::event::KeyCode;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{ Alignment, Constraint, Layout, Rect };
 use ratatui::style::{ Color, Style };
 use ratatui::text::Line;
-use ratatui::widgets::{ Block, Padding, Paragraph, TableState, Widget };
+use ratatui::widgets::{ self, Block, Padding, Paragraph, Row, StatefulWidget, TableState, Widget };
 
 pub const INFO_TEXT_STYLE: Style = Style::new().fg( Color::Rgb( 150, 150, 150 ) );
 pub const HIGHLIGHT_COLOR: Color = Color::Rgb( 232, 195, 0 );
@@ -57,5 +59,69 @@ pub fn on_key_down_for_table_state( key: &KeyCode, state: &mut TableState, count
       true
     }
     _ => false
+  }
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Table
+
+pub struct Table<K,V>
+  where K: Ord
+{
+  items: BTreeMap<K,V>,
+  state: TableState
+}
+
+impl<K,V> Table<K,V>
+  where K: Ord
+{
+  pub fn new() -> Self { Self{ items: BTreeMap::new(), state: TableState::new().with_selected( 0 ) } }
+
+  pub fn clear( &mut self ) {
+    self.items.clear();
+    self.state.select( Some( 0 ) );
+  }
+
+  pub fn is_empty( &self ) -> bool { self.items.is_empty() }
+
+  pub fn len( &self ) -> usize { self.items.len() }
+
+  pub fn selected( &self ) -> Option<&K> {
+    self.state.selected().and_then(| idx | self.items.keys().nth( idx ) )
+  }
+
+  pub fn insert( &mut self, key: K, value: V ) -> Option<V> {
+    self.items.insert( key, value )
+  }
+
+  pub fn handle_key_event( &mut self, key: &KeyCode ) -> bool {
+    match key {
+      KeyCode::Down => {
+        let next_idx = ( self.state.selected().unwrap_or( 0 ) + 1 ).min( self.items.len().saturating_sub( 1 ) );
+        self.state.select( Some( next_idx ) );
+        true
+      }
+      KeyCode::Up => {
+        let next_idx = self.state.selected().unwrap_or( 0 ).saturating_sub( 1 );
+        self.state.select( Some( next_idx ) );
+        true
+      }
+      _ => false
+    }
+  }
+
+  pub fn render<'a, 'b, F: FnMut(( &'b K, &'b V )) -> Row<'b>>( &'a mut self, area: Rect, buf: &mut Buffer, callback: F )
+    where 'a: 'b
+  {
+    const CONSTRAINTS: [Constraint; 3] = [
+      Constraint::Length( 20 ),
+      Constraint::Length( 35 ),
+      Constraint::Fill( 1 ) ];
+
+    let rows = self.items.iter().map( callback );
+
+    let table = widgets::Table::new( rows, CONSTRAINTS )
+      .header( Row::new([ "IP", "MAC", "STATUS" ]).style( TABLE_HEADER_STYLE ) );
+
+    StatefulWidget::render( table, area, buf, &mut self.state );
   }
 }

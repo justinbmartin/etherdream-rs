@@ -66,10 +66,9 @@ pub trait Scene<T: SceneController + Send + 'static> {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Builder
 
-#[derive( Debug )]
 pub enum BuilderError {
-  NoScenesDefined,
-  DefaultSceneDoesNotExist
+  DefaultSceneDoesNotExist,
+  NoScenesDefined
 }
 
 pub struct Builder<T: SceneController + Send + 'static> {
