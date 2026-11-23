@@ -12,7 +12,7 @@ use super::common;
 
 pub struct DevicesListScene {
   devices_title: String,
-  table: common::Table<IpAddr,Device>,
+  table: common::TableState<IpAddr,Device>,
   version: usize
 }
 
@@ -20,7 +20,7 @@ impl DevicesListScene {
   pub fn new() -> Self {
     Self{
       devices_title: String::new(),
-      table: common::Table::new(),
+      table: common::TableState::new(),
       version: 0
     }
   }
@@ -87,16 +87,15 @@ impl DevicesListScene {
       Constraint::Length( 35 ),
       Constraint::Fill( 1 ) ];
 
-    self.table.render( area, buf, |( ip, device )| {
-      //let style = if ip == selected_ip { common::HIGHLIGHT_ROW_SELECTED_STYLE } else { common::HIGHLIGHT_TEXT_STYLE };
-      let style = common::HIGHLIGHT_TEXT_STYLE;
+    self.table.render( CONSTRAINTS, area, buf, |( k, v ), is_selected |{
+      let style = if is_selected { common::HIGHLIGHT_ROW_SELECTED_STYLE } else { common::HIGHLIGHT_TEXT_STYLE };
 
-      let status = match state.sequencer( &ip ) {
+      let status = match state.sequencer( &k ) {
         Some( sequencer ) => if sequencer.is_playing() { "PLAYING" } else { "CONNECTED" },
         None => "DISCONNECTED"
       };
 
-      Row::new([ device.ip_addr.as_str(), device.mac_addr.as_str(), status ]).style( style )
+      Row::new([ v.ip_addr.as_str(), v.mac_addr.as_str(), status ]).style( style )
     });
   }
 }

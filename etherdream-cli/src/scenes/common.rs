@@ -5,7 +5,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{ Alignment, Constraint, Layout, Rect };
 use ratatui::style::{ Color, Style };
 use ratatui::text::Line;
-use ratatui::widgets::{ self, Block, Padding, Paragraph, Row, StatefulWidget, TableState, Widget };
+use ratatui::widgets::{ self, Block, Padding, Paragraph, Row, StatefulWidget, Widget };
 
 pub const INFO_TEXT_STYLE: Style = Style::new().fg( Color::Rgb( 150, 150, 150 ) );
 pub const HIGHLIGHT_COLOR: Color = Color::Rgb( 232, 195, 0 );
@@ -46,7 +46,7 @@ pub fn draw_centered_line( msg: &str, style: Style, area: Rect, buf: &mut Buffer
   Paragraph::new( line ).render( centered_area, buf );
 }
 
-pub fn on_key_down_for_table_state( key: &KeyCode, state: &mut TableState, count: usize ) -> bool {
+pub fn on_key_down_for_table_state( key: &KeyCode, state: &mut widgets::TableState, count: usize ) -> bool {
   match key {
     KeyCode::Down => {
       let next_idx = ( state.selected().unwrap_or( 0 ) + 1 ).min( count.saturating_sub( 1 ) );
@@ -64,17 +64,17 @@ pub fn on_key_down_for_table_state( key: &KeyCode, state: &mut TableState, count
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Table
 
-pub struct Table<K,V>
-  where K: Ord
-{
+pub struct TableState<K: Ord,V> {
   items: BTreeMap<K,V>,
-  state: TableState
+  state: widgets::TableState
 }
 
-impl<K,V> Table<K,V>
+impl<K,V> TableState<K,V>
   where K: Ord
 {
-  pub fn new() -> Self { Self{ items: BTreeMap::new(), state: TableState::new().with_selected( 0 ) } }
+  pub fn new() -> Self {
+    Self{ items: BTreeMap::new(), state: widgets::TableState::new().with_selected( 0 ) }
+  }
 
   pub fn clear( &mut self ) {
     self.items.clear();
@@ -109,17 +109,22 @@ impl<K,V> Table<K,V>
     }
   }
 
-  pub fn render<'a, 'b, F: FnMut(( &'b K, &'b V )) -> Row<'b>>( &'a mut self, area: Rect, buf: &mut Buffer, callback: F )
-    where 'a: 'b
+  pub fn render<'a, 'b, C, F: FnMut( ( &'b K, &'b V ), bool ) -> Row<'b>>(
+    &'a mut self,
+    widths: C,
+    area: Rect,
+    buf: &mut Buffer,
+    mut callback: F
+  )
+    where 'a: 'b,
+          C: IntoIterator, <C as IntoIterator>::Item: Into<Constraint>
   {
-    const CONSTRAINTS: [Constraint; 3] = [
-      Constraint::Length( 20 ),
-      Constraint::Length( 35 ),
-      Constraint::Fill( 1 ) ];
-
-    let rows = self.items.iter().map( callback );
-
-    let table = widgets::Table::new( rows, CONSTRAINTS )
+    let rows = self.items.iter().map(|( k, v )|{
+      let is_selected = self.selected() == Some( k );
+      callback( ( k, v ), is_selected )
+    });
+    
+    let table = widgets::Table::new( rows, widths )
       .header( Row::new([ "IP", "MAC", "STATUS" ]).style( TABLE_HEADER_STYLE ) );
 
     StatefulWidget::render( table, area, buf, &mut self.state );
