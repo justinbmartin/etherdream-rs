@@ -58,7 +58,6 @@ impl scene::Scene<app::State> for DevicesListScene {
       }
 
       self.version = state.devices_version();
-
       let _ = write!( &mut self.devices_title, " Etherdream Devices [{}] ", self.table.len() );
     }
   }
@@ -85,7 +84,7 @@ impl scene::Scene<app::State> for DevicesListScene {
           None => "DISCONNECTED"
         };
 
-        Row::new([ v.ip_addr.as_str(), v.mac_addr.as_str(), status ])
+        [ v.ip_addr.as_str(), v.mac_addr.as_str(), status ]
       });
 
       common::draw_footer( "Use ↓↑ to move, '<Enter>' to select a device, 'q' to quit.", footer_area, buf );

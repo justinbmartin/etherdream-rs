@@ -65,50 +65,71 @@ pub fn on_key_down_for_table_state( key: &KeyCode, state: &mut TableState, count
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Simple Table
 
+pub struct SimpleTableTheme {
+  header_style: Style,
+  row_style: Style,
+  row_highlight_style: Style
+}
+
+impl SimpleTableTheme {
+  pub fn new() -> Self {
+    Self{
+      header_style: TABLE_HEADER_STYLE,
+      row_style: HIGHLIGHT_TEXT_STYLE,
+      row_highlight_style: HIGHLIGHT_ROW_SELECTED_STYLE
+    }
+  }
+}
+
 pub struct SimpleTable<K,V, const N: usize>
   where K: Ord
 {
-  header_style: Style,
   headers: [String; N],
   items: BTreeMap<K,V>,
-  row_style: Style,
-  row_highlight_style: Style,
   state: TableState,
+  theme: SimpleTableTheme,
   widths: [Constraint; N]
 }
 
 impl<K,V,const N: usize> SimpleTable<K,V,N>
   where K: Ord
 {
+  /// Creates a new `SimpleTable`.
   pub fn new( headers: [impl Into<String>; N], widths: [Constraint; N] ) -> Self {
     Self{
-      header_style: TABLE_HEADER_STYLE,
       headers: headers.map(| s | s.into() ),
       items: BTreeMap::new(),
-      row_style: HIGHLIGHT_TEXT_STYLE,
-      row_highlight_style: HIGHLIGHT_ROW_SELECTED_STYLE,
       state: TableState::new().with_selected( 0 ),
+      theme: SimpleTableTheme::new(),
       widths
     }
   }
 
+  /// Clears the table.
   pub fn clear( &mut self ) {
     self.items.clear();
     self.state.select( Some( 0 ) );
   }
 
+  /// Returns true if the table is empty.
   pub fn is_empty( &self ) -> bool { self.items.is_empty() }
 
+  /// Returns the count of items in the table.
   pub fn len( &self ) -> usize { self.items.len() }
 
+  /// Returns the selected key for the table. Will return `None` if the table
+  /// is empty.
   pub fn selected( &self ) -> Option<&K> {
     self.state.selected().and_then(| idx | self.items.keys().nth( idx ) )
   }
 
+  /// Adds a new item to the table.
   pub fn insert( &mut self, key: K, value: V ) -> Option<V> {
     self.items.insert( key, value )
   }
 
+  /// Selects the next or previous table row depending on `KeyCode`. Will
+  /// return `true` if the event was handled. Will return `false` otherwise.
   pub fn handle_key_event( &mut self, key: &KeyCode ) -> bool {
     match key {
       KeyCode::Down => {
@@ -125,24 +146,25 @@ impl<K,V,const N: usize> SimpleTable<K,V,N>
     }
   }
 
-  ///
+  /// Renders the table using the provided `area` and `buffer`. Each item in
+  /// table will be passed into `callback` for handling.
   pub fn render<'a, 'b, F>( &'a mut self, area: Rect, buf: &mut Buffer, callback: F )
     where 'a: 'b,
-          F: Fn( ( &'b K, &'b V ), bool ) -> Row<'b>
+          F: Fn( ( &'b K, &'b V ), bool ) -> [&str; N]
   {
     let rows = self.items.iter().map(|( k, v )|{
       let row_selected = self.selected() == Some( k );
-      let row = callback( ( k, v ), row_selected );
+      let row = Row::new( callback( ( k, v ), row_selected ) );
 
       if row_selected {
-        row.style( self.row_highlight_style )
+        row.style( self.theme.row_highlight_style )
       } else {
-        row.style( self.row_style )
+        row.style( self.theme.row_style )
       }
     });
 
     let table = widgets::Table::new( rows, &self.widths )
-      .header( Row::new( self.headers.iter().map(| s | s.as_str() ) ).style( self.header_style ) );
+      .header( Row::new( self.headers.iter().map(| s | s.as_str() ) ).style( self.theme.header_style ) );
 
     StatefulWidget::render( table, area, buf, &mut self.state );
   }
