@@ -136,7 +136,7 @@ fn current_sequencer_mut( state: &mut State ) -> Option<&mut Sequencer<tracks::T
 pub fn build_scenes( state: Arc<RwLock<State>> ) -> Result<( scene::Foreground<State>, scene::Background<State> ),scene::BuilderError> {
   scene::Builder::new()
     .add_scene( SceneId::DevicesList, Box::new( scenes::DevicesListScene::new() ) )
-    .add_scene( SceneId::DevicesView, Box::new( scenes::DevicesViewScene::default() ) )
+    .add_scene( SceneId::DevicesView, Box::new( scenes::DevicesViewScene::new() ) )
     .set_default_scene( SceneId::DevicesList )
     .build( state )
 }

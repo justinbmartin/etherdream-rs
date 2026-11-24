@@ -4,7 +4,7 @@ use crossterm::event::{ KeyCode, KeyEvent };
 use ratatui::buffer::Buffer;
 use ratatui::layout::{ Constraint, Layout, Rect };
 use ratatui::text::Line;
-use ratatui::widgets::{ Block, Cell, Padding, Row, StatefulWidget, Table, TableState, Widget };
+use ratatui::widgets::{ Block, Padding, Row, Table, Widget };
 
 use crate::app;
 use crate::scene;
@@ -12,13 +12,11 @@ use crate::sequencer::Track;
 use crate::tracks;
 use super::common;
 
-#[derive( Default )]
 pub struct DevicesViewScene {
   device: etherdream::State,
   device_title: String,
   is_connected: bool,
-  table: TableState,
-  tracks: Vec<tracks::Track>,
+  table: common::SimpleTable<tracks::TrackId,tracks::Track,2>,
   tracks_loaded: bool,
   tracks_title: String,
 
@@ -36,6 +34,31 @@ pub struct DevicesViewScene {
   points_per_second: String,
 }
 
+impl DevicesViewScene {
+  pub fn new() -> Self {
+    Self{
+      device: etherdream::State::default(),
+      device_title: String::new(),
+      hardware_version: String::new(),
+      ip: String::new(),
+      is_connected: false,
+      mac_addr: String::new(),
+      max_points_per_second: String::new(),
+      point_buffer_capacity: String::new(),
+      points_buffered: String::new(),
+      points_lifetime: String::new(),
+      points_per_second: String::new(),
+      software_version: String::new(),
+      table: common::SimpleTable::new(
+        [ "NAME", "STATUS" ],
+        [ Constraint::Min( 30 ), Constraint::Fill( 1 ) ]
+      ),
+      tracks_loaded: false,
+      tracks_title: String::new()
+    }
+  }
+}
+
 impl scene::Scene<app::State> for DevicesViewScene {
   fn on_enter( &mut self, ctx: &scene::Context<app::State> ) {
     // Reset all properties
@@ -51,13 +74,12 @@ impl scene::Scene<app::State> for DevicesViewScene {
     self.points_lifetime.clear();
     self.points_per_second.clear();
     self.software_version.clear();
-    self.table.select( Some( 0 ) );
-    self.tracks.clear();
+    self.table.clear();
     self.tracks_loaded = false;
 
     // Reset the tracks title
     self.tracks_title.clear();
-    set_tracks_title( &mut self.tracks_title, &self.tracks );
+    set_tracks_title( &mut self.tracks_title, self.table.len() );
 
     // Since `DeviceInfo` never changes, we load that into our string caches on
     // scene enter.
@@ -87,8 +109,8 @@ impl scene::Scene<app::State> for DevicesViewScene {
         true
       }
       KeyCode::Char( 'p' ) => {
-        if let Some( track ) = self.table.selected().and_then(| idx | self.tracks.get( idx ) ) {
-          ctx.invoke( app::Action::Play( *track.id() ) );
+        if let Some( track_id ) = self.table.selected() {
+          ctx.invoke( app::Action::Play( *track_id ) );
         }
 
         true
@@ -98,7 +120,7 @@ impl scene::Scene<app::State> for DevicesViewScene {
         true
       }
       key => {
-        common::on_key_down_for_table_state( &key, &mut self.table, self.tracks.len() )
+        self.table.handle_key_event( &key )
       }
     }
   }
@@ -109,10 +131,14 @@ impl scene::Scene<app::State> for DevicesViewScene {
       self.is_connected = true;
 
       if ! self.tracks_loaded {
-        self.tracks.clone_from( sequencer.tracks() );
-        self.tracks_loaded = true;
+        self.table.clear();
 
-        set_tracks_title( &mut self.tracks_title, &self.tracks );
+        for track in sequencer.tracks() {
+          self.table.insert( *track.id(), track.clone() );
+        }
+
+        self.tracks_loaded = true;
+        set_tracks_title( &mut self.tracks_title, self.table.len() );
       }
     } else {
       self.device = etherdream::State::default();
@@ -147,12 +173,12 @@ impl scene::Scene<app::State> for DevicesViewScene {
 
     // Render right pane
     if self.is_connected {
-      let title = format!(" Tracks [{}] ", self.tracks.len() );
+      let title = format!(" Tracks [{}] ", self.table.len() );
       let block = common::make_block( Some( &title ) );
       let inner_area = block.inner( right_area );
 
       Widget::render( block, right_area, buf );
-      draw_generators_table( &mut self.table, &self.tracks, inner_area, buf );
+      self.table.render( inner_area, buf, |( _, track ), _ |{ [ track.name(), "" ] });
     } else {
       let block = common::make_block( None );
       let inner_area = block.inner( right_area );
@@ -214,22 +240,6 @@ impl DevicesViewScene {
   }
 }
 
-fn draw_generators_table( state: &mut TableState, tracks: &Vec<tracks::Track>, area: Rect, buf: &mut Buffer ) {
-  const CONSTRAINTS: [Constraint; 2] = [ Constraint::Min( 30 ), Constraint::Fill( 1 ) ];
-  let mut rows = Vec::with_capacity( tracks.len() );
-  let selected_idx = state.selected().unwrap_or( 0 );
-
-  for ( i, track ) in tracks.iter().enumerate() {
-    let style = if selected_idx == i { common::HIGHLIGHT_ROW_SELECTED_STYLE } else { common::HIGHLIGHT_TEXT_STYLE };
-    rows.push( Row::new([ Cell::new( track.name() ), Cell::new( "" ) ]).style( style ) );
-  }
-
-  let table = Table::new( rows, CONSTRAINTS )
-    .header( Row::new([ "NAME", "STATUS" ]).style( common::TABLE_HEADER_STYLE ) );
-
-  StatefulWidget::render( table, area, buf, state );
-}
-
-fn set_tracks_title( tracks_title: &mut String, tracks: &Vec<tracks::Track> ) {
-  let _ = write!( tracks_title, " Tracks [{}] ", tracks.len() );
+fn set_tracks_title( tracks_title: &mut String, count: usize ) {
+  let _ = write!( tracks_title, " Tracks [{}] ", count );
 }

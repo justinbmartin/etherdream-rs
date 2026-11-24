@@ -8,7 +8,7 @@ mod windmill;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Track Ids
 
-#[derive( Clone, Copy, Debug, Eq, Hash, PartialEq )]
+#[derive( Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd )]
 pub enum TrackId {
   Beam,
   Windmill

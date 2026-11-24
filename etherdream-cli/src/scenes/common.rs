@@ -46,23 +46,6 @@ pub fn draw_centered_line( msg: &str, style: Style, area: Rect, buf: &mut Buffer
   Paragraph::new( line ).render( centered_area, buf );
 }
 
-// DEPRECATE
-pub fn on_key_down_for_table_state( key: &KeyCode, state: &mut TableState, count: usize ) -> bool {
-  match key {
-    KeyCode::Down => {
-      let next_idx = ( state.selected().unwrap_or( 0 ) + 1 ).min( count.saturating_sub( 1 ) );
-      state.select( Some( next_idx ) );
-      true
-    }
-    KeyCode::Up => {
-      let next_idx = state.selected().unwrap_or( 0 ).saturating_sub( 1 );
-      state.select( Some( next_idx ) );
-      true
-    }
-    _ => false
-  }
-}
-
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Simple Table
 
 pub struct SimpleTableTheme {
