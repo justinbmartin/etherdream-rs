@@ -16,7 +16,7 @@ pub struct DevicesViewScene {
   device: etherdream::State,
   device_title: String,
   is_connected: bool,
-  table: common::SimpleTable<tracks::TrackId,tracks::Track,2>,
+  table: common::SimpleTable<2,tracks::TrackId,tracks::Track>,
   tracks_loaded: bool,
   tracks_title: String,
 

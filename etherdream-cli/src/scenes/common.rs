@@ -64,7 +64,7 @@ impl SimpleTableTheme {
   }
 }
 
-pub struct SimpleTable<K,V,const N: usize>
+pub struct SimpleTable<const N: usize,K,V>
   where K: Ord
 {
   headers: [String; N],
@@ -74,7 +74,7 @@ pub struct SimpleTable<K,V,const N: usize>
   widths: [Constraint; N]
 }
 
-impl<K,V,const N: usize> SimpleTable<K,V,N>
+impl<const N: usize,K,V,> SimpleTable<N,K,V>
   where K: Ord
 {
   /// Creates a new `SimpleTable`.

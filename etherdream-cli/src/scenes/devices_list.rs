@@ -12,7 +12,7 @@ use super::common;
 
 pub struct DevicesListScene {
   devices_title: String,
-  table: common::SimpleTable<IpAddr,Device, 3>,
+  table: common::SimpleTable<3,IpAddr,Device>,
   version: usize
 }
 
