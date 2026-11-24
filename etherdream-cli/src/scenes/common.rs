@@ -5,7 +5,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{ Alignment, Constraint, Layout, Rect };
 use ratatui::style::{ Color, Style };
 use ratatui::text::Line;
-use ratatui::widgets::{ self, Block, Padding, Paragraph, Row, StatefulWidget, TableState, Widget };
+use ratatui::widgets::{ self, Block, Cell, Padding, Paragraph, Row, StatefulWidget, TableState, Widget };
 
 pub const INFO_TEXT_STYLE: Style = Style::new().fg( Color::Rgb( 150, 150, 150 ) );
 pub const HIGHLIGHT_COLOR: Color = Color::Rgb( 232, 195, 0 );
@@ -81,7 +81,7 @@ impl SimpleTableTheme {
   }
 }
 
-pub struct SimpleTable<K,V, const N: usize>
+pub struct SimpleTable<K,V,const N: usize>
   where K: Ord
 {
   headers: [String; N],
@@ -148,14 +148,18 @@ impl<K,V,const N: usize> SimpleTable<K,V,N>
 
   /// Renders the table using the provided `area` and `buffer`. Each item in
   /// table will be passed into `callback` for handling.
-  pub fn render<'a, 'b, F>( &'a mut self, area: Rect, buf: &mut Buffer, callback: F )
-    where 'a: 'b,
-          F: Fn( ( &'b K, &'b V ), bool ) -> [&str; N]
+  pub fn render<'a, 'b, F, C>( &'a mut self, area: Rect, buf: &mut Buffer, callback: F )
+    where
+      'a: 'b,
+      F: Fn( ( &'b K, &'b V ), bool ) -> [C; N],
+      C: Into<Cell<'b>>
   {
     let rows = self.items.iter().map(|( k, v )|{
       let row_selected = self.selected() == Some( k );
-      let row_style = if row_selected { self.theme.row_highlight_style } else { self.theme.row_style };
-      Row::new( callback( ( k, v ), row_selected ) ).style( row_style )
+      let style = if row_selected { self.theme.row_highlight_style } else { self.theme.row_style };
+      let cells = callback( ( k, v ), row_selected ).into_iter().map( Into::into );
+
+      Row::new( cells ).style( style )
     });
 
     let table = widgets::Table::new( rows, &self.widths )

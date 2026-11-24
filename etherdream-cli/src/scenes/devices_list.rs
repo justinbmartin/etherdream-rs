@@ -4,7 +4,7 @@ use std::net::IpAddr;
 use crossterm::event::{ KeyCode, KeyEvent };
 use ratatui::buffer::Buffer;
 use ratatui::layout::{ Constraint, Layout, Rect };
-use ratatui::widgets::{ Row, Widget };
+use ratatui::widgets::Widget;
 
 use crate::app;
 use crate::scene;
