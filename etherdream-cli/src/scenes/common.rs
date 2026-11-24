@@ -154,13 +154,8 @@ impl<K,V,const N: usize> SimpleTable<K,V,N>
   {
     let rows = self.items.iter().map(|( k, v )|{
       let row_selected = self.selected() == Some( k );
-      let row = Row::new( callback( ( k, v ), row_selected ) );
-
-      if row_selected {
-        row.style( self.theme.row_highlight_style )
-      } else {
-        row.style( self.theme.row_style )
-      }
+      let row_style = if row_selected { self.theme.row_highlight_style } else { self.theme.row_style };
+      Row::new( callback( ( k, v ), row_selected ) ).style( row_style )
     });
 
     let table = widgets::Table::new( rows, &self.widths )
