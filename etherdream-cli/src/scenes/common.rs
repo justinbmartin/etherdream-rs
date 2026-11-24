@@ -5,7 +5,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{ Alignment, Constraint, Layout, Rect };
 use ratatui::style::{ Color, Style };
 use ratatui::text::Line;
-use ratatui::widgets::{ self, Block, Padding, Paragraph, Row, StatefulWidget, Widget };
+use ratatui::widgets::{ self, Block, Padding, Paragraph, Row, StatefulWidget, TableState, Widget };
 
 pub const INFO_TEXT_STYLE: Style = Style::new().fg( Color::Rgb( 150, 150, 150 ) );
 pub const HIGHLIGHT_COLOR: Color = Color::Rgb( 232, 195, 0 );
@@ -46,7 +46,8 @@ pub fn draw_centered_line( msg: &str, style: Style, area: Rect, buf: &mut Buffer
   Paragraph::new( line ).render( centered_area, buf );
 }
 
-pub fn on_key_down_for_table_state( key: &KeyCode, state: &mut widgets::TableState, count: usize ) -> bool {
+// DEPRECATE
+pub fn on_key_down_for_table_state( key: &KeyCode, state: &mut TableState, count: usize ) -> bool {
   match key {
     KeyCode::Down => {
       let next_idx = ( state.selected().unwrap_or( 0 ) + 1 ).min( count.saturating_sub( 1 ) );
@@ -62,18 +63,33 @@ pub fn on_key_down_for_table_state( key: &KeyCode, state: &mut widgets::TableSta
   }
 }
 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Table
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Simple Table
 
-pub struct TableState<K: Ord,V> {
-  items: BTreeMap<K,V>,
-  state: widgets::TableState
-}
-
-impl<K,V> TableState<K,V>
+pub struct SimpleTable<K,V, const N: usize>
   where K: Ord
 {
-  pub fn new() -> Self {
-    Self{ items: BTreeMap::new(), state: widgets::TableState::new().with_selected( 0 ) }
+  header_style: Style,
+  headers: [String; N],
+  items: BTreeMap<K,V>,
+  row_style: Style,
+  row_highlight_style: Style,
+  state: TableState,
+  widths: [Constraint; N]
+}
+
+impl<K,V,const N: usize> SimpleTable<K,V,N>
+  where K: Ord
+{
+  pub fn new( headers: [impl Into<String>; N], widths: [Constraint; N] ) -> Self {
+    Self{
+      header_style: TABLE_HEADER_STYLE,
+      headers: headers.map(| s | s.into() ),
+      items: BTreeMap::new(),
+      row_style: HIGHLIGHT_TEXT_STYLE,
+      row_highlight_style: HIGHLIGHT_ROW_SELECTED_STYLE,
+      state: TableState::new().with_selected( 0 ),
+      widths
+    }
   }
 
   pub fn clear( &mut self ) {
@@ -109,23 +125,24 @@ impl<K,V> TableState<K,V>
     }
   }
 
-  pub fn render<'a, 'b, C, F: FnMut( ( &'b K, &'b V ), bool ) -> Row<'b>>(
-    &'a mut self,
-    widths: C,
-    area: Rect,
-    buf: &mut Buffer,
-    mut callback: F
-  )
+  ///
+  pub fn render<'a, 'b, F>( &'a mut self, area: Rect, buf: &mut Buffer, callback: F )
     where 'a: 'b,
-          C: IntoIterator, <C as IntoIterator>::Item: Into<Constraint>
+          F: Fn( ( &'b K, &'b V ), bool ) -> Row<'b>
   {
     let rows = self.items.iter().map(|( k, v )|{
-      let is_selected = self.selected() == Some( k );
-      callback( ( k, v ), is_selected )
+      let row_selected = self.selected() == Some( k );
+      let row = callback( ( k, v ), row_selected );
+
+      if row_selected {
+        row.style( self.row_highlight_style )
+      } else {
+        row.style( self.row_style )
+      }
     });
-    
-    let table = widgets::Table::new( rows, widths )
-      .header( Row::new([ "IP", "MAC", "STATUS" ]).style( TABLE_HEADER_STYLE ) );
+
+    let table = widgets::Table::new( rows, &self.widths )
+      .header( Row::new( self.headers.iter().map(| s | s.as_str() ) ).style( self.header_style ) );
 
     StatefulWidget::render( table, area, buf, &mut self.state );
   }

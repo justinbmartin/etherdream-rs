@@ -12,15 +12,20 @@ use super::common;
 
 pub struct DevicesListScene {
   devices_title: String,
-  table: common::TableState<IpAddr,Device>,
+  table: common::SimpleTable<IpAddr,Device, 3>,
   version: usize
 }
 
 impl DevicesListScene {
   pub fn new() -> Self {
+    let table = common::SimpleTable::new(
+      [ "IP", "MAC", "STATUS" ],
+      [ Constraint::Length( 20 ), Constraint::Length( 35 ), Constraint::Fill( 1 ) ]
+    );
+
     Self{
       devices_title: String::new(),
-      table: common::TableState::new(),
+      table,
       version: 0
     }
   }
@@ -70,33 +75,21 @@ impl scene::Scene<app::State> for DevicesListScene {
       common::draw_centered_line( "Listening for devices...", common::INFO_TEXT_STYLE.italic(), inner_area, buf );
       common::draw_footer( "Use 'q' to quit.", footer_area, buf );
     } else {
+      let state = ctx.read_state();
+
       Widget::render( block, body_area, buf );
-      self.draw_list( inner_area, buf, ctx );
+
+      self.table.render( inner_area, buf, |( k, v ), _ |{
+        let status = match state.sequencer( &k ) {
+          Some( sequencer ) => if sequencer.is_playing() { "PLAYING" } else { "CONNECTED" },
+          None => "DISCONNECTED"
+        };
+
+        Row::new([ v.ip_addr.as_str(), v.mac_addr.as_str(), status ])
+      });
+
       common::draw_footer( "Use ↓↑ to move, '<Enter>' to select a device, 'q' to quit.", footer_area, buf );
     }
-  }
-}
-
-impl DevicesListScene {
-  fn draw_list( &mut self, area: Rect, buf: &mut Buffer, ctx: &scene::Context<app::State> ) {
-    //let selected_ip = self.table.selected().unwrap();
-    let state = ctx.read_state();
-
-    const CONSTRAINTS: [Constraint; 3] = [
-      Constraint::Length( 20 ),
-      Constraint::Length( 35 ),
-      Constraint::Fill( 1 ) ];
-
-    self.table.render( CONSTRAINTS, area, buf, |( k, v ), is_selected |{
-      let style = if is_selected { common::HIGHLIGHT_ROW_SELECTED_STYLE } else { common::HIGHLIGHT_TEXT_STYLE };
-
-      let status = match state.sequencer( &k ) {
-        Some( sequencer ) => if sequencer.is_playing() { "PLAYING" } else { "CONNECTED" },
-        None => "DISCONNECTED"
-      };
-
-      Row::new([ v.ip_addr.as_str(), v.mac_addr.as_str(), status ]).style( style )
-    });
   }
 }
 
