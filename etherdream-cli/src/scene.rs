@@ -106,10 +106,11 @@ impl<T: SceneController + Send + 'static> Builder<T> {
 
     Ok( (
       Foreground{
-        ctx: Context{ action_tx, state: state.clone() },
+        action_tx,
         events_rx,
         scenes: self.scenes,
-        stack: vec![ current ]
+        stack: vec![ current ],
+        state: state.clone()
       },
       Background{
         action_rx,
@@ -123,10 +124,11 @@ impl<T: SceneController + Send + 'static> Builder<T> {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - -  Foreground UI Handler
 
 pub struct Foreground<T: SceneController + Send + 'static> {
-  ctx: Context<T>,
+  action_tx: mpsc::Sender<T::Action>,
   events_rx: mpsc::Receiver<Event<T::SceneId>>,
   scenes: HashMap<T::SceneId, Box<dyn Scene<T>>>,
-  stack: Vec<T::SceneId>
+  stack: Vec<T::SceneId>,
+  state: Arc<RwLock<T>>
 }
 
 impl<T: SceneController + Send + 'static> Foreground<T> {
@@ -137,7 +139,9 @@ impl<T: SceneController + Send + 'static> Foreground<T> {
       match event {
         Event::Key( key ) => {
           if let Some( scene ) = current_scene_from_stack_mut( &mut self.scenes, &self.stack ) {
-            if ! scene.on_key_down( key, &mut self.ctx ) {
+            let mut ctx = Context{ action_tx: &self.action_tx, state: &self.state };
+
+            if ! scene.on_key_down( key, &mut ctx ) {
               match key.code {
                 KeyCode::Char( 'q' ) | KeyCode::Esc => { break; },
                 _ => { }
@@ -147,8 +151,10 @@ impl<T: SceneController + Send + 'static> Foreground<T> {
         },
         Event::Tick( _time ) => {
           if let Some( scene ) = current_scene_from_stack_mut( &mut self.scenes, &self.stack ) {
-            let _ = scene.on_update( &mut self.ctx );
-            let _ = terminal.draw(| frame |{ scene.on_draw( frame.area(), frame.buffer_mut(), &self.ctx ); });
+            let mut ctx = Context{ action_tx: &self.action_tx, state: &self.state };
+
+            let _ = scene.on_update( &mut ctx );
+            let _ = terminal.draw(| frame |{ scene.on_draw( frame.area(), frame.buffer_mut(), &ctx ); });
           }
         }
         Event::Scene( event ) => {
@@ -159,22 +165,24 @@ impl<T: SceneController + Send + 'static> Foreground<T> {
   }
 
   fn on_event( &mut self, event: SceneEvent<T::SceneId> ) {
+    let ctx = Context{ action_tx: &self.action_tx, state: &self.state };
+
     match event {
       SceneEvent::Push( next_scene_id ) => {
         if let Some( current_id ) = self.stack.last() {
           if let [ Some( current_scene ), Some( next_scene ) ] = self.scenes.get_disjoint_mut([ current_id, &next_scene_id ]) {
-            current_scene.on_exit( &self.ctx );
+            current_scene.on_exit( &ctx );
             self.stack.push( next_scene_id );
-            next_scene.on_enter( &self.ctx );
+            next_scene.on_enter( &ctx );
           }
         }
       },
       SceneEvent::Pop => {
         if let Some( scene ) = self.stack.pop().and_then(| current_id | self.scenes.get_mut( &current_id ) ) {
-          scene.on_exit( &self.ctx );
+          scene.on_exit( &ctx );
 
           if let Some( next_scene ) = current_scene_from_stack_mut( &mut self.scenes, &self.stack ) {
-            next_scene.on_enter( &self.ctx );
+            next_scene.on_enter( &ctx );
           }
         }
       }
@@ -183,14 +191,14 @@ impl<T: SceneController + Send + 'static> Foreground<T> {
           // Pop each scene on the stack, calling `Scene::on_exit` for each
           while let Some( scene_id ) = self.stack.pop() {
             if let Some( scene ) = self.scenes.get_mut( &scene_id ) {
-              scene.on_exit( &self.ctx );
+              scene.on_exit( &ctx );
             }
           }
 
           // Call `Scene::on_enter` for the new scene
           if let Some( next_scene ) = self.scenes.get_mut( &next_scene_id ) {
             self.stack.push( next_scene_id );
-            next_scene.on_enter( &self.ctx );
+            next_scene.on_enter( &ctx );
           }
         }
       }
@@ -208,13 +216,13 @@ impl<T: SceneController + Send + 'static> Drop for Foreground<T> {
 
 /// Passed as an argument to all `Scene` trait functions, providing access to
 /// internal scene attribute's and capabilities.
-pub struct Context<T: SceneController + Send + 'static>
+pub struct Context<'a, T: SceneController + Send + 'static>
 {
-  action_tx: mpsc::Sender<T::Action>,
-  state: Arc<RwLock<T>>
+  action_tx: &'a mpsc::Sender<T::Action>,
+  state: &'a Arc<RwLock<T>>
 }
 
-impl<T: SceneController + Send + 'static> Context<T> {
+impl<'a, T: SceneController + Send + 'static> Context<'a, T> {
   /// Returns a read-only guard to the `Actionable` state.
   pub fn read_state( &'_ self ) -> RwLockReadGuard<'_,T> { self.state.blocking_read() }
 
