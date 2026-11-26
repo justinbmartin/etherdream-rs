@@ -150,12 +150,6 @@ impl<T: SceneController + Send + 'static> Foreground<T> {
             }
           }
         }
-        Event::Tick( _time ) => {
-          if let Some( scene ) = current_scene_from_stack_mut( &mut self.scenes, &self.stack ) {
-            let _ = scene.on_update( &mut ctx );
-            let _ = terminal.draw(| frame |{ scene.on_draw( frame.area(), frame.buffer_mut(), &ctx ); });
-          }
-        }
         Event::Scene( event ) => {
           match event {
             SceneEvent::Push( next_scene_id ) => {
@@ -195,6 +189,12 @@ impl<T: SceneController + Send + 'static> Foreground<T> {
             SceneEvent::None => {
               /* Do nothing */
             }
+          }
+        }
+        Event::Tick( _time ) => {
+          if let Some( scene ) = current_scene_from_stack_mut( &mut self.scenes, &self.stack ) {
+            let _ = scene.on_update( &mut ctx );
+            let _ = terminal.draw(| frame |{ scene.on_draw( frame.area(), frame.buffer_mut(), &ctx ); });
           }
         }
       }
