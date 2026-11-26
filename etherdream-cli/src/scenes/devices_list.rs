@@ -10,15 +10,21 @@ use crate::app;
 use crate::scene;
 use super::common;
 
+#[derive( Default )]
+struct DeviceRow {
+  ip: String,
+  mac_addr: String
+}
+
 pub struct DevicesListScene {
   devices_title: String,
-  table: common::SimpleTable<3,IpAddr,Device>,
+  table: common::InteractiveTable<3,IpAddr,DeviceRow>,
   version: usize
 }
 
 impl DevicesListScene {
   pub fn new() -> Self {
-    let table = common::SimpleTable::new(
+    let table = common::InteractiveTable::new(
       [ "IP", "MAC", "STATUS" ],
       [ Constraint::Length( 20 ), Constraint::Length( 35 ), Constraint::Fill( 1 ) ]
     );
@@ -35,15 +41,11 @@ impl scene::Scene<app::State> for DevicesListScene {
   fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::Context<app::State> ) -> bool {
     match key.code {
       KeyCode::Enter => {
-        if let Some( ip ) = self.table.selected() {
-          ctx.invoke( app::Action::SelectDevice( *ip ) );
-        }
-
-        true
-      }
-      key => {
-        self.table.handle_key_event( &key )
-      }
+        self.table.selected()
+          .map(| ip | ctx.invoke( app::Action::SelectDevice( *ip ) ) )
+          .unwrap_or( true )
+      },
+      key => self.table.handle_key_event( &key )
     }
   }
 
@@ -54,7 +56,7 @@ impl scene::Scene<app::State> for DevicesListScene {
       self.table.clear();
 
       for ( ip, device ) in state.devices() {
-        self.table.insert( *ip, Device{ ip_addr: ip.to_string(), mac_addr: device.mac_address().to_string() } );
+        self.table.insert( *ip, DeviceRow{ ip: ip.to_string(), mac_addr: device.mac_address().to_string() } );
       }
 
       self.version = state.devices_version();
@@ -84,18 +86,10 @@ impl scene::Scene<app::State> for DevicesListScene {
           None => "DISCONNECTED"
         };
 
-        [ v.ip_addr.as_str(), v.mac_addr.as_str(), status ]
+        [ v.ip.as_str(), v.mac_addr.as_str(), status ]
       });
 
       common::draw_footer( "Use ↓↑ to move, '<Enter>' to select a device, 'q' to quit.", footer_area, buf );
     }
   }
-}
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Device Row
-
-#[derive( Default )]
-struct Device {
-  ip_addr: String,
-  mac_addr: String
 }

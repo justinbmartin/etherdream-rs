@@ -48,13 +48,13 @@ pub fn draw_centered_line( msg: &str, style: Style, area: Rect, buf: &mut Buffer
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Simple Table
 
-pub struct SimpleTableTheme {
+pub struct InteractiveTableTheme {
   header_style: Style,
   row_style: Style,
   row_highlight_style: Style
 }
 
-impl SimpleTableTheme {
+impl InteractiveTableTheme {
   pub fn new() -> Self {
     Self{
       header_style: TABLE_HEADER_STYLE,
@@ -64,17 +64,17 @@ impl SimpleTableTheme {
   }
 }
 
-pub struct SimpleTable<const N: usize,K,V>
+pub struct InteractiveTable<const N: usize,K,V>
   where K: Ord
 {
   headers: [String; N],
   items: BTreeMap<K,V>,
   state: TableState,
-  theme: SimpleTableTheme,
+  theme: InteractiveTableTheme,
   widths: [Constraint; N]
 }
 
-impl<const N: usize,K,V,> SimpleTable<N,K,V>
+impl<const N: usize,K,V,> InteractiveTable<N,K,V>
   where K: Ord
 {
   /// Creates a new `SimpleTable`.
@@ -83,7 +83,7 @@ impl<const N: usize,K,V,> SimpleTable<N,K,V>
       headers: headers.map(| s | s.into() ),
       items: BTreeMap::new(),
       state: TableState::new().with_selected( 0 ),
-      theme: SimpleTableTheme::new(),
+      theme: InteractiveTableTheme::new(),
       widths
     }
   }

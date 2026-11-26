@@ -16,7 +16,7 @@ pub struct DevicesViewScene {
   device: etherdream::State,
   device_title: String,
   is_connected: bool,
-  table: common::SimpleTable<2,tracks::TrackId,tracks::Track>,
+  table: common::InteractiveTable<2,tracks::TrackId,tracks::Track>,
   tracks_loaded: bool,
   tracks_title: String,
 
@@ -49,7 +49,7 @@ impl DevicesViewScene {
       points_lifetime: String::new(),
       points_per_second: String::new(),
       software_version: String::new(),
-      table: common::SimpleTable::new(
+      table: common::InteractiveTable::new(
         [ "NAME", "STATUS" ],
         [ Constraint::Min( 30 ), Constraint::Fill( 1 ) ]
       ),
@@ -96,32 +96,18 @@ impl scene::Scene<app::State> for DevicesViewScene {
 
   fn on_key_down( &mut self, key: KeyEvent, ctx: &mut scene::Context<app::State> ) -> bool {
     match key.code {
-      KeyCode::Char( 'c' ) => {
-        ctx.invoke( app::Action::Connect );
-        true
-      }
-      KeyCode::Char( 'd' ) => {
-        ctx.invoke( app::Action::Disconnect );
-        true
-      }
-      KeyCode::Char( 'q' ) => {
-        ctx.invoke( app::Action::Back );
-        true
-      }
+      KeyCode::Char( 'c' ) => ctx.invoke( app::Action::Connect ),
+      KeyCode::Char( 'd' ) => ctx.invoke( app::Action::Disconnect ),
+      KeyCode::Char( 'q' ) => ctx.invoke( app::Action::Back ),
       KeyCode::Char( 'p' ) => {
         if let Some( track_id ) = self.table.selected() {
-          ctx.invoke( app::Action::Play( *track_id ) );
+          ctx.invoke( app::Action::Play( *track_id ) )
+        } else {
+          true
         }
-
-        true
       }
-      KeyCode::Char( 's' ) => {
-        ctx.invoke( app::Action::Stop );
-        true
-      }
-      key => {
-        self.table.handle_key_event( &key )
-      }
+      KeyCode::Char( 's' ) => ctx.invoke( app::Action::Stop ),
+      key => self.table.handle_key_event( &key )
     }
   }
 

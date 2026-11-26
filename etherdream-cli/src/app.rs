@@ -106,7 +106,6 @@ impl SceneController for State {
       }
       Action::Play( track_id ) => {
         if let Some( sequencer ) = current_sequencer_mut( self ) {
-          // TODO: handle error
           sequencer.play( track_id ).await;
         }
 
