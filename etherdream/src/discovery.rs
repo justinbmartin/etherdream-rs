@@ -8,6 +8,7 @@ use std::time::Instant;
 use futures::stream::StreamExt;
 use tokio::net::UdpSocket;
 use tokio::sync::{ mpsc, RwLock, RwLockReadGuard, RwLockWriteGuard };
+use tokio::task::JoinHandle;
 use tokio_util::bytes::BytesMut;
 use tokio_util::codec::Decoder;
 use tokio_util::sync::CancellationToken;
@@ -83,7 +84,7 @@ impl Discovery {
     let socket = UdpSocket::bind( self.address ).await?;
     let local_address = socket.local_addr()?;
 
-    tokio::spawn({
+    let handle = tokio::spawn({
       let registry = self.registry.clone();
       let shutdown_token = shutdown_token.child_token();
 
@@ -94,6 +95,7 @@ impl Discovery {
 
     Ok( Service{
       address: local_address,
+      handle: Some( handle ),
       registry: self.registry,
       shutdown_token
     } )
@@ -105,6 +107,8 @@ impl Discovery {
 pub struct Service {
   // The local socket address that the discovery service is listening on.
   address: SocketAddr,
+  //
+  handle: Option<JoinHandle<()>>,
   // The device registry that all found devices are recorded.
   registry: Registry,
   // The cancellation token used to shut down the service.
@@ -120,6 +124,11 @@ impl Service {
 
   /// Shuts down the discovery service and consumes `self`.
   pub fn shutdown( self ) { self.shutdown_token.cancel(); }
+
+  ///
+  pub async fn join( mut self ) {
+    if let Some( handle ) = self.handle.take() { let _ = handle.await; }
+  }
 }
 
 impl Drop for Service {

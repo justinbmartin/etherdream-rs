@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
-use std::sync::Arc;
 
 use etherdream;
-use tokio::sync::RwLock;
+use tokio::sync::{ self, mpsc };
 
+use crate::discovery;
 use crate::scene::{ self, SceneController, SceneEvent };
 use crate::scenes;
 use crate::sequencer::Sequencer;
@@ -28,7 +28,6 @@ pub enum SceneId {
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  State
 
-#[derive( Default )]
 pub struct State {
   // The currently selected device.
   current_device_id: Option<IpAddr>,
@@ -37,11 +36,23 @@ pub struct State {
   // Integer that is bumped each time a device is registered. Used for cache
   // invalidation by scene views.
   devices_version: usize,
+  //
+  discovery_rx: mpsc::Receiver<discovery::Broadcast>,
   // A map of active sequencers, using the device's IP address as key.
   sequencers: HashMap<IpAddr,Sequencer<tracks::Track>>
 }
 
 impl State {
+  pub fn new( discovery_rx: mpsc::Receiver<discovery::Broadcast> ) -> Self {
+    Self{
+      current_device_id: None,
+      device_info_map: HashMap::new(),
+      devices_version: 0,
+      discovery_rx,
+      sequencers: HashMap::new()
+    }
+  }
+
   /// Returns an immutable reference to the `State`s registered devices.
   pub fn devices( &self ) -> &HashMap<IpAddr,etherdream::DeviceInfo> { &self.device_info_map }
 
@@ -124,15 +135,50 @@ impl SceneController for State {
       }
     }
   }
+
+  async fn on_update( &mut self ) {
+    if let Ok( broadcast ) = self.discovery_rx.try_recv() {
+      self.register_device( *broadcast.device_info() ).await;
+    }
+  }
 }
 
 fn current_sequencer_mut( state: &mut State ) -> Option<&mut Sequencer<tracks::Track>> {
   state.current_device_id.as_mut().and_then(| addr | state.sequencers.get_mut( addr ) )
 }
 
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene Context
+
+struct SceneContext<'a> {
+  inner: sync::RwLockReadGuard<'a,State>
+}
+
+impl<'a> SceneContext<'a> {
+  /// Returns an immutable reference to the `State`s registered devices.
+  pub fn devices( &self ) -> &HashMap<IpAddr,etherdream::DeviceInfo> { &self.inner.device_info_map }
+
+  /// Returns the version of the `HashMap` returned back from `Self::devices`.
+  pub fn devices_version( &self ) -> usize { self.inner.devices_version }
+
+  /// Returns an immutable reference to the currently selected device info
+  pub fn current_device( &self ) -> Option<&etherdream::DeviceInfo> {
+    self.inner.current_device_id.as_ref().and_then(| addr | self.inner.device_info_map.get( addr ) )
+  }
+
+  /// Returns an immutable reference to the currently selected sequencer
+  pub fn current_sequencer( &self ) -> Option<&Sequencer<tracks::Track>> {
+    self.inner.current_device_id.as_ref().and_then(| addr | self.inner.sequencers.get( addr ) )
+  }
+
+  /// Returns the `Sequencer` associated with `ip`.
+  pub fn sequencer( &self, ip: &IpAddr ) -> Option<&Sequencer<tracks::Track>> {
+    self.inner.sequencers.get( ip )
+  }
+}
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene Definitions
 
-pub fn build_scenes( state: Arc<RwLock<State>> ) -> Result<( scene::Foreground<State>, scene::Background<State> ),scene::BuilderError> {
+pub fn build_scenes( state: State ) -> Result<( scene::Foreground<State>, scene::Background<State> ),scene::BuilderError> {
   scene::Builder::new()
     .add_scene( SceneId::DevicesList, Box::new( scenes::DevicesListScene::new() ) )
     .add_scene( SceneId::DevicesView, Box::new( scenes::DevicesViewScene::new() ) )

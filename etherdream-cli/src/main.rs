@@ -1,9 +1,8 @@
 //! CLI tool to discover, connect and test Etherdream DAC's.
 use std::io;
-use std::sync::Arc;
 
 use etherdream::discovery;
-use tokio::sync::{ mpsc, RwLock };
+use tokio::sync::mpsc;
 use tokio::task;
 use tokio_util::sync::CancellationToken;
 
@@ -21,9 +20,9 @@ fn main() -> Result<(),String> {
     .map_err( |e| format!( "Failed to build Tokio run-time: {}", e ) )?;
 
   let cancellation_token = CancellationToken::new();
-  let ( discovery_tx, mut discovery_rx ) = mpsc::channel::<discovery::Broadcast>( 16 );
-  let state = Arc::new( RwLock::new( app::State::default() ) );
-  let ( fg, bg ) = app::build_scenes( state.clone() ).map_err( |_| "Failed to build scenes." )?;
+  let ( discovery_tx, discovery_rx ) = mpsc::channel::<discovery::Broadcast>( 16 );
+  let state = app::State::new( discovery_rx );
+  let ( fg, bg ) = app::build_scenes( state ).map_err( |_| "Failed to build scenes." )?;
 
   let thread =
     std::thread::spawn({
@@ -41,13 +40,12 @@ fn main() -> Result<(),String> {
               tokio::select!{
                 _ = cancellation_token.cancelled() => Ok( () ),
                 _ = async move {
-                  let _guard = discovery::Discovery::new()
+                  let service = discovery::Discovery::new()
                     .notify( discovery_tx )
                     .listen().await?;
 
-                  while let Some( broadcast ) = discovery_rx.recv().await {
-                    state.write().await.register_device( *broadcast.device_info() ).await;
-                  }
+                  // TODO
+                  service.join().await;
 
                   Ok::<(), io::Error>( () )
                 } => Ok( () )

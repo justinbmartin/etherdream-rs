@@ -40,6 +40,9 @@ pub trait SceneController {
   /// Sends an implementation-defined `Action` from the `Foreground` to the
   /// asynchronous `Background` handler. Must return a `SceneEvent`.
   fn invoke( &mut self, action: Self::Action ) -> impl Future<Output=SceneEvent<Self::SceneId>> + Send;
+
+  /// Called once for every application tick.
+  fn on_update( &mut self ) -> impl Future<Output=()> + Send;
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  Scene
@@ -97,12 +100,13 @@ impl<T: SceneController + Send + 'static> Builder<T> {
 
   /// Builds the scene definitions, returning back a foreground and background
   /// handler.
-  pub fn build( self, state: Arc<RwLock<T>> ) -> Result<( Foreground<T>, Background<T> ),BuilderError> {
+  pub fn build( self, state: T ) -> Result<( Foreground<T>, Background<T> ),BuilderError> {
     let current = self.current.ok_or( BuilderError::NoScenesDefined )?;
     self.scenes.contains_key( &current ).ok_or( BuilderError::DefaultSceneDoesNotExist )?;
 
     let ( action_tx, action_rx ) = mpsc::channel::<T::Action>( 16 );
     let ( events_tx, events_rx ) = mpsc::channel::<Event<T::SceneId>>( 1024 );
+    let state = Arc::new( RwLock::new( state ) );
 
     Ok( (
       Foreground{
@@ -217,7 +221,9 @@ pub struct Context<'a, T: SceneController + Send + 'static>
 
 impl<'a, T: SceneController + Send + 'static> Context<'a, T> {
   /// Returns a read-only guard to the `Actionable` state.
-  pub fn read_state( &'_ self ) -> RwLockReadGuard<'_,T> { self.state.blocking_read() }
+  pub fn read_state( &'_ self ) -> RwLockReadGuard<'_,T> {
+    self.state.blocking_read()
+  }
 
   /// Sends `action` to the asynchronous `Background<T>` task. Returns true if
   /// the `action` was successfully published.
@@ -255,6 +261,7 @@ impl<T: SceneController + Send + Sync + 'static> Background<T> {
 
     // Start task for tick on FPS
     tasks.spawn({
+      let actionable = self.actionable.clone();
       let cancellation_token = cancellation_token.child_token();
       let events_tx = self.events_tx.clone();
 
@@ -266,6 +273,7 @@ impl<T: SceneController + Send + Sync + 'static> Background<T> {
 
           loop {
             let now = interval.tick().await;
+            actionable.write().await.on_update().await;
             let _ = events_tx.send( Event::Tick( ( start_time - now ).as_secs_f64() ) ).await;
           }
         }).await;
